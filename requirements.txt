@@ -1,0 +1,6 @@
+dipy
+numba
+nibabel
+scipy
+numpy
+progressbar

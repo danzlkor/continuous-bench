@@ -4,7 +4,7 @@ This module contains definition of some microstructural diffusion models and a p
 
 import numpy as np
 from scipy import stats
-from . import mcutils_utils_hypergeometry as mc
+import numba
 
 # prior distributions:
 def_s0 = 1.
@@ -162,10 +162,10 @@ def bingham_zeppelin(bval=0, bvec=np.array([[0, 0, 1]]), d_a=1., d_r=0.,
     bing_mat = r.T @ b_diag @ r
     s = []
 
-    denom = mc.hyp_Sapprox(np.linalg.eigvalsh(bing_mat)[::-1])
+    denom = hyp_sapprox(np.linalg.eigvalsh(bing_mat)[::-1])
     for bval_, g in zip(bval, bvec):
         q = bing_mat - bval_ * (d_a - d_r) * g[:, np.newaxis].dot(g[np.newaxis, :])
-        num = mc.hyp_Sapprox(np.linalg.eigvalsh(q)[::-1]) * np.exp(-d_r * bval_)
+        num = hyp_sapprox(np.linalg.eigvalsh(q)[::-1]) * np.exp(-d_r * bval_)
         s.append(num)
     return s0 * np.array(s) / denom
 
@@ -390,3 +390,98 @@ def plot_response_function(response, shells, idx_shells, bvecs, res=40, maxs=5):
         ax.set_xlim3d(-maxs, maxs), ax.set_ylim3d(-maxs, maxs), ax.set_zlim3d(-maxs, maxs)
         ax.view_init(azim=0, elev=0)
     plt.show()
+
+
+
+@numba.jit(nopython=True)
+def find_t(l1, l2, l3):
+    """
+    Helper function for hyp_Sapprox
+
+    Args:
+        l1: float
+            negative first eigenvalue
+        l2: float
+            negative second eigenvalue
+        l3: float
+            negative third eigenvalue
+
+    Returns: float
+        I guess the return value is t
+
+    """
+    a3 = l1 * l2 + l2 * l3 + l1 * l3
+    a2 = 1.5 - l1 - l2 - l3
+    a1 = a3 - l1 - l2 - l3
+    a0 = 0.5 * (a3 - 2 * l1 * l2 * l3)
+
+    inv3 = 1. / 3.
+    p = (a1 - a2 * a2 * inv3) * inv3
+    q = (-9 * a2 * a1 + 27 * a0 + 2 * a2 * a2 * a2) / 54
+    D = q * q + p * p * p
+    offset = a2 * inv3
+
+    if D > 0:
+        ee = np.sqrt(D)
+        z1 = (-q + ee) ** inv3 + (-q - ee) ** inv3 - offset
+        z2 = z1
+        z3 = z1
+    elif D < 0:
+        ee = np.sqrt(-D)
+        angle = 2 * inv3 * np.arctan(ee / (np.sqrt(q * q + ee * ee) - q))
+        sqrt3 = np.sqrt(3.)
+        c = np.cos(angle)
+        s = np.sin(angle)
+        ee = np.sqrt(-p)
+        z1 = 2 * ee * c - offset
+        z2 = -ee * (c + sqrt3 * s) - offset
+        z3 = -ee * (c - sqrt3 * s) - offset
+    else:
+        tmp = (-q) ** (inv3)
+        z1 = 2 * tmp - offset
+        if p != 0 or q != 0:
+            z2 = tmp - offset
+        else:
+            z2 = z1
+        z3 = z2
+    if z1 < z2 and z1 < z3:
+        return z1
+    elif z2 < z3:
+        return z2
+    else:
+        return z3
+
+
+@numba.jit(nopython=True)
+def hyp_sapprox(x):
+    """
+    Computes 1F1(1/2; 3/2; M) where ``x`` are the eigenvalues from M
+
+    see ``der_hyp_Sapprox`` to only numerically estimate the derivative
+
+    Args:
+        x: (3, ) float np.ndarray
+            eigenvalues in descending order
+
+    Returns: float
+        Result of the hypergeometric function
+
+    """
+    if x[0] == 0 and x[1] == 0 and x[2] == 0:
+        return 1
+    else:
+        t = find_t(-x[0], -x[1], -x[2])
+        R = 1.
+        K2 = 0.
+        K3 = 0.
+        K4 = 0.
+
+        for idx in range(3):
+            R /= np.sqrt(-x[idx] - t)
+            K2 += 0.5 * (x[idx] + t) ** -2
+            K3 -= (x[idx] + t) ** -3
+            K4 += 3 * (x[idx] + t) ** -4
+
+        T = K4 / (8 * K2 * K2) - 5 * K3 * K3 / (24 * K2 ** 3)
+        c1 = (np.sqrt(2 / K2) * np.pi * R * np.exp(-t)) * np.exp(T) / (4 * np.pi)
+        return c1
