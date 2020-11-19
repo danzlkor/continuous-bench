@@ -5,7 +5,7 @@ import argparse
 import os
 from warnings import warn
 import numpy as np
-from bench import inference, change_model, glm, summary_measures, diffusion_models, simulator
+from bench import change_model, glm, summary_measures, diffusion_models, acquisition
 from fsl.data.image import Image
 import nibabel as nib
 
@@ -46,11 +46,11 @@ def main(args):
     data, delta_data, sigma_n = glm.group_glm(summaries, args.design_mat, args.design_con)
 
     # perform inference:
-    sets, posteriors, _ = inference.compute_posteriors(change_model, args.sigma_v, data, delta_data, sigma_n)
+    sets, posteriors, _ = ch_mdl.compute_posteriors(args.sigma_v, data, delta_data, sigma_n)
 
     # save the results:
     maps_dir = f'{args.output}/PosteriorMaps/{ch_mdl.model_name}'
-    inference.write_nifti(sets, posteriors, args.mask, maps_dir, invalid_vox)
+    write_nifti(sets, posteriors, args.mask, maps_dir, invalid_vox)
     print(f'Analysis completed successfully, the posterior probability maps are stored in {maps_dir}')
 
 
@@ -122,7 +122,7 @@ def train_from_command_line(argv=None):
 
     idx_shells, shells = summary_measures.ShellParameters.from_parser_args(args)
     bvecs = np.zeros((len(idx_shells), 3))
-    acq = simulator.Acquisition(shells, idx_shells, bvecs)
+    acq = acquisition.Acquisition(shells, idx_shells, bvecs)
     change_models = change_model.Trainer(forward_model=forward_model, x=acq,
                                          n_samples=int(args.n), k=int(args.k), sph_degree=int(args.d),
                                          poly_degree=int(args.p), regularization=float(args.alpha))

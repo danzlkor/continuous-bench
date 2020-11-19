@@ -13,7 +13,7 @@ from fsl.utils.run import run
 from warnings import warn
 import numpy as np
 from dipy.reconst.shm import real_sym_sh_basis
-from simulator import Acquisition
+from acquisition import Acquisition
 from scipy.linalg import block_diag
 
 
