@@ -21,11 +21,11 @@ def summary_name(b, l):
     return f"b{b:1.1f}_l{l}"
 
 
-def fit_shm(gradients, signal, lmax=6):
+def fit_shm(bvecs, signal, lmax=6):
     """
     Fit spherical harmonics up to given degree to the data
 
-    :param gradients: (M, 3) array with gradient orientations
+    :param bvecs: (M, 3) array with gradient orientations
     :param signal: (n_voxels, M) array of diffusion MRI data for the `M` gradients
     :param lmax: maximum degree of the spherical harmonics in the fit
     :return: Tuple with:
@@ -34,9 +34,39 @@ def fit_shm(gradients, signal, lmax=6):
         - (K, ) array with the degree of the harmonics
         - (K, ) array with the order of the harmonics
     """
-    _, phi, theta = cart2spherical(*gradients.T)
+    _, phi, theta = cart2spherical(*bvecs.T)
     y, m, l = real_sym_sh_basis(lmax, theta, phi)
     return signal.dot(np.linalg.pinv(y.T)), m, l
+
+
+def compute_summary_shell(signal, bvecs, sph_degree=4, lmax=6):
+    """
+    Creates summary data based on diffusion MRI data
+
+    :param bvecs: (M, 3) array with gradient orientations
+    :param signal: (..., M) array of diffusion MRI data for the `M` gradients
+    :param lmax: maximum degree of the spherical harmonics in the fit
+    :param sph_degree: maximum degree for calculation of measurements
+    :return: Dict mapping 'mean' and 'anisotropy' to (..., )-shaped arrays (anisotropy set to None if lmax is 0)
+    """
+    assert lmax == 0 or lmax >= sph_degree
+    coeffs, m, l = fit_shm(signal, bvecs, lmax)
+
+    if lmax == 0:
+        sph_degree = 0
+
+    def sm(degree):
+        if lmax == 0 and degree > 0:
+            return nan_mat(signal.shape[:-1])
+        else:
+            if degree == 0:
+                return coeffs[..., l == 0].mean(axis=-1)
+            else:
+                return np.power(coeffs[..., l == degree], 2).mean(axis=-1)
+
+    smm = {f'l{degree}': sm(degree) for degree in np.arange(0, sph_degree+1, 2)}
+
+    return smm
 
 
 def compute_summary(signal, acq: Acquisition, sph_degree=4):
@@ -50,19 +80,17 @@ def compute_summary(signal, acq: Acquisition, sph_degree=4):
     assert signal.shape[-1] == len(acq.idx_shells)
 
     sum_meas = dict()
-    s0 = 1
     for shell_idx, this_shell in enumerate(acq.shells):
         dir_idx = acq.idx_shells == shell_idx
         if this_shell.bval == 0:
-            smm = compute_summary_shell(acq.bvecs[dir_idx], signal[..., dir_idx], this_shell.lmax, sph_degree)
-            s0 = signal[..., dir_idx].mean(axis=-1)[..., np.newaxis]
+            smm = compute_summary_shell(acq.bvecs[dir_idx], signal[..., dir_idx], sph_degree, this_shell.lmax)
         else:
-            smm = compute_summary_shell(acq.bvecs[dir_idx], signal[..., dir_idx], this_shell.lmax, sph_degree)
-            sum_meas.update({(this_shell.bval, k): v for k, v in smm.items()})
+            smm = compute_summary_shell(acq.bvecs[dir_idx], signal[..., dir_idx], sph_degree, this_shell.lmax)
+        sum_meas.update({(this_shell.bval, k): v for k, v in smm.items()})
     return sum_meas
 
 
-def noise_propagation(signal, data, acq, sigma_n=1, sph_degree=4, has_mdfa=False):
+def noise_propagation(signal, data, acq, sigma_n=1, sph_degree=4):
     """
     Computes noise covariance matrix of measurements for a given signal
         :param signal: single shell signal
@@ -72,14 +100,12 @@ def noise_propagation(signal, data, acq, sigma_n=1, sph_degree=4, has_mdfa=False
         :return: mu, cov(n_sample, dim, dim)
     """
     variances = list()
-    s0 = 1
     for shell_idx, this_shell in enumerate(acq.shells):
         dirs = acq.idx_shells == shell_idx
         bval = this_shell.bval
         if bval == 0:
             variances.append(
                 noise_variance(acq.bvecs[dirs], data[(0, 'l0')], 0, sigma_n, this_shell.lmax))
-            s0 = signal[..., dirs].mean(axis=-1)[..., np.newaxis]
 
         else:
             for l in np.arange(0, sph_degree + 1, 2):
@@ -89,36 +115,6 @@ def noise_propagation(signal, data, acq, sigma_n=1, sph_degree=4, has_mdfa=False
 
     cov = block_diag(*variances)
     return cov
-
-
-def compute_summary_shell(signal, gradients, sph_degree=4, lmax=6):
-    """
-    Creates summary data based on diffusion MRI data
-
-    :param gradients: (M, 3) array with gradient orientations
-    :param signal: (..., M) array of diffusion MRI data for the `M` gradients
-    :param lmax: maximum degree of the spherical harmonics in the fit
-    :param sph_degree: maximum degree for calculation of measurements
-    :return: Dict mapping 'mean' and 'anisotropy' to (..., )-shaped arrays (anisotropy set to None if lmax is 0)
-    """
-    assert lmax == 0 or lmax >= sph_degree
-    coeffs, m, l = fit_shm(gradients, signal, lmax)
-
-    if lmax == 0:
-        sph_degree = 0
-
-    def compute_smm(degree):
-        if lmax == 0 and degree > 0:
-            return nan_mat(signal.shape[:-1])
-        else:
-            if degree == 0:
-                return coeffs[..., l == 0].mean(axis=-1)
-            else:
-                return np.power(coeffs[..., l == degree], 2).mean(axis=-1)
-
-    smm = {f'l{degree}': compute_smm(degree) for degree in np.arange(0, sph_degree+1, 2)}
-
-    return smm
 
 
 def compute_summary_jacobian(signal, gradients, lmax=6, max_degree=4):
@@ -184,6 +180,7 @@ def nan_mat(shape):
     return a
 
 
+#  image functions:
 def fit_summary_to_dataset(diffs: list, bvecs: list, bvals: str, xfms: list, roi_mask: str, sph_degree: int, output: str):
     """
     Resamples diffusion data to std space, and fits spherical harmonics to the input images and stores the outputs per

@@ -5,6 +5,7 @@ This module contains definition of some microstructural diffusion models and a p
 import numpy as np
 from scipy import stats
 import numba
+from bench import summary_measures
 
 # prior distributions:
 def_s0 = 1.
@@ -485,3 +486,31 @@ def hyp_sapprox(x):
         T = K4 / (8 * K2 * K2) - 5 * K3 * K3 / (24 * K2 ** 3)
         c1 = (np.sqrt(2 / K2) * np.pi * R * np.exp(-t)) * np.exp(T) / (4 * np.pi)
         return c1
+
+
+def simulate_signal(model, acq, params):
+    """
+    simulates diffusion MRI signals for test from the specified model
+        :param model: function object from diffusion models
+        :param acq: Acquisition object containing acquisition parameters
+        :param params: dictionary of model parameter
+        :return: diffusion signal (ndirs, 1)
+    """
+    n_directions = acq.bvecs.shape[0]
+    signal = np.zeros(n_directions)
+    for shell_idx, single_shell in enumerate(acq.shells):
+        dir_idx = acq.idx_shells == shell_idx
+        acquisition_params = {'bval': single_shell.bval, 'bvec': acq.bvecs[dir_idx, :], 's0': 1}
+        signal[dir_idx] = model(**acquisition_params, **params)
+
+    return signal
+
+
+def decorator(model):
+    def func(x, **params):
+        acq, sph_degree = x
+        sig = simulate_signal(model, acq, params)
+        sm = summary_measures.compute_summary(sig, acq, sph_degree=sph_degree)
+        sm = np.stack(list(sm.values()))
+        return sm
+    return func

@@ -16,7 +16,7 @@ def from_command_line(argv=None):
     :param argv: string from command line containing all required inputs 
     :return: saves the output images to the specified path
     """
-    
+
     args = parse_args(argv)
     main(args)
 
@@ -28,8 +28,8 @@ def main(args):
     :return: runs the process and save images to the specified path
     :raises: when the input files are not available
     """
-    
-    ch_mdl = change_model.ChangeModel.load(args.model)
+
+    ch_mdl = change_model.Trainer.load(args.model)
 
     if not os.path.isdir(args.output):
         os.makedirs(args.output)
@@ -37,16 +37,16 @@ def main(args):
     # if summaries are not provided fit summaries:
     if args.sm_dir is None:
         args.sm_dir = f'{args.output}/SummaryMeasures'
-        summary_measures.fit_summary(diff=args.data, bvecs=args.bvecs,
-                                     bvals=args.bval, xfms=args.xfm, output=args.sm_dir)
+        summary_measures.fit_summary_to_dataset(diff=args.data, bvecs=args.bvecs, roi_mask=args.mask,
+                                                bvals=args.bval, xfms=args.xfm, output=args.sm_dir)
 
-    summaries, invalid_vox = summary_measures.read_summaries(path=args.summary_dir)
+    summaries, invalid_vox = summary_measures.read_summary_images(path=args.summary_dir, mask=args.mask)
 
     # perform glm:
     data, delta_data, sigma_n = glm.group_glm(summaries, args.design_mat, args.design_con)
 
     # perform inference:
-    sets, posteriors, _ = inference.compute_posteriors(change_model, args.prior_change, data, delta_data, sigma_n)
+    sets, posteriors, _ = inference.compute_posteriors(change_model, args.sigma_v, data, delta_data, sigma_n)
 
     # save the results:
     maps_dir = f'{args.output}/PosteriorMaps/{ch_mdl.model_name}'
@@ -123,9 +123,9 @@ def train_from_command_line(argv=None):
     idx_shells, shells = summary_measures.ShellParameters.from_parser_args(args)
     bvecs = np.zeros((len(idx_shells), 3))
     acq = simulator.Acquisition(shells, idx_shells, bvecs)
-    change_models = change_model(forward_model=forward_model, x=acq,
-                                       n_samples=int(args.n), k=int(args.k), sph_degree=int(args.d),
-                                       poly_degree=int(args.p), regularization=float(args.alpha))
+    change_models = change_model.Trainer(forward_model=forward_model, x=acq,
+                                         n_samples=int(args.n), k=int(args.k), sph_degree=int(args.d),
+                                         poly_degree=int(args.p), regularization=float(args.alpha))
     change_models.save(path='', file_name=args.output)
     print('Change model trained successfully')
 

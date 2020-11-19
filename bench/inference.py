@@ -3,27 +3,26 @@ This module performs inference using change models
 """
 
 import numpy as np
-from .change_model import ChangeModel
+from typing import List
 from scipy.integrate import quad
 from scipy.optimize import minimize_scalar, root_scalar
 from progressbar import ProgressBar
 import warnings
 
 
-def compute_posteriors(change_model:ChangeModel, data, delta_data, sigma_n, sigma_v):
+def compute_posteriors(change_models: List, data, delta_data, sigma_n):
     """
-
-    :param change_model: class containing change models.
+    Computes the posterior probabilities for each model of change
+    :param change_models: list containing change models.
     :param data: numpy array (n_vox, n_dim) containing the first group average
     :param delta_data: numpy array (n_vox, n_dim) containing the change between groups.
     :param sigma_n: numpy array or list (n_vox, n_dim, n_dim)
-    :param sigma_v: a float or dict containing the std of prior for delta_v (delta_v ~ N(0, sigma_v)
     :return: posterior probabilities for each voxel (n_vox, n_params)
     """
 
     print(f'running inference for {data.shape[0]} samples ...')
-    lls = compute_log_likelihood(data, delta_data, change_model, sigma_v, sigma_n)
-    priors = np.array([1] + [m.prior for m in change_model.models])  # the 1 is for empty set
+    lls = compute_log_likelihood(change_models, data, delta_data, sigma_n)
+    priors = np.array([1] + [m.prior for m in change_models])  # the 1 is for empty set
     priors = priors / priors.sum()
     log_posteriors = lls + np.log(priors)
     posteriors = np.exp(log_posteriors)
@@ -35,19 +34,18 @@ def compute_posteriors(change_model:ChangeModel, data, delta_data, sigma_n, sigm
 # warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 
-def compute_log_likelihood(y, delta_y, model: ChangeModel, sigma_v, sigma_n):
+def compute_log_likelihood(models: List, y, delta_y, sigma_n):
     """
     Computes log_likelihood function for all models of change.
         :param y: (n_samples, n_x) array of summary measurements
         :param delta_y: (n_samples, n_x) array of delta data
-        :param model: object of class Fitted Model containing parameters
-        :param sigma_v: standard deviation of prior change per parameter of interest
+        :param models: list of class ChangeVector containing parameters
         :param sigma_n: (n_samples, dim, dim) noise covariance per sample
     :return: np array containing log likelihood for each sample per class
     """
 
     n_samples, n_x = y.shape
-    n_models = len(model.vecs) + 1
+    n_models = len(models) + 1
     log_prob = np.zeros((n_samples, n_models))
     pbar = ProgressBar()
 
@@ -57,11 +55,11 @@ def compute_log_likelihood(y, delta_y, model: ChangeModel, sigma_v, sigma_n):
         sigma_n_s = sigma_n[sam_idx]
         log_prob[sam_idx, 0] = log_mvnpdf(x=dy_s, mean=np.zeros(n_x), cov=sigma_n_s)
 
-        for vec_idx, ch_mdl in enumerate(model.models, 1):
+        for vec_idx, ch_mdl in enumerate(models, 1):
             try:
                 mu, sigma_p = ch_mdl.predict(y_s)
-                fun = lambda dv: np.exp(param_log_posterior(dv, dy_s, mu, sigma_p, sigma_n_s, sigma_v))
-                limits = find_range(dy_s, mu, sigma_p, sigma_n_s, sigma_v)
+                fun = lambda dv: np.exp(param_log_posterior(dv, dy_s, mu, sigma_p, sigma_n_s, ch_mdl.sigma_v))
+                limits = find_range(dy_s, mu, sigma_p, sigma_n_s, ch_mdl.sigma_v)
                 integral = quad(fun, *limits, epsrel=1e-3)[0]
                 log_prob[sam_idx, vec_idx] = np.log(integral) if integral > 0 else -np.inf
 
@@ -84,9 +82,12 @@ def log_mvnpdf(x, mean, cov):
     :param cov: covariance of distribution, numpy array
     :return scalar
     """
+    if np.isscalar(cov):
+        cov = np.array([[cov]])
+
     d = mean.shape[-1]
     e = -.5 * (x - mean).T @ np.linalg.inv(cov) @ (x - mean)
-    c = 1/np.sqrt(((2 * np.pi) ** d) * np.linalg.det(cov.astype(float)))
+    c = 1 / np.sqrt(((2 * np.pi) ** d) * np.linalg.det(cov.astype(float)))
     return np.log(c) + e
 
 

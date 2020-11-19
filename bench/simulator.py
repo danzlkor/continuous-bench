@@ -4,7 +4,7 @@ using summary_measures.py
 """
 from typing import List
 import numpy as np
-from . import summary_measures
+from bench import summary_measures
 from argparse import Namespace
 from dataclasses import dataclass, fields
 from typing import Optional
@@ -12,32 +12,6 @@ import argparse
 from typing import Sequence
 
 b0_tresh = 0.1
-
-@dataclass
-class Acquisition:
-    shells: List[summary_measures.ShellParameters]
-    idx_shells: np.ndarray
-    bvecs: np.ndarray
-    name: str = ''
-
-    @classmethod
-    def load(cls, name='unnamed', acq_path='/Users/hossein/PycharmProjects/deltamicro_analysis/data/Acquisitions'):
-        """
-        reads acquisition protocol parameters from bval and bvec text files
-        :param name: name of acq protocol
-        :param acq_path: path to acquisition files
-        :return acq: an acquisition object containing shells, shell indices of
-        each measurement, and gradient directions
-        """
-        bvec_add = acq_path + '/' + name + '/bvecs'
-        bval_add = acq_path + '/' + name + '/bvals'
-        args = Namespace(bvec=bvec_add, bval=bval_add)
-        idx_shells, shells = summary_measures.ShellParameters.from_parser_args(args)
-        bvecs = np.genfromtxt(args.bvec).T
-        print('loaded input shells:')
-        print(summary_measures.to_string(shells))
-        print('')
-        return cls(shells, idx_shells, bvecs, name)
 
 
 @dataclass
@@ -201,19 +175,30 @@ def to_string(shells: Sequence[ShellParameters]):
     return res
 
 
-def simulate_signal(model, params, acq):
-    """
-    simulates diffusion MRI signals for test from the specified model
-        :param model: function object from diffusion models
-        :param params: dictionary of model parameters, keys:parameter names
-        :param acq: Acquisition object containing acquisition parameters :param n_samples: number of samples :param
-        :return: (n_dirs,), diffusion signal
-    """
-    n_directions = acq.bvecs.shape[0]
-    signal = np.zeros(n_directions)
-    for shell_idx, single_shell in enumerate(acq.shells):
-        dir_idx = acq.idx_shells == shell_idx
-        acquisition_params = {'bval': single_shell.bval, 'bvec': acq.bvecs[dir_idx, :], 's0': def_s0}
-        signal[dir_idx] = model(**acquisition_params, **params)
+@dataclass
+class Acquisition:
+    shells: List[ShellParameters]
+    idx_shells: np.ndarray
+    bvecs: np.ndarray
+    name: str = ''
 
-    return signal
+    @classmethod
+    def load(cls, name='unnamed', acq_path='/Users/hossein/PycharmProjects/deltamicro_analysis/data/Acquisitions'):
+        """
+        reads acquisition protocol parameters from bval and bvec text files
+        :param name: name of acq protocol
+        :param acq_path: path to acquisition files
+        :return acq: an acquisition object containing shells, shell indices of
+        each measurement, and gradient directions
+        """
+        bvec_add = acq_path + '/' + name + '/bvecs'
+        bval_add = acq_path + '/' + name + '/bvals'
+        args = Namespace(bvec=bvec_add, bval=bval_add)
+        idx_shells, shells = ShellParameters.from_parser_args(args)
+        bvecs = np.genfromtxt(args.bvec).T
+        print('loaded input shells:')
+        print(to_string(shells))
+        print('')
+        return cls(shells, idx_shells, bvecs, name)
+
+
