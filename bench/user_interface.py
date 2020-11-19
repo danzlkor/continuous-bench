@@ -46,7 +46,7 @@ def main(args):
     data, delta_data, sigma_n = glm.group_glm(summaries, args.design_mat, args.design_con)
 
     # perform inference:
-    sets, posteriors, _ = ch_mdl.compute_posteriors(args.sigma_v, data, delta_data, sigma_n)
+    sets, posteriors, _ = ch_mdl.estimate_change(data, delta_data, sigma_n)
 
     # save the results:
     maps_dir = f'{args.output}/PosteriorMaps/{ch_mdl.model_name}'

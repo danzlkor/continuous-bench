@@ -1,9 +1,8 @@
 """
-This module contains classes and functions to train a change model for a given function.
+This module contains classes and functions to train a change model and make inference on new data.
 """
 
 import numpy as np
-import pickle
 from scipy.spatial import KDTree
 from scipy.stats import rv_continuous
 from typing import Callable, List, Any, Mapping, Union, Sequence
@@ -16,6 +15,7 @@ import os
 from scipy.integrate import quad
 from scipy.optimize import minimize_scalar, root_scalar
 import warnings
+import pickle
 
 
 @dataclass
@@ -30,7 +30,7 @@ class ChangeVector:
     prior: float = 1
     name: str = 'unnamed'
 
-    def predict(self, y: np.ndarray):
+    def estimate_change(self, y: np.ndarray):
         """
             Computes predicted mu and sigma at the given point for this model of change
               :param y: sample data
@@ -52,15 +52,14 @@ class ChangeModel:
 
     def save(self, path='./', file_name=None):
         if file_name is None:
-            file_name = getattr(self.name)
+            file_name = self.name
 
         with open(path + file_name, 'wb') as f:
             pickle.dump(self, f)
 
-    def compute_posteriors(self, data, delta_data, sigma_n):
+    def predict(self, data, delta_data, sigma_n):
         """
         Computes the posterior probabilities for each model of change
-        :param change_models: list containing change models.
         :param data: numpy array (n_vox, n_dim) containing the first group average
         :param delta_data: numpy array (n_vox, n_dim) containing the change between groups.
         :param sigma_n: numpy array or list (n_vox, n_dim, n_dim)
@@ -69,7 +68,7 @@ class ChangeModel:
 
         print(f'running inference for {data.shape[0]} samples ...')
         lls = self.compute_log_likelihood(data, delta_data, sigma_n)
-        priors = np.array([1] + [m.prior for m in self.models])  # the 1 is for empty set
+        priors = np.array([1.] + [m.prior for m in self.models])  # the 1 is for empty set
         priors = priors / priors.sum()
         log_posteriors = lls + np.log(priors)
         posteriors = np.exp(log_posteriors)
@@ -84,7 +83,6 @@ class ChangeModel:
         Computes log_likelihood function for all models of change.
             :param y: (n_samples, n_x) array of summary measurements
             :param delta_y: (n_samples, n_x) array of delta data
-            :param models: list of class ChangeVector containing parameters
             :param sigma_n: (n_samples, dim, dim) noise covariance per sample
         :return: np array containing log likelihood for each sample per class
         """
@@ -102,7 +100,7 @@ class ChangeModel:
 
             for vec_idx, ch_mdl in enumerate(self.models, 1):
                 try:
-                    mu, sigma_p = ch_mdl.predict(y_s)
+                    mu, sigma_p = ch_mdl.estimate_change(y_s)
                     fun = lambda dv: np.exp(param_log_posterior(dv, dy_s, mu, sigma_p, sigma_n_s, ch_mdl.sigma_v))
                     limits = find_range(dy_s, mu, sigma_p, sigma_n_s, ch_mdl.sigma_v)
                     integral = quad(fun, *limits, epsrel=1e-3)[0]
@@ -128,20 +126,36 @@ class ChangeModel:
             raise SystemExit('model file not found')
 
 
-class MyPipeline(Pipeline):
-    degree: int
-    alpha: float
-
-    def __init__(self, degree, alpha):
-        steps = [('features', PolynomialFeatures(degree=degree)),
+def make_pipeline(degree: int, alpha: float) -> Pipeline:
+    steps = [('features', PolynomialFeatures(degree=degree)),
                  ('reg', linear_model.Ridge(alpha=alpha, fit_intercept=False))]
-        Pipeline.__init__(self, steps=steps)
-
+    return Pipeline(steps=steps)
 
 @dataclass
 class Trainer:
     """
     A class for training models of change
+        ...
+
+        Attributes
+        ----------
+        forward_model : Callable
+            The forward model, it must be function of the form f(x, **params) that returns a numpy array
+        x : str
+            Any object that the function receives as input argument (in case of scalar functions
+            it must accept a sequence and return a value per item
+        param_prior_dists : Mapping
+            A dictionary with keys being name of the forward model parameters and values
+            must be scipy.stats distribution objects
+        vecs : numpy array
+            a matrix with each row representing one vector of change in the parameter space. the number of columns
+            should match the number of parameters.
+        sigma_v:
+
+        Methods
+        -------
+        says(sound=None)
+            Prints the animals name and what sound it makes
     """
     forward_model: Callable
     x: Any
@@ -186,8 +200,8 @@ class Trainer:
         for vec, sigma_v, prior in zip(self.vecs, self.sigma_v, self.priors):
             name = ' + '.join([f'{v:1.1f}{p}' for p, v in zip(self.param_names, vec) if v != 0]).replace('1.0', '')
             models.append(ChangeVector(vec=vec,
-                                       mu_mdl=MyPipeline(poly_degree, regularization),
-                                       l_mdl=MyPipeline(poly_degree, regularization),
+                                       mu_mdl=make_pipeline(poly_degree, regularization),
+                                       l_mdl=make_pipeline(poly_degree, regularization),
                                        sigma_v=sigma_v,
                                        prior=prior,
                                        name=name))
