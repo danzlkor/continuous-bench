@@ -29,28 +29,28 @@ def main(args):
     :raises: when the input files are not available
     """
 
-    ch_mdl = change_model.Trainer.load(args.model)
-
     if not os.path.isdir(args.output):
         os.makedirs(args.output)
 
     # if summaries are not provided fit summaries:
-    if args.sm_dir is None:
-        args.sm_dir = f'{args.output}/SummaryMeasures'
-        summary_measures.fit_summary_to_dataset(diff=args.data, bvecs=args.bvecs, roi_mask=args.mask,
-                                                bvals=args.bval, xfms=args.xfm, output=args.sm_dir)
+    if args.summary_dir is None:
+        args.summary_dir = f'{args.output}/SummaryMeasures'
+        summary_measures.fit_summary_to_dataset(data=args.data, bvecs=args.bvecs, roi_mask=args.mask,
+                                                bvals=args.bval, xfms=args.xfm, output=args.summary_dir, sph_degree=4)
 
-    summaries, invalid_vox = summary_measures.read_summary_images(path=args.summary_dir, mask=args.mask)
+    summaries, invalid_vox = summary_measures.read_summary_images(summary_dir=args.summary_dir, mask=args.mask)
 
     # perform glm:
     data, delta_data, sigma_n = glm.group_glm(summaries, args.design_mat, args.design_con)
 
     # perform inference:
-    sets, posteriors, _ = ch_mdl.estimate_change(data, delta_data, sigma_n)
+    ch_mdl = change_model.ChangeModel.load(args.model)
+    posteriors, predictions = ch_mdl.predict(data, delta_data, sigma_n)
 
     # save the results:
-    maps_dir = f'{args.output}/PosteriorMaps/{ch_mdl.model_name}'
-    write_nifti(sets, posteriors, args.mask, maps_dir, invalid_vox)
+    vec_names = ['No-change'] + [m.name for m in ch_mdl.models]
+    maps_dir = f'{args.output}/PosteriorMaps/{ch_mdl.name}'
+    write_nifti(vec_names, posteriors, args.mask, maps_dir, invalid_vox)
     print(f'Analysis completed successfully, the posterior probability maps are stored in {maps_dir}')
 
 
@@ -72,40 +72,42 @@ def parse_args(argv):
                                           "a trained model json file", required=True)
     required.add_argument("--output", help="Path to the output directory", required=True)
 
-    required.add_argument('--summary-dir', help='Path to the pre-computed summary measurements', required=False)
-    required.add_argument("--data", nargs='+', help="List of dMRI data in subject native space", required=True)
+    required.add_argument('--summary-dir', default='None',
+                          help='Path to the pre-computed summary measurements', required=False)
+    required.add_argument("--data", nargs='+', help="List of dMRI data in subject native space", required=False)
     required.add_argument("--xfm", help="Non-linear warp fields mapping subject diffusion space to the mask space",
-                          nargs='+', metavar='xfm.nii', required=True)
-    required.add_argument("--bvecs", nargs='+', metavar='bvec', required=True,
+                          nargs='+', metavar='xfm.nii', required=False)
+    required.add_argument("--bvecs", nargs='+', metavar='bvec', required=False,
                           help="Gradient orientations for each subject")
 
     optional = parser.add_argument_group("optional arguments")
     optional.add_argument("--sigma-v", default=0.1,
                           help="Standard deviation for prior change in parameters (default = 0.1)", required=False)
 
-    summary_measures.ShellParameters.add_to_parser(parser)
+    acquisition.ShellParameters.add_to_parser(parser)
 
     args = parser.parse_args(argv)
 
     # fix the problem of getting a single arg for list arguments:
-    if len(args.xfm) == 1:
-        args.xfm = args.xfm[0].split()
-    if len(args.data) == 1:
-        args.data = args.data[0].split()
-    if len(args.bvecs) == 1:
-        args.bvecs = args.bvecs[0].split()
+    if args.summary_dir is None:
+        if len(args.xfm) == 1:
+            args.xfm = args.xfm[0].split()
+        if len(args.data) == 1:
+            args.data = args.data[0].split()
+        if len(args.bvecs) == 1:
+            args.bvecs = args.bvecs[0].split()
 
-    for subj_idx, (nl, d, bv) in enumerate(zip(args.xfm, args.data, args.bvecs), 1):
-        print(f'Scan {subj_idx}: dMRI ({d} with {bv}); transform ({nl})')
-    print('')
+        for subj_idx, (nl, d, bv) in enumerate(zip(args.xfm, args.data, args.bvecs), 1):
+            print(f'Scan {subj_idx}: dMRI ({d} with {bv}); transform ({nl})')
+        print('')
 
-    n_subjects = min(len(args.xfm), len(args.data), len(args.bvecs))
-    if len(args.data) > n_subjects:
-        raise ValueError(f"Got more diffusion MRI dataset than transformations/bvecs: {args.data[n_subjects:]}")
-    if len(args.xfm) > n_subjects:
-        raise ValueError(f"Got more transformations than diffusion MRI data/bvecs: {args.xfm[n_subjects:]}")
-    if len(args.bvecs) > n_subjects:
-        raise ValueError(f"Got more bvecs than diffusion MRI data/transformations: {args.bvecs[n_subjects:]}")
+        n_subjects = min(len(args.xfm), len(args.data), len(args.bvecs))
+        if len(args.data) > n_subjects:
+            raise ValueError(f"Got more diffusion MRI dataset than transformations/bvecs: {args.data[n_subjects:]}")
+        if len(args.xfm) > n_subjects:
+            raise ValueError(f"Got more transformations than diffusion MRI data/bvecs: {args.xfm[n_subjects:]}")
+        if len(args.bvecs) > n_subjects:
+            raise ValueError(f"Got more bvecs than diffusion MRI data/transformations: {args.bvecs[n_subjects:]}")
     if os.path.isdir(args.output):
         warn('Output directory already exists, contents might be overwritten.')
     else:
@@ -115,18 +117,29 @@ def parse_args(argv):
 
 
 def train_from_command_line(argv=None):
-    args = parse_args(argv)
+    args = train_parse_args(argv)
     available_models = list(diffusion_models.prior_distributions.keys())
-    funcdict = {name: f for (name, f) in diffusion_models.__dict__.items() if f in available_models}
+    funcdict = {name: f for (name, f) in diffusion_models.__dict__.items() if name in available_models}
     forward_model = funcdict[args.model]
+    param_dist = diffusion_models.prior_distributions[args.model]
 
-    idx_shells, shells = summary_measures.ShellParameters.from_parser_args(args)
-    bvecs = np.zeros((len(idx_shells), 3))
+    idx_shells, shells = acquisition.ShellParameters.from_parser_args(args)
+    if args.bvec is not None:
+        bvecs = np.genfromtxt(args.bvec)
+        if bvecs.shape[1] > bvecs.shape[0]:
+            bvecs = bvecs.T
+    else:
+        bvecs = np.zeros((len(idx_shells), 3))
+
     acq = acquisition.Acquisition(shells, idx_shells, bvecs)
-    change_models = change_model.Trainer(forward_model=forward_model, x=acq,
-                                         n_samples=int(args.n), k=int(args.k), sph_degree=int(args.d),
-                                         poly_degree=int(args.p), regularization=float(args.alpha))
-    change_models.save(path='', file_name=args.output)
+    trainer = change_model.Trainer(forward_model=diffusion_models.decorator(forward_model),
+                                   x=(acq, int(args.d)),
+                                   vecs=args.change_vecs,
+                                   param_prior_dists=param_dist)
+
+    ch_model = trainer.train(n_samples=int(args.n), k=int(args.k), model_name=forward_model.__name__,
+                                 poly_degree=int(args.p), regularization=float(args.alpha))
+    ch_model.save(path='', file_name=args.output)
     print('Change model trained successfully')
 
 
@@ -139,18 +152,19 @@ def train_parse_args(argv):
 
     optional = parser.add_argument_group("optional arguments")
     optional.add_argument("-k", default="100", help="number of nearest neighbours", required=False)
-    optional.add_argument("-n", default="10000", help="number of training samples", required=False)
+    optional.add_argument("-n", default="1000", help="number of training samples", required=False)
     optional.add_argument("-p", default="2", help="polynomial degree for design matrix", required=False)
     optional.add_argument("-d", default="4", help="spherical harmonics degree", required=False)
     optional.add_argument("--alpha", default="0.5", help="regularization weight", required=False)
-    optional.add_argument("--mdfa", default=False, help="include MD and FA in summary measures", required=False)
+    optional.add_argument("--bvec", help="bvecs file", required=False)
+    optional.add_argument("--change-vecs", help="vectors of change", default=None, required=False)
 
     summary_measures.ShellParameters.add_to_parser(parser)
     args = parser.parse_args(argv)
 
     # handle the problem of getting single arg for list arguments:
     if args.model in diffusion_models.prior_distributions.keys():
-        print('The change models will be trained for the follwing parameters:')
+        print('Parameters of the forward model are:')
         print(list(diffusion_models.prior_distributions[args.model].keys()))
     else:
         model_names = ', '.join(list(diffusion_models.prior_distributions.keys()))
@@ -160,15 +174,16 @@ def train_parse_args(argv):
     return args
 
 
-def write_nifti(set_name, posteriors, mask_add, path='.', invalids=None):
+def write_nifti(model_names:list, posteriors:np.ndarray, mask_add:str, output='.', invalids=None):
     """
     Writes the results to nifti files per change model.
 
     """
-    if os.path.isdir(path):
+    if os.path.isdir(output):
         warn('Output directory already exists, contents might be overwritten.')
     else:
-        os.makedirs(path, exist_ok=True)
+        os.makedirs(output, exist_ok=True)
+
     winner = np.argmax(posteriors, axis=1)
     mask = Image(mask_add)
 
@@ -176,7 +191,7 @@ def write_nifti(set_name, posteriors, mask_add, path='.', invalids=None):
     std_indices_valid = std_indices[[not v for v in invalids]]
     std_indices_invalid = std_indices[invalids]
 
-    for s_i, s_name in enumerate(set_name):
+    for s_i, s_name in enumerate(model_names):
         data = posteriors[:, s_i]
         tmp1 = np.zeros(mask.shape)
         tmp1[tuple(std_indices_valid.T)] = data
@@ -184,7 +199,7 @@ def write_nifti(set_name, posteriors, mask_add, path='.', invalids=None):
         tmp2 = np.zeros(mask.shape)
         tmp2[tuple(std_indices_valid.T)] = winner == s_i
         tmp2[tuple(std_indices_invalid.T)] = np.nan
-        mat = np.concatenate([tmp1, tmp2], axis=-1)
+        mat = np.stack([tmp1, tmp2], axis=-1)
 
-        fname = f"{path}/{s_name}.nii.gz"
+        fname = f"{output}/{s_name}.nii.gz"
         nib.Nifti1Image(mat, mask.nibImage.affine).to_filename(fname)

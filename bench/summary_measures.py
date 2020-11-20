@@ -13,7 +13,7 @@ from fsl.utils.run import run
 from warnings import warn
 import numpy as np
 from dipy.reconst.shm import real_sym_sh_basis
-from acquisition import Acquisition
+from bench.acquisition import Acquisition, ShellParameters
 from scipy.linalg import block_diag
 
 
@@ -64,7 +64,7 @@ def compute_summary_shell(signal, bvecs, sph_degree=4, lmax=6):
             else:
                 return np.power(coeffs[..., l == degree], 2).mean(axis=-1)
 
-    smm = {f'l{degree}': sm(degree) for degree in np.arange(0, sph_degree+1, 2)}
+    smm = {f'l{degree}': sm(degree) for degree in np.arange(0, sph_degree + 1, 2)}
 
     return smm
 
@@ -132,7 +132,7 @@ def compute_summary_jacobian(signal, gradients, lmax=6, max_degree=4):
             else:
                 return 2 * (signal.dot(yp[..., l == degree])).dot((yp[..., l == degree]).T) / np.sum(l == degree)
 
-    der = {f"l{deg}": compute_smm_derivative(deg) for deg in np.arange(0, max_degree+1, 2)}
+    der = {f"l{deg}": compute_smm_derivative(deg) for deg in np.arange(0, max_degree + 1, 2)}
     return der
 
 
@@ -146,7 +146,7 @@ def noise_variance(gradients, smm, l, sigma_n, l_max):
     else:
         ng = gradients.shape[0]
         f = 4 * np.pi * (sigma_n ** 2) / ng
-        return smm * 4 * f / (2*l+1) + 2 * (f ** 2) / (2*l + 1)
+        return smm * 4 * f / (2 * l + 1) + 2 * (f ** 2) / (2 * l + 1)
 
 
 def cart2spherical(x, y, z):
@@ -181,12 +181,13 @@ def nan_mat(shape):
 
 
 #  image functions:
-def fit_summary_to_dataset(diffs: list, bvecs: list, bvals: str, xfms: list, roi_mask: str, sph_degree: int, output: str):
+def fit_summary_to_dataset(data: list, bvecs: list, bvals: str, xfms: list, roi_mask: str, sph_degree: int,
+                           output: str):
     """
-    Resamples diffusion data to std space, and fits spherical harmonics to the input images and stores the outputs per
+    Resamples diffusion data to std space, fits spherical harmonics to the input images and stores the outputs per
     seubject in a separate image.
 
-    :param diffs: list of filenames for diffusion images.
+    :param data: list of filenames for diffusion images.
     :param bvecs: list of filenames for bvecs
     :param bvals: bval filename, this must be the same for all subjects.
     :param xfms: transformation from diffusion space to standard space
@@ -196,10 +197,10 @@ def fit_summary_to_dataset(diffs: list, bvecs: list, bvals: str, xfms: list, roi
     :return: saves images to the specified path and returns true flag if the process done completely.
     """
     os.makedirs(output, exist_ok=True)
-    if len(glob.glob(output + '/subj_*.nii.gz')) < len(diffs):
+    if len(glob.glob(output + '/subj_*.nii.gz')) < len(data):
         py_file_path = os.path.realpath(__file__)
         task_list = list()
-        for subj_idx, (x, d, bv) in enumerate(zip(xfms, diffs, bvecs)):
+        for subj_idx, (x, d, bv) in enumerate(zip(xfms, data, bvecs)):
             cmd = f'python3 {py_file_path} {subj_idx} {d} {x} {bv} {bvals} {roi_mask} {sph_degree} {output}'
             task_list.append(cmd)
             # from_cmd(cmd.split()[1:])
@@ -212,16 +213,16 @@ def fit_summary_to_dataset(diffs: list, bvecs: list, bvals: str, xfms: list, roi
                 f.close()
 
                 job_id = run(f'fsl_sub -t {output}/tasklist.txt '
-                             f'-q short.q -N bench_summary -l {output}/log -s openmp 2')
+                             f'-q short.q -N bench_summary -l {output}/log -s openmp,2')
                 fslsub.hold(job_id)
         else:
             os.system('; '.join(task_list))
 
-        fails = len(diffs) - len(glob.glob(output + '/subj_*.nii.gz'))
+        fails = len(data) - len(glob.glob(output + '/subj_*.nii.gz'))
         if fails > 0:
             raise RuntimeError(f'Summary measures were not computed for {fails} subjects.')
         else:
-            print(f'Summary measures computed for {len(diffs)} subjects.')
+            print(f'Summary measures computed for {len(data)} subjects.')
     else:
         print('Summary measurements already exist in the specified path')
         fails = 0
@@ -239,6 +240,9 @@ def read_summary_images(summary_dir: str, mask: str, normalize=True):
     """
     mask_img = Image(mask)
     n_subj = len(glob.glob(summary_dir + '/subj_*.nii.gz'))
+    if n_subj == 0:
+        raise Exception('No summaury measures found in the specified directory.')
+
     summaries = list()
     for subj_idx in range(n_subj):
         f = f'{summary_dir}/subj_{subj_idx}.nii.gz'
@@ -251,21 +255,21 @@ def read_summary_images(summary_dir: str, mask: str, normalize=True):
     if invalid_voxs.sum() > 0:
         warn(f'{invalid_voxs.sum()} voxels are dropped since they were '
              f'outside of the brain mask in some subjects.')
-
+    summary_names = np.load(f'{summary_dir}/summary_names.npy')
+    summary_names = [(float(b), l) for (b, l) in list(summary_names)]
     if normalize:
-        summaries = normalize_summaries(summaries)
+        summaries = normalize_summaries(summaries, summary_names)
 
     return summaries, invalid_voxs
 
 
-def normalize_summaries(summaries):
+def normalize_summaries(summaries, summary_names):
     """
     Normalises summary measures for all subjects. (divide by average attenuation)
+    :param summary_names: name of summaries, needed for knowing how to normalize
     :param summaries: array of summaries for all subjects
     :return: normalised summaries
     """
-    mdl = 0
-    summary_names = mdl.summary_names
     if not len(summary_names) == summaries.shape[2]:
         raise ValueError(f'Number of summary measurements doesnt match with the trained model.'
                          f'\n Expected {len(summary_names)} measures but got {summaries.shape[2]}.')
@@ -273,9 +277,9 @@ def normalize_summaries(summaries):
     b0_idx = [i for i, (b, _) in enumerate(summary_names) if b == 0]
     mean_b0 = summaries[:, :, b0_idx].mean(axis=0)
     summaries_norm = np.zeros_like(summaries)
-    for smm_idx, sm in enumerate(summary_names):
+    for smm_idx, (_, l) in enumerate(summary_names):
         data = summaries[:, :, smm_idx]
-        if sm[1] == 'l0':
+        if l == 'l0':
             data = data / mean_b0.T
         else:
             data = data / (mean_b0.T ** 2)
@@ -312,13 +316,15 @@ def transform_indices(xfm, mask, diffusion, def_field_name='def_field_tmp.nii.gz
     return subj_indices, valid_vox
 
 
-def fit_summary_to_image(subj_idx, diff_add, xfm_add, bvec_add, mask_add, sph_degree, output_add):
+def fit_summary_to_image(subj_idx: str, diff_add: str, xfm_add: str, bvec_add: str,
+                         bval_add: str, mask_add: str, sph_degree: int, output_add: str):
     """
         the main function that fits summary measurements for a single subject
         :param subj_idx: used to name the summary files.
         :param diff_add: path to diffusion data
         :param xfm_add: path to transformation from native space to standard space.
         :param bvec_add: path to bvec file
+        :param bval_add: path to bvec file
         :param mask_add: path to mask
         :param sph_degree: path to the trained model of change file
         :param output_add: path to output directory
@@ -328,7 +334,7 @@ def fit_summary_to_image(subj_idx, diff_add, xfm_add, bvec_add, mask_add, sph_de
     print('xfm address:' + xfm_add)
     print('bvec address: ' + bvec_add)
     print('mask address: ' + mask_add)
-    print('sph_degree: ' + sph_degree)
+    print('sph_degree: ' + str(sph_degree))
     print('output path: ' + output_add)
 
     diffusion_img = Image(diff_add)
@@ -338,13 +344,13 @@ def fit_summary_to_image(subj_idx, diff_add, xfm_add, bvec_add, mask_add, sph_de
 
     diffusion_vox = diffusion_img.data[tuple(subj_indices[valid_vox, :].T)].astype(float)
 
-    mdl = 0
-    acq = mdl.acq
-
     bvecs = np.genfromtxt(bvec_add)
     if bvecs.shape[1] > bvecs.shape[0]:
         bvecs = bvecs.T
-    acq.bvecs = bvecs
+    bvals = np.genfromtxt(bval_add)
+    idx_shells, shells = ShellParameters.create_shells(bval=bvals)
+    acq = Acquisition(shells, idx_shells, bvecs)
+
     summaries = compute_summary(diffusion_vox, acq, sph_degree=sph_degree)
 
     # write to nifti:
@@ -356,6 +362,9 @@ def fit_summary_to_image(subj_idx, diff_add, xfm_add, bvec_add, mask_add, sph_de
 
     fname = f"{output_add}/subj_{subj_idx}.nii.gz"
     nib.Nifti1Image(mat, mask_img.nibImage.affine).to_filename(fname)
+    if subj_idx == '0':
+        np.save(f'{output_add}/summary_names', list(summaries.keys()))
+
     print(f'Summary measurements for subject {subj_idx} computed')
 
 
@@ -369,10 +378,11 @@ def from_cmd(args):
     diff_add_ = args[1]
     xfm_add_ = args[2]
     bvec_add_ = args[3]
-    mask_add_ = args[4]
-    mdl_add_ = args[5]
-    output_add_ = args[6]
-    fit_summary_to_image(subj_idx_, diff_add_, xfm_add_, bvec_add_, mask_add_, mdl_add_, output_add_)
+    bval_add_ = args[4]
+    mask_add_ = args[5]
+    sph_degree = int(args[6])
+    output_add_ = args[7]
+    fit_summary_to_image(subj_idx_, diff_add_, xfm_add_, bvec_add_, bval_add_, mask_add_, sph_degree, output_add_)
 
 
 if __name__ == '__main__':

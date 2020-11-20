@@ -48,7 +48,11 @@ class ChangeVector:
 @dataclass
 class ChangeModel:
     models: List[ChangeVector]
-    name: str = 'unnamed'
+    name: str
+
+    def __post_init__(self):
+        if self.name is None:
+            self.name = 'unnamed'
 
     def save(self, path='./', file_name=None):
         if file_name is None:
@@ -131,6 +135,7 @@ def make_pipeline(degree: int, alpha: float) -> Pipeline:
                  ('reg', linear_model.Ridge(alpha=alpha, fit_intercept=False))]
     return Pipeline(steps=steps)
 
+
 @dataclass
 class Trainer:
     """
@@ -187,7 +192,7 @@ class Trainer:
 
         self.param_names = list(self.param_prior_dists.keys())
 
-    def train(self, n_samples=10000, poly_degree=2, regularization=1, k=100, dv0=1e-6):
+    def train(self, n_samples=10000, poly_degree=2, regularization=1, k=100, dv0=1e-6, model_name=None):
         """
           Train change models (estimates w_mu and w_l) using forward model simulation
             :param n_samples: number simulated samples to estimate forward model
@@ -198,13 +203,13 @@ class Trainer:
           """
         models = []
         for vec, sigma_v, prior in zip(self.vecs, self.sigma_v, self.priors):
-            name = ' + '.join([f'{v:1.1f}{p}' for p, v in zip(self.param_names, vec) if v != 0]).replace('1.0', '')
+            vec_name = ' + '.join([f'{v:1.1f}{p}' for p, v in zip(self.param_names, vec) if v != 0]).replace('1.0', '')
             models.append(ChangeVector(vec=vec,
                                        mu_mdl=make_pipeline(poly_degree, regularization),
                                        l_mdl=make_pipeline(poly_degree, regularization),
                                        sigma_v=sigma_v,
                                        prior=prior,
-                                       name=name))
+                                       name=vec_name))
 
         params_test = {p: v.mean() for p, v in self.param_prior_dists.items()}
         n_y = len(self.forward_model(self.x, **params_test))
@@ -226,8 +231,9 @@ class Trainer:
         for idx in range(n_vec):
             models[idx].mu_mdl.fit(y_1, sample_mu[idx])
             models[idx].l_mdl.fit(y_1, sample_l[idx])
+            print(f'Model of change for vector {models[idx].name} trained successfully.')
 
-        return ChangeModel(models=models)
+        return ChangeModel(models=models, name=model_name)
 
 
 # helper functions:

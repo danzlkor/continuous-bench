@@ -4,7 +4,6 @@ using summary_measures.py
 """
 from typing import List
 import numpy as np
-from bench import summary_measures
 from argparse import Namespace
 from dataclasses import dataclass, fields
 from typing import Optional
@@ -53,7 +52,7 @@ class ShellParameters:
             "Text files should have a single row or single column and contain a single value per volume.",
         )
         for var in fields(cls):
-            group.add_argument('--' + var.name, required=var.name == 'bval')
+            group.add_argument('--' + var.name)
 
     @classmethod
     def from_parser_args(cls, args):
