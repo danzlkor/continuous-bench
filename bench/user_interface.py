@@ -10,7 +10,7 @@ from fsl.data.image import Image
 import nibabel as nib
 
 
-def from_command_line(argv=None):
+def inference_from_cmd(argv=None):
     """
     Wrapper function to parse input and run main.
     :param argv: string from command line containing all required inputs 
@@ -88,8 +88,9 @@ def parse_args(argv):
 
     args = parser.parse_args(argv)
 
-    # fix the problem of getting a single arg for list arguments:
     if args.summary_dir is None:
+        # remove the split, each single subject arg must be in "" in cases of containing space
+        # check the existence of all provided files.
         if len(args.xfm) == 1:
             args.xfm = args.xfm[0].split()
         if len(args.data) == 1:
@@ -116,7 +117,7 @@ def parse_args(argv):
     return args
 
 
-def train_from_command_line(argv=None):
+def train_from_cmd(argv=None):
     args = train_parse_args(argv)
     available_models = list(diffusion_models.prior_distributions.keys())
     funcdict = {name: f for (name, f) in diffusion_models.__dict__.items() if name in available_models}
@@ -129,7 +130,7 @@ def train_from_command_line(argv=None):
         if bvecs.shape[1] > bvecs.shape[0]:
             bvecs = bvecs.T
     else:
-        bvecs = np.zeros((len(idx_shells), 3))
+        bvecs = diffusion_models.uniform_sampling_sphere(len(idx_shells))
 
     acq = acquisition.Acquisition(shells, idx_shells, bvecs)
     trainer = change_model.Trainer(forward_model=diffusion_models.decorator(forward_model),

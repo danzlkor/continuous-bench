@@ -64,10 +64,10 @@ class ChangeModel:
     def predict(self, data, delta_data, sigma_n):
         """
         Computes the posterior probabilities for each model of change
-        :param data: numpy array (n_vox, n_dim) containing the first group average
-        :param delta_data: numpy array (n_vox, n_dim) containing the change between groups.
-        :param sigma_n: numpy array or list (n_vox, n_dim, n_dim)
-        :return: posterior probabilities for each voxel (n_vox, n_params)
+        :param data: numpy array (..., d) containing the first group average
+        :param delta_data: numpy array (..., d) containing the change between groups.
+        :param sigma_n: numpy array or list (..., d, d)
+        :return: posterior probabilities for each voxel (..., n_params)
         """
 
         print(f'running inference for {data.shape[0]} samples ...')
