@@ -7,6 +7,8 @@ import numpy as np
 from fsl.data.featdesign import loadDesignMat
 from fsl.data.image import Image
 from .summary_measures import transform_indices
+import os
+from typing import List
 
 
 def group_glm(data, design_mat, design_con):
@@ -75,7 +77,7 @@ def loadcontrast(design_con):
 
 def voxelwise_group_glm(data, weights, design_con):
     """
-    Performs group glm on the given data
+    Performs voxel-wise group glm on the given data with weights
     :param data: 3d numpy array (n_subj, n_vox, n_dim)
     :param weights: 2d numpy array (n_subj, n_vox)
     :param design_con: path to design.con file, the first contrast must be first group mean, the second contrast is the
@@ -84,20 +86,25 @@ def voxelwise_group_glm(data, weights, design_con):
     """
     c_names, c = loadcontrast(design_con)
 
-    if data.shape[:2] == weights.shap:
+    if data.shape[:2] == weights.shape:
         print(f'running glm for {data.shape[0]} subjects and {data.shape[1]}')
     else:
         raise ValueError(f' glm weights and data are not matched')
 
-    y = np.transpose(data, [1, 2, 0])  # make the shape be (n_vox, n_dim, n_subj)
-    x = weights.T
-    for y_v, x_v in zip(y, x):
-        beta = y_v @ np.linalg.pinv(weights).T
-        copes = beta @ c.T
+    n_subj, n_vox, n_dim = data.shape
+    copes = np.zeros((n_vox, n_dim, 2))
+    varcopes = np.zeros((n_vox, n_dim, n_dim, 2))
+    for vox in range(n_vox):
+        y = data[:, vox, :].T
+        x = np.zeros((n_subj, 2))
+        x[:, 0] = weights[:, vox] == 0
+        x[:, 1] = weights[:, vox] == 1
+        beta = y @ np.linalg.pinv(x).T
+        copes[vox] = beta @ c.T
 
-        r = y - beta @ weights.T
-        sigma_sq = np.array([np.cov(i) for i in r])
-        varcopes = sigma_sq[..., np.newaxis] * np.diagonal(c @ np.linalg.inv(x.T @ x) @ c.T)
+        r = y - beta @ x.T
+        sigma_sq = np.cov(r)
+        varcopes[vox] = sigma_sq[..., np.newaxis] * np.diagonal(c @ np.linalg.inv(x.T @ x) @ c.T)
 
     data1 = copes[:, :, 0]
     delta_data = copes[:, :, 1]
@@ -106,14 +113,31 @@ def voxelwise_group_glm(data, weights, design_con):
     return data1, delta_data, sigma_n
 
 
-def read_glm_weights(data, xfm,  mask):
-    print('mask in standard space address: ' + mask)
+def read_glm_weights(data: List[str], xfm: List[str],  mask: str):
+    """
+    It voxelwise glm weights for each subject in an arbitrary space and a transformation from that space to standard,
+    then takes voxels that lie within the mask (that is in standard space).
+    Args:
+        data: list of nifti files one per subject
+        xfm: list of transformations from the native space to standad space
+        mask: address of roi mask in standard space
+
+    Returns: weights matrix (n_subj , n_vox). For the voxels that lie outside of image boundaries it places nans.
+
+    """
     output_add = '~/tmp/'
+    os.makedirs(output_add, exist_ok=True)
     mask_img = Image(mask)
     std_indices = np.array(np.where(mask_img.data > 0)).T
 
-    for idx, (d, x) in enumerate(zip(data, xfm)):
+    n_vox = std_indices.shape[0]
+    n_subj = len(data)
+    weights = np.zeros((n_subj, n_vox)) + np.nan
+    print('Reading GLM weights:')
+    for subj_idx, (d, x) in enumerate(zip(data, xfm)):
         data_img = Image(d)
-        subj_indices, valid_vox = transform_indices(x, mask_img, d, f"{output_add}/def_field_{idx}.nii.gz")
-        data_vox = data_img.data[tuple(subj_indices[valid_vox, :].T)].astype(float)
-        std_indices_valid = std_indices[valid_vox]
+        subj_indices, valid_vox = transform_indices(x, mask_img, data_img, f"{output_add}/def_field_{subj_idx}.nii.gz")
+        valid_subj_indices = tuple(subj_indices[valid_vox, :].T)
+        weights[subj_idx, valid_vox] = data_img.data[valid_subj_indices].astype(float)
+
+    return weights

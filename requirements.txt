@@ -1,6 +1,11 @@
-dipy
-numba
-nibabel
-scipy
-numpy
-progressbar
+dipy~=1.2.0
+numba~=0.51.2
+nibabel~=3.1.1
+scipy~=1.5.2
+numpy~=1.19.2
+progressbar~=2.5
+
+dataclasses~=0.7
+sklearn~=0.0
+scikit-learn~=0.23.2
+setuptools~=50.3.1.post20201107

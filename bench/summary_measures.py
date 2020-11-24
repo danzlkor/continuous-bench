@@ -224,7 +224,8 @@ def fit_summary_to_dataset(data: list, bvecs: list, bvals: str, xfms: list, roi_
         else:
             print(f'Summary measures computed for {len(data)} subjects.')
     else:
-        print('Summary measurements already exist in the specified path')
+        print('Summary measurements already exist in the specified path.'
+              'If you want to re-compute delete the current files.')
         fails = 0
 
     return fails == 0
@@ -241,7 +242,7 @@ def read_summary_images(summary_dir: str, mask: str, normalize=True):
     mask_img = Image(mask)
     n_subj = len(glob.glob(summary_dir + '/subj_*.nii.gz'))
     if n_subj == 0:
-        raise Exception('No summaury measures found in the specified directory.')
+        raise Exception('No summary measures found in the specified directory.')
 
     summaries = list()
     for subj_idx in range(n_subj):
@@ -334,6 +335,7 @@ def fit_summary_to_image(subj_idx: str, diff_add: str, xfm_add: str, bvec_add: s
     print('xfm address:' + xfm_add)
     print('bvec address: ' + bvec_add)
     print('mask address: ' + mask_add)
+    print('bval address: ' + bval_add)
     print('sph_degree: ' + str(sph_degree))
     print('output path: ' + output_add)
 
