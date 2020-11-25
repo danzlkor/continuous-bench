@@ -71,12 +71,19 @@ prior_distributions = dict(
 # basic compartment definitions:
 def ball(bval=0, bvec=np.array([0, 0, 1]), d_iso=1., s0=def_s0):
     """
-      Simulates diffusion signal for isotropic diffusion
-        :param bval: acquisition b-value
-        :param bvec: acquisition b-vec (M,3)
-        :param d_iso: diffusion coefficient
-        :param s0: attenuation for b=0
-        :return: simulated signal (M,)
+    Simulates diffusion signal for isotropic diffusion
+
+    This is the equation for this compartment:
+
+    .. math::
+
+        s = e^{-b d_{iso}}
+
+    :param bval: acquisition b-value
+    :param bvec: acquisition b-vec (M,3)
+    :param d_iso: diffusion coefficient
+    :param s0: attenuation for b=0
+    :return: simulated signal (M,)
     """
     assert s0 >= 0, 's0 cant be negative'
     assert d_iso >= 0, 'diso cant be negative'
@@ -86,16 +93,21 @@ def ball(bval=0, bvec=np.array([0, 0, 1]), d_iso=1., s0=def_s0):
     return s0 * np.exp(-bval * d_iso)
 
 
-def stick(bval=0, bvec=np.array([0, 0, 1]), d_a=1., theta=0., phi=0.0, s0=def_s0):
+def stick(bval=0, bvec=np.array([0, 0, 1]), d_a=1., theta=0., phi=0., s0=def_s0):
     """
     Simulates diffusion signal from single stick model
-       :param bval: acquisition b-value
-       :param bvec: acquisition b-vec (M,3)
-       :param d_a: axial diffusion coefficient
-       :param theta: angle from z-axis
-       :param phi: angle from x axis in xy-plane
-       :param s0: attenuation for b=0
-       :return: simulated signal (M,)
+
+    The attenuation for the stick is :math:`s=e^{-b d_a (\vec{g} \vec{n})^2}`.
+
+    Simpler equation :math:`a=b`.
+
+    :param bval: acquisition b-value
+    :param bvec: acquisition b-vec (M,3)
+    :param d_a: axial diffusion coefficient
+    :param theta: angle from z-axis
+    :param phi: angle from x axis in xy-plane
+    :param s0: attenuation for b=0
+    :return: simulated signal (M,)
     """
     assert d_a >= 0, 'd_a can\'t be negative'
     assert s0 >= 0, 's0 cant be negative'
@@ -108,14 +120,15 @@ def cigar(bval=0, bvec=np.array([0, 0, 1]), theta=0., phi=0,
           d_a=1., d_r=0., s0=def_s0):
     """
     Simulates diffusion signal from single stick model
-       :param bval: acquisition b-value
-       :param bvec: acquisition b-vec (M,3)
-       :param theta: angle from z-axis
-       :param phi: angle from x axis in xy-plane
-       :param d_a: axial diffusion coefficient
-       :param d_r: radial diffusion coefficient
-       :param s0: attenuation for b=0
-       :return: simulated signal (M,)
+
+    :param bval: acquisition b-value
+    :param bvec: acquisition b-vec (M,3)
+    :param theta: angle from z-axis
+    :param phi: angle from x axis in xy-plane
+    :param d_a: axial diffusion coefficient
+    :param d_r: radial diffusion coefficient
+    :param s0: attenuation for b=0
+    :return: simulated signal (M,)
     """
     assert d_a >= 0, 'd_a cant be negative'
     assert d_r >= 0, 'd_r cant be negative'
@@ -129,18 +142,18 @@ def bingham_zeppelin(bval=0, bvec=np.array([[0, 0, 1]]), d_a=1., d_r=0.,
                      odi=1., odi2=None, theta=0., phi=0., psi=0., s0=1.):
     """
     Simulates diffusion signal for a bingham-distributed ODF
-         :param bval: acquisition b-value
-         :param bvec: acquisition b-vec (M,3)
-         :param d_a: axial diffusion coefficient
-         :param d_r: radial diffusion coefficient
-         :param odi: first dispersion coefficient
-         :param odi2: second dispersion coefficient
-         :param theta: theta for main diffusion direction
-         :param phi: phi for main diffusion direction
-         :param psi: first dispersion orientation
 
-         :param s0: attenuation for b=0
-         :return: simulated signal (M,)
+    :param bval: acquisition b-value
+    :param bvec: acquisition b-vec (M,3)
+    :param d_a: axial diffusion coefficient
+    :param d_r: radial diffusion coefficient
+    :param odi: first dispersion coefficient
+    :param odi2: second dispersion coefficient
+    :param theta: theta for main diffusion direction
+    :param phi: phi for main diffusion direction
+    :param psi: first dispersion orientation
+    :param s0: attenuation for b=0
+    :return: simulated signal (M,)
     """
     if odi2 is None:
         odi2 = odi  # make it watson distribution.
@@ -175,16 +188,17 @@ def watson_zeppelin_numerical(bval=0, bvec=np.array([[0, 0, 1]]), d_a=1., d_r=0.
                               odi=1, theta=0., phi=0., s0=1., n_samples=10000):
     """
     Simulates diffusion signal for a watson distribution with numerical integration
-         :param bval: acquisition b-value
-         :param bvec: acquisition b-vec (M,3)
-         :param d_a: axial diffusion coefficient
-         :param d_r: radial diffusion coefficient
-         :param odi: first dispersion coefficient
-         :param theta: theta for main diffusion direction
-         :param phi: phi for main diffusion direction
-         :param s0: attenuation for b=0
-         :param n_samples: resolution of the surface integral
-         :return: simulated signal (M,)
+
+    :param bval: acquisition b-value
+    :param bvec: acquisition b-vec (M,3)
+    :param d_a: axial diffusion coefficient
+    :param d_r: radial diffusion coefficient
+    :param odi: first dispersion coefficient
+    :param theta: theta for main diffusion direction
+    :param phi: phi for main diffusion direction
+    :param s0: attenuation for b=0
+    :param n_samples: resolution of the surface integral
+    :return: simulated signal (M,)
     """
     assert odi > 0, 'odis must be positive'
     if bvec.ndim == 1:
@@ -214,16 +228,17 @@ def ball_stick(bval=0, bvec=np.array([0, 0, 1]), theta=0., phi=0.0, d_a=dif_coef
                s_iso=1, s_a=1, s0=def_s0):
     """
     Simulates diffusion signal from ball and stick model
-       :param bval: acquisition b-value
-       :param bvec: acquisition b-vec (M,3)
-       :param theta: angle from z-axis
-       :param phi: angle from x axis in xy-plane
-       :param d_a: axial diffusion coefficient
-       :param d_iso: radial diffusion coefficient
-       :param s_iso: signal fraction of isotropic diffusion
-       :param s_a:  signal fraction of anisotropic diffusion
-       :param s0: attenuation for b=0
-       :return: simulated signal (M,)
+
+    :param bval: acquisition b-value
+    :param bvec: acquisition b-vec (M,3)
+    :param theta: angle from z-axis
+    :param phi: angle from x axis in xy-plane
+    :param d_a: axial diffusion coefficient
+    :param d_iso: radial diffusion coefficient
+    :param s_iso: signal fraction of isotropic diffusion
+    :param s_a:  signal fraction of anisotropic diffusion
+    :param s0: attenuation for b=0
+    :return: simulated signal (M,)
     """
     assert s_iso >= 0, 'volume fraction cant be negative'
     assert s_a >= 0, 'volume fraction cant be greater than 1'
@@ -237,22 +252,22 @@ def watson_noddi(bval=0, bvec=np.array([0, 0, 1]),
                  tortuosity=.5, odi=.5,
                  theta=0., phi=0., s0=1.):
     """
-        Simulates diffusion signal with Watson dispressed NODDI model
-        :param bval: b-values
-        :param bvec: (,3) gradient directions(x, y, z)
-        :param s_iso: signal fraction of isotropic diffusion
-        :param s_in: signal fraction of intra-axonal diffusion
-        :param s_ex: signal fraction of extra-axonal water
-        :param d_iso: isotropic diffusion coefficient
-        :param d_a_in: axial diffusion coefficient
-        :param d_a_ex: axial diffusion coefficient for extra-axonal compartment
-        :param tortuosity: ratio of radial to axial diffusivity
-        :param odi: dispersion parameter of watson distribution
-        :param theta: orientation of stick from z axis
-        :param phi: orientation of stick from x axis
-        :param s0: attenuation for b=0
+    Simulates diffusion signal with Watson dispressed NODDI model
 
-        :return: (M,) diffusion signal
+    :param bval: b-values
+    :param bvec: (,3) gradient directions(x, y, z)
+    :param s_iso: signal fraction of isotropic diffusion
+    :param s_in: signal fraction of intra-axonal diffusion
+    :param s_ex: signal fraction of extra-axonal water
+    :param d_iso: isotropic diffusion coefficient
+    :param d_a_in: axial diffusion coefficient
+    :param d_a_ex: axial diffusion coefficient for extra-axonal compartment
+    :param tortuosity: ratio of radial to axial diffusivity
+    :param odi: dispersion parameter of watson distribution
+    :param theta: orientation of stick from z axis
+    :param phi: orientation of stick from x axis
+    :param s0: attenuation for b=0
+    :return: (M,) diffusion signal
         """
     assert s0 >= 0, 's0 cant be negative'
     a_iso = ball(bval=bval, bvec=bvec, d_iso=d_iso, s0=s_iso)
@@ -270,23 +285,23 @@ def bingham_noddi(bval=0, bvec=np.array([0, 0, 1]),
                   d_iso=1., d_a_in=1., d_a_ex=1., tortuosity=0.5,
                   odi=1, odi_ratio=1, theta=0., phi=0., s0=1.):
     """
-        Simulates diffusion signal with Bingham dispressed NODDI model
-        :param bval: b-values
-        :param bvec: (,3) gradient directions(x, y, z)
-        :param s_iso: signal fraction of isotropic diffusion
-        :param s_in: signal fraction of intra-axonal diffusion
-        :param s_ex: signal fraction of extra-axonal water
-        :param d_iso: isotropic diffusion coefficient
-        :param d_a_in: axial diffusion coefficient
-        :param d_a_ex: axial diffusion coefficient for extra-axonal compartment
-        :param tortuosity: ratio for radial diffusion coefficient for intra-axonal compartment
-        :param odi: dispersion parameter of bingham distribution
-        :param odi_ratio: ratio for dispersion parameter of bingham distribution
-        :param theta: orientation of stick from z axis
-        :param phi: orientation of stick from x axis
-        :param s0: attenuation for b=0
+    Simulates diffusion signal with Bingham dispressed NODDI model
 
-        :return: (M,) diffusion signal
+    :param bval: b-values
+    :param bvec: (,3) gradient directions(x, y, z)
+    :param s_iso: signal fraction of isotropic diffusion
+    :param s_in: signal fraction of intra-axonal diffusion
+    :param s_ex: signal fraction of extra-axonal water
+    :param d_iso: isotropic diffusion coefficient
+    :param d_a_in: axial diffusion coefficient
+    :param d_a_ex: axial diffusion coefficient for extra-axonal compartment
+    :param tortuosity: ratio for radial diffusion coefficient for intra-axonal compartment
+    :param odi: dispersion parameter of bingham distribution
+    :param odi_ratio: ratio for dispersion parameter of bingham distribution
+    :param theta: orientation of stick from z axis
+    :param phi: orientation of stick from x axis
+    :param s0: attenuation for b=0
+    :return: (M,) diffusion signal
         """
 
     a_iso = ball(bval=bval, bvec=bvec, d_iso=d_iso, s0=s_iso)
@@ -302,6 +317,7 @@ def bingham_noddi(bval=0, bvec=np.array([0, 0, 1]),
 def spherical2cart(theta, phi, r=1):
     """
     Converts spherical to cartesian coordinates
+
     :param theta: angel from z axis
     :param phi: angle from x axis
     :param r: radius
@@ -316,6 +332,7 @@ def spherical2cart(theta, phi, r=1):
 def cart2spherical(n):
     """
     Converts to spherical coordinates
+
     :param n: (:, 3) array containing vectors in (x,y,z) coordinates
     :return: tuple with (phi, theta, r)-coordinates
     """
@@ -329,11 +346,12 @@ def cart2spherical(n):
 
 def uniform_grid_sphere(n_theta, n_phi=None):
     """
-       Generates uniformly distributed grid over the surface of sphere:
-            :param n_theta: number of theta grids
-            :param n_phi: number of phi_grids
-            :return: grid of theta and phi
-       """
+    Generates uniformly distributed grid over the surface of sphere:
+
+    :param n_theta: number of theta grids
+    :param n_phi: number of phi_grids
+    :return: grid of theta and phi
+    """
     if n_phi is None:
         n_phi = n_theta
 
@@ -349,10 +367,11 @@ def uniform_grid_sphere(n_theta, n_phi=None):
 
 def uniform_sampling_sphere(n_samples):
     """
-       Generates uniformly distributed samples over the surface of sphere:
-            :param n_samples: number of theta grids
-            :return: samples of theta and phi
-       """
+    Generates uniformly distributed samples over the surface of sphere:
+
+    :param n_samples: number of theta grids
+    :return: samples of theta and phi
+    """
 
     phi = np.random.uniform(0, 2 * np.pi, n_samples)
 

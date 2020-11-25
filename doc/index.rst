@@ -5,6 +5,7 @@
 
 Welcome to bench's documentation!
 =================================
+This is bench.
 
 .. toctree::
    :maxdepth: 2

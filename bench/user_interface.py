@@ -32,9 +32,9 @@ def inference_from_cmd(argv=None):
     if args.summary_dir is None:
         print('Fitting summary measurements to the data.')
         args.summary_dir = f'{args.output}/SummaryMeasures'
-        summary_measures.fit_summary_to_dataset(data=args.data, bvecs=args.bvecs, roi_mask=args.mask,
-                                                bvals=args.bval, xfms=args.xfm, output=args.summary_dir,
-                                                sph_degree=args.sph_degree)
+        job_id = summary_measures.fit_summary_to_dataset(data=args.data, bvecs=args.bvecs, roi_mask=args.mask,
+                                                         bvals=args.bval, xfms=args.xfm, output=args.summary_dir,
+                                                         sph_degree=args.sph_degree)
     else:
         print(f'Loading summary_measures from {args.summary_dir}')
 
@@ -133,7 +133,6 @@ def inference_parse_args(argv):
         elif not os.path.exists(args.design_con):
             raise FileNotFoundError(f'{args.design_con} file not found.')
 
-
     return args
 
 
@@ -164,13 +163,14 @@ def train_parse_args(argv):
     required = parser.add_argument_group("required arguments")
     required.add_argument("--model", help="Forward model name", required=True)
     required.add_argument("--output", help="name of the trained model", required=True)
+    required.add_argument("--bval", required=True)
 
     optional = parser.add_argument_group("optional arguments")
-    optional.add_argument("-k", default="100", help="number of nearest neighbours", required=False)
-    optional.add_argument("-n", default="1000", help="number of training samples", required=False)
-    optional.add_argument("-p", default="2", help="polynomial degree for design matrix", required=False)
-    optional.add_argument("-d", default="4", help="spherical harmonics degree", required=False)
-    optional.add_argument("--alpha", default="0.5", help="regularization weight", required=False)
+    optional.add_argument("-k", default=100, type=int, help="number of nearest neighbours", required=False)
+    optional.add_argument("-n", default=1000, type=int, help="number of training samples", required=False)
+    optional.add_argument("-p", default=2, type=int, help="polynomial degree for design matrix", required=False)
+    optional.add_argument("-d", default=4, type=int, help="spherical harmonics degree", required=False)
+    optional.add_argument("--alpha", default=0.5, type=float, help="regularization weight", required=False)
     optional.add_argument("--bvec", help="bvecs file", required=False)
     optional.add_argument("--change-vecs", help="vectors of change", default=None, required=False)
 

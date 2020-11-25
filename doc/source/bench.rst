@@ -1,8 +1,6 @@
 bench package
 =============
 
-Submodules
-----------
 
 bench.acquisition module
 ------------------------

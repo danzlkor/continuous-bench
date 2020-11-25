@@ -16,26 +16,41 @@ from scipy.integrate import quad
 from scipy.optimize import minimize_scalar, root_scalar
 import warnings
 import pickle
+from typing import Mapping
 
 
 @dataclass
 class ChangeVector:
     """
     class for a single model of change
+
+    :arg vec: maps parameter name to how much it changes
+    :arg mu_mdl: maps position in data space to mean change due to this vector
+    :arg l_mdl: maps position in data space to covariance matrix of change due to this vector
+    :arg sigma_v: standard deviation for the size of change
+    :arg prior: how likely is this model of change
     """
-    vec: np.ndarray
+    vec: Mapping[str, float]
     mu_mdl: Pipeline
     l_mdl: Pipeline
     sigma_v: float = 0.1
     prior: float = 1
-    name: str = 'unnamed'
+    name: str = None
+
+    def __post_init__(self):
+        if self.name is None:
+            self.name = ' '.join([f'{v:+1.1f}{p}' for p, v in self.vec.items()]).replace('1.0', '')
 
     def estimate_change(self, y: np.ndarray):
         """
-            Computes predicted mu and sigma at the given point for this model of change
-              :param y: sample data
-              :return: Tuple with: mu and sigma as dictionaries
-              """
+        Computes predicted mu and sigma at the given point for this model of change
+
+        :param y: sample data (..., N) for N summary measures
+        :return: Tuple with
+
+            - `mu`: (..., N)-array with mean change
+            - `sigma`: (..., N, N)-array with covariance matrix of change
+        """
         if y.ndim == 1:
             y = y[np.newaxis, :]
 
@@ -45,18 +60,30 @@ class ChangeVector:
         return mu, sigma
 
 
-@dataclass
 class ChangeModel:
-    models: List[ChangeVector]
-    name: str
+    """
+    All possible change vectors for a given data model
+    """
 
-    def __post_init__(self):
-        if self.name is None:
-            self.name = 'unnamed'
+    def __init__(self, models: List[ChangeVector], model_name: str='unnamed'):
+        """
+        Create a new model of change
+
+        :param models: list of possible changes
+        :param model_name: name of model
+        """
+        self.models = models
+        self.model_name = model_name
 
     def save(self, path='./', file_name=None):
+        """
+        Writes the change model to disk
+
+        :param path: directory to write to
+        :param file_name: filename (defaults to model name)
+        """
         if file_name is None:
-            file_name = self.name
+            file_name = self.model_name
 
         with open(path + file_name, 'wb') as f:
             pickle.dump(self, f)
@@ -64,6 +91,7 @@ class ChangeModel:
     def predict(self, data, delta_data, sigma_n):
         """
         Computes the posterior probabilities for each model of change
+
         :param data: numpy array (..., d) containing the first group average
         :param delta_data: numpy array (..., d) containing the change between groups.
         :param sigma_n: numpy array or list (..., d, d)
@@ -85,9 +113,12 @@ class ChangeModel:
     def compute_log_likelihood(self, y, delta_y, sigma_n):
         """
         Computes log_likelihood function for all models of change.
-            :param y: (n_samples, n_x) array of summary measurements
-            :param delta_y: (n_samples, n_x) array of delta data
-            :param sigma_n: (n_samples, dim, dim) noise covariance per sample
+
+        Compares the observed data with the result from :func:`predict`.
+
+        :param y: (n_samples, n_x) array of summary measurements
+        :param delta_y: (n_samples, n_x) array of delta data
+        :param sigma_n: (n_samples, dim, dim) noise covariance per sample
         :return: np array containing log likelihood for each sample per class
         """
 
@@ -144,13 +175,12 @@ def make_pipeline(degree: int, alpha: float) -> Pipeline:
 class Trainer:
     """
     A class for training models of change
-        ...
 
         Attributes
         ----------
         forward_model : Callable
             The forward model, it must be function of the form f(x, **params) that returns a numpy array
-        x : str
+        args : Any
             Any object that the function receives as input argument (in case of scalar functions
             it must accept a sequence and return a value per item
         param_prior_dists : Mapping
@@ -160,14 +190,11 @@ class Trainer:
             a matrix with each row representing one vector of change in the parameter space. the number of columns
             should match the number of parameters.
         sigma_v:
-
-        Methods
-        -------
-        says(sound=None)
-            Prints the animals name and what sound it makes
     """
     forward_model: Callable
+    """the forward model, it must be function of the form f(x, **params)"""
     x: Any
+
     param_prior_dists: Mapping[str, rv_continuous]
     vecs: np.ndarray = None
     sigma_v: Union[float, List[float], np.ndarray] = 0.1
@@ -207,7 +234,7 @@ class Trainer:
           """
         models = []
         for vec, sigma_v, prior in zip(self.vecs, self.sigma_v, self.priors):
-            vec_name = ' + '.join([f'{v:1.1f}{p}' for p, v in zip(self.param_names, vec) if v != 0]).replace('1.0', '')
+            vec_name = ' '.join([f'{v:+1.1f}{p}' for p, v in zip(self.param_names, vec) if v != 0]).replace('1.0', '')
             models.append(ChangeVector(vec=vec,
                                        mu_mdl=make_pipeline(poly_degree, regularization),
                                        l_mdl=make_pipeline(poly_degree, regularization),
