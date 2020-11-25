@@ -43,6 +43,7 @@ def inference_from_cmd(argv=None):
     else:
         summaries, invalid_vox = summary_measures.read_summary_images(summary_dir=args.summary_dir, mask=args.mask)
 
+        summaries = summaries[:, invalid_vox == 0, :]
         # perform glm:
         data, delta_data, sigma_n = glm.group_glm(summaries, args.design_mat, args.design_con)
 
@@ -109,13 +110,18 @@ def inference_parse_args(argv):
                     raise FileNotFoundError(f'{f} not found. Please check the input files.')
 
         if not os.path.exists(args.bval):
-            raise FileNotFoundError(f'{args.bval} not found. Please check the input files.')
+            raise FileNotFoundError(f'{args.bval} not found. Please check the paths for input files.')
 
     if args.model is not None:
-        if args.desing_mat is None:
-            raise RuntimeError('For inference you need to provide a design matrix file.')
-        if args.desing_con is None:
+        if args.design_mat is None:
+            raise RuntimeError('For inference you have to provide a design matrix file.')
+        elif not os.path.exists(args.design_mat):
+            raise FileNotFoundError(f'{args.design_mat} file not found.')
+
+        if args.design_con is None:
             raise RuntimeError('For inference you need to provide a design contrast file.')
+        elif not os.path.exists(args.design_con):
+            raise FileNotFoundError(f'{args.design_con} file not found.')
 
     if os.path.isdir(args.output):
         warn('Output directory already exists, contents might be overwritten.')

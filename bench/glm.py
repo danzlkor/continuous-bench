@@ -139,5 +139,5 @@ def read_glm_weights(data: List[str], xfm: List[str],  mask: str):
         subj_indices, valid_vox = transform_indices(x, mask_img, data_img, f"{output_add}/def_field_{subj_idx}.nii.gz")
         valid_subj_indices = tuple(subj_indices[valid_vox, :].T)
         weights[subj_idx, valid_vox] = data_img.data[valid_subj_indices].astype(float)
-
+        print(subj_idx, end=' ', flush=True)
     return weights

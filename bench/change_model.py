@@ -100,23 +100,27 @@ class ChangeModel:
             y_s = y[sam_idx].T
             dy_s = delta_y[sam_idx]
             sigma_n_s = sigma_n[sam_idx]
-            log_prob[sam_idx, 0] = log_mvnpdf(x=dy_s, mean=np.zeros(n_x), cov=sigma_n_s)
 
-            for vec_idx, ch_mdl in enumerate(self.models, 1):
-                try:
-                    mu, sigma_p = ch_mdl.estimate_change(y_s)
-                    fun = lambda dv: np.exp(param_log_posterior(dv, dy_s, mu, sigma_p, sigma_n_s, ch_mdl.sigma_v))
-                    limits = find_range(dy_s, mu, sigma_p, sigma_n_s, ch_mdl.sigma_v)
-                    integral = quad(fun, *limits, epsrel=1e-3)[0]
-                    log_prob[sam_idx, vec_idx] = np.log(integral) if integral > 0 else -np.inf
+            if np.isnan(y_s).any() or np.isnan(dy_s).any() or np.isnan(sigma_n_s).any():
+                log_prob[sam_idx, :] = np.zeros(n_models)
+            else:
+                log_prob[sam_idx, 0] = log_mvnpdf(x=dy_s, mean=np.zeros(n_x), cov=sigma_n_s)
 
-                except np.linalg.LinAlgError as err:
-                    if 'Singular matrix' in str(err):
-                        log_prob[sam_idx, vec_idx] = -1e3
-                        warnings.warn(f'noise covariance was singular for sample {sam_idx}'
-                                      f'with variances {np.diag(sigma_n_s)}')
-                    else:
-                        raise
+                for vec_idx, ch_mdl in enumerate(self.models, 1):
+                    try:
+                        mu, sigma_p = ch_mdl.estimate_change(y_s)
+                        fun = lambda dv: np.exp(param_log_posterior(dv, dy_s, mu, sigma_p, sigma_n_s, ch_mdl.sigma_v))
+                        limits = find_range(dy_s, mu, sigma_p, sigma_n_s, ch_mdl.sigma_v)
+                        integral = quad(fun, *limits, epsrel=1e-3)[0]
+                        log_prob[sam_idx, vec_idx] = np.log(integral) if integral > 0 else -np.inf
+
+                    except np.linalg.LinAlgError as err:
+                        if 'Singular matrix' in str(err):
+                            log_prob[sam_idx, vec_idx] = -1e3
+                            warnings.warn(f'noise covariance was singular for sample {sam_idx}'
+                                          f'with variances {np.diag(sigma_n_s)}')
+                        else:
+                            raise
 
         return log_prob
 

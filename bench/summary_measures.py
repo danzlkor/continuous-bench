@@ -244,24 +244,29 @@ def read_summary_images(summary_dir: str, mask: str, normalize=True):
     if n_subj == 0:
         raise Exception('No summary measures found in the specified directory.')
 
-    summaries = list()
+    summary_list = list()
     for subj_idx in range(n_subj):
         f = f'{summary_dir}/subj_{subj_idx}.nii.gz'
-        summaries.append(Image(f).data[mask_img.data > 0, :])
+        summary_list.append(Image(f).data[mask_img.data > 0, :])
 
     print(f'loaded summaries from {n_subj} subjects')
-    all_data = np.array(summaries)
-    invalid_voxs = np.isnan(summaries).any(axis=(0, 2))
-    summaries = all_data[:, invalid_voxs == 0, :]
+    all_summaries = np.array(summary_list) # n_subj, n_vox, n_dim
+    subj_n_invalids = np.isnan(all_summaries).sum(axis=(1, 2))
+    faulty_subjs = np.argwhere(subj_n_invalids > 0.2 * all_summaries.shape[1])
+    for s in faulty_subjs:
+        warn(f'Subject No. {s+1} has more than 20% out of scope voxels. You may need to exclude it in the GLM.')
+
+    invalid_voxs = np.isnan(all_summaries).any(axis=(0, 2))
+
     if invalid_voxs.sum() > 0:
-        warn(f'{invalid_voxs.sum()} voxels are dropped since they were '
-             f'outside of the brain mask in some subjects.')
+        warn(f'{invalid_voxs.sum()} voxels are excluded since they were '
+             f'outside of the image in at least one subject.')
     summary_names = np.load(f'{summary_dir}/summary_names.npy')
     summary_names = [(float(b), l) for (b, l) in list(summary_names)]
     if normalize:
-        summaries = normalize_summaries(summaries, summary_names)
+        all_summaries = normalize_summaries(all_summaries, summary_names)
 
-    return summaries, invalid_voxs
+    return all_summaries, invalid_voxs
 
 
 def normalize_summaries(summaries, summary_names):
@@ -276,7 +281,7 @@ def normalize_summaries(summaries, summary_names):
                          f'\n Expected {len(summary_names)} measures but got {summaries.shape[2]}.')
 
     b0_idx = [i for i, (b, _) in enumerate(summary_names) if b == 0]
-    mean_b0 = summaries[:, :, b0_idx].mean(axis=0)
+    mean_b0 = np.nanmean(summaries[:, :, b0_idx], axis=0)
     summaries_norm = np.zeros_like(summaries)
     for smm_idx, (_, l) in enumerate(summary_names):
         data = summaries[:, :, smm_idx]
@@ -289,12 +294,12 @@ def normalize_summaries(summaries, summary_names):
     return summaries_norm
 
 
-def transform_indices(xfm, mask, diffusion, def_field_name='def_field_tmp.nii.gz'):
+def transform_indices(xfm, mask, native_img, def_field_name='def_field_tmp.nii.gz'):
     """
-        transforms coordinates in standard space to coordinates in native diffusion space.
+        Finds corresponding coordinates in native space defined by native_img to coordinates in standard space.
         :param xfm: address to transformation from native to standard space
         :param mask: mask image.
-        :param diffusion: diffusion image
+        :param native_img: image sample in native space (e.g. diffusion)
         :param def_field_name: name of the temporary deformation field.
         :return: transformed indices and list of voxels that lie within diffusion space.
     """
@@ -304,11 +309,11 @@ def transform_indices(xfm, mask, diffusion, def_field_name='def_field_tmp.nii.gz
     img.header['intent_code'] = 2006  # for displacement field style warps
     img.to_filename(def_field_name)
 
-    transform = fnirt.readFnirt(def_field_name, diffusion, mask)
+    transform = fnirt.readFnirt(def_field_name, native_img, mask)
     os.remove(def_field_name)
     subj_indices = np.around(transform.transform(std_indices, 'voxel', 'voxel')).astype(int)
 
-    valid_vox = [np.all([0 < subj_indices[j, i] < diffusion.shape[i] for i in range(3)])
+    valid_vox = [np.all([0 < subj_indices[j, i] < native_img.shape[i] for i in range(3)])
                  for j in range(subj_indices.shape[0])]
 
     if not np.all(valid_vox):
