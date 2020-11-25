@@ -13,3 +13,7 @@
 # Python
 /build
 
+# Documentation
+doc/_build
+doc/_static
+doc/_templates
