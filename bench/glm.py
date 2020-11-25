@@ -113,11 +113,12 @@ def voxelwise_group_glm(data, weights, design_con):
     return data1, delta_data, sigma_n
 
 
-def read_glm_weights(data: List[str], xfm: List[str],  mask: str):
+def read_glm_weights(data: List[str], xfm: List[str],  mask: str, output: str):
     """
     It voxelwise glm weights for each subject in an arbitrary space and a transformation from that space to standard,
     then takes voxels that lie within the mask (that is in standard space).
     Args:
+        output: output directory to save intermediate transformation files
         data: list of nifti files one per subject
         xfm: list of transformations from the native space to standad space
         mask: address of roi mask in standard space
@@ -125,8 +126,8 @@ def read_glm_weights(data: List[str], xfm: List[str],  mask: str):
     Returns: weights matrix (n_subj , n_vox). For the voxels that lie outside of image boundaries it places nans.
 
     """
-    output_add = '~/tmp/'
-    os.makedirs(output_add, exist_ok=True)
+
+    os.makedirs(output, exist_ok=True)
     mask_img = Image(mask)
     std_indices = np.array(np.where(mask_img.data > 0)).T
 
@@ -134,10 +135,14 @@ def read_glm_weights(data: List[str], xfm: List[str],  mask: str):
     n_subj = len(data)
     weights = np.zeros((n_subj, n_vox)) + np.nan
     print('Reading GLM weights:')
+
     for subj_idx, (d, x) in enumerate(zip(data, xfm)):
         data_img = Image(d)
-        subj_indices, valid_vox = transform_indices(x, mask_img, data_img, f"{output_add}/def_field_{subj_idx}.nii.gz")
+        subj_indices, valid_vox = transform_indices(x, mask_img, data_img, f"{output}/def_field_{subj_idx}.nii.gz")
         valid_subj_indices = tuple(subj_indices[valid_vox, :].T)
         weights[subj_idx, valid_vox] = data_img.data[valid_subj_indices].astype(float)
         print(subj_idx, end=' ', flush=True)
     return weights
+
+
+

@@ -206,7 +206,6 @@ def fit_summary_to_dataset(data: list, bvecs: list, bvals: str, xfms: list, roi_
             # from_cmd(cmd.split()[1:])
 
         if 'SGE_ROOT' in os.environ.keys():
-            print('Submitting jobs to SGE ...')
             with open(f'{output}/tasklist.txt', 'w') as f:
                 for t in task_list:
                     f.write("%s\n" % t)
@@ -214,6 +213,7 @@ def fit_summary_to_dataset(data: list, bvecs: list, bvals: str, xfms: list, roi_
 
                 job_id = run(f'fsl_sub -t {output}/tasklist.txt '
                              f'-q short.q -N bench_summary -l {output}/log -s openmp,2')
+                print(f'Jobs were submitted to SGE. waiting ...')
                 fslsub.hold(job_id)
         else:
             os.system('; '.join(task_list))
@@ -225,7 +225,7 @@ def fit_summary_to_dataset(data: list, bvecs: list, bvals: str, xfms: list, roi_
             print(f'Summary measures computed for {len(data)} subjects.')
     else:
         print('Summary measurements already exist in the specified path.'
-              'If you want to re-compute delete the current files.')
+              'If you want to re-compute them, delete the current files.')
         fails = 0
 
     return fails == 0
@@ -304,13 +304,14 @@ def transform_indices(xfm, mask, native_img, def_field_name='def_field_tmp.nii.g
         :return: transformed indices and list of voxels that lie within diffusion space.
     """
     std_indices = np.array(np.where(mask.data > 0)).T
-    convertwarp(def_field_name, mask, warp1=xfm)
-    img = nib.load(def_field_name)
-    img.header['intent_code'] = 2006  # for displacement field style warps
-    img.to_filename(def_field_name)
+    if not os.path.exists(def_field_name):
+        convertwarp(def_field_name, mask, warp1=xfm)
+        img = nib.load(def_field_name)
+        img.header['intent_code'] = 2006  # for displacement field style warps
+        img.to_filename(def_field_name)
 
     transform = fnirt.readFnirt(def_field_name, native_img, mask)
-    os.remove(def_field_name)
+    # os.remove(def_field_name)
     subj_indices = np.around(transform.transform(std_indices, 'voxel', 'voxel')).astype(int)
 
     valid_vox = [np.all([0 < subj_indices[j, i] < native_img.shape[i] for i in range(3)])

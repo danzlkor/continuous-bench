@@ -94,6 +94,16 @@ def inference_parse_args(argv):
 
     args = parser.parse_args(argv)
 
+    if not os.path.exists(args.mask):
+        raise FileNotFoundError('Mask file was not found.')
+
+    if os.path.isdir(args.output):
+        warn('Output directory already exists, contents might be overwritten.')
+        if not os.access(args.output, os.W_OK):
+            raise PermissionError('user does not have permission to write in the output location.')
+    else:
+        os.makedirs(args.output, exist_ok=True)
+
     if args.summary_dir is None:
         n_subjects = min(len(args.xfm), len(args.data), len(args.bvecs))
         if len(args.data) > n_subjects:
@@ -123,10 +133,6 @@ def inference_parse_args(argv):
         elif not os.path.exists(args.design_con):
             raise FileNotFoundError(f'{args.design_con} file not found.')
 
-    if os.path.isdir(args.output):
-        warn('Output directory already exists, contents might be overwritten.')
-    else:
-        os.makedirs(args.output, exist_ok=True)
 
     return args
 
@@ -197,7 +203,7 @@ def write_nifti(model_names: list, posteriors: np.ndarray, mask_add: str, output
 
     std_indices = np.array(np.where(mask.data > 0)).T
     std_indices_valid = std_indices[[not v for v in invalids]]
-    std_indices_invalid = std_indices[invalids]
+    std_indices_invalid = std_indices[invalids == 1]
 
     for s_i, s_name in enumerate(model_names):
         data = posteriors[:, s_i]
