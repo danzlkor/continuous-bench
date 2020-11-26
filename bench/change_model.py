@@ -1,5 +1,5 @@
 """
-This module contains classes and functions to train a change model and make inference on new data.
+    This module contains classes and functions to train a change model and make inference on new data.
 """
 
 import numpy as np
@@ -32,10 +32,10 @@ class ChangeVector:
 
     def estimate_change(self, y: np.ndarray):
         """
-            Computes predicted mu and sigma at the given point for this model of change
-              :param y: sample data
-              :return: Tuple with: mu and sigma as dictionaries
-              """
+        Computes predicted mu and sigma at the given point for this model of change
+        :param y: sample data
+        :return: Tuple with: mu and sigma as dictionaries
+        """
         if y.ndim == 1:
             y = y[np.newaxis, :]
 
@@ -80,17 +80,14 @@ class ChangeModel:
         predictions = np.argmax(posteriors, axis=1)
         return posteriors, predictions
 
-    # warnings.filterwarnings("ignore", category=RuntimeWarning)
-
     def compute_log_likelihood(self, y, delta_y, sigma_n):
         """
         Computes log_likelihood function for all models of change.
-            :param y: (n_samples, n_x) array of summary measurements
-            :param delta_y: (n_samples, n_x) array of delta data
-            :param sigma_n: (n_samples, dim, dim) noise covariance per sample
+        :param y: (n_samples, n_x) array of summary measurements
+        :param delta_y: (n_samples, n_x) array of delta data
+        :param sigma_n: (n_samples, dim, dim) noise covariance per sample
         :return: np array containing log likelihood for each sample per class
         """
-
         n_samples, n_x = y.shape
         n_models = len(self.models) + 1
         log_prob = np.zeros((n_samples, n_models))
@@ -143,31 +140,11 @@ def make_pipeline(degree: int, alpha: float) -> Pipeline:
 @dataclass
 class Trainer:
     """
-    A class for training models of change
-        ...
-
-        Attributes
-        ----------
-        forward_model : Callable
-            The forward model, it must be function of the form f(x, **params) that returns a numpy array
-        x : str
-            Any object that the function receives as input argument (in case of scalar functions
-            it must accept a sequence and return a value per item
-        param_prior_dists : Mapping
-            A dictionary with keys being name of the forward model parameters and values
-            must be scipy.stats distribution objects
-        vecs : numpy array
-            a matrix with each row representing one vector of change in the parameter space. the number of columns
-            should match the number of parameters.
-        sigma_v:
-
-        Methods
-        -------
-        says(sound=None)
-            Prints the animals name and what sound it makes
+        A class for training models of change
     """
     forward_model: Callable
-    x: Any
+    """ The forward model, it must be function of the form f(args, **params) that returns a numpy array. """
+    args: Any
     param_prior_dists: Mapping[str, rv_continuous]
     vecs: np.ndarray = None
     sigma_v: Union[float, List[float], np.ndarray] = 0.1
@@ -198,13 +175,13 @@ class Trainer:
 
     def train(self, n_samples=10000, poly_degree=2, regularization=1, k=100, dv0=1e-6, model_name=None):
         """
-          Train change models (estimates w_mu and w_l) using forward model simulation
-            :param n_samples: number simulated samples to estimate forward model
-            :param k: nearest neighbours parameter
-            :param dv0: the amount perturbation in parameter to estimate derivatives
-            :param poly_degree: polynomial degree for regression
-            :param regularization: ridge regression alpha
-          """
+        Train change models (estimates w_mu and w_l) using forward model simulation
+        :param n_samples: number simulated samples to estimate forward model
+        :param k: nearest neighbours parameter
+        :param dv0: the amount perturbation in parameter to estimate derivatives
+        :param poly_degree: polynomial degree for regression
+        :param regularization: ridge regression alpha
+        """
         models = []
         for vec, sigma_v, prior in zip(self.vecs, self.sigma_v, self.priors):
             vec_name = ' + '.join([f'{v:1.1f}{p}' for p, v in zip(self.param_names, vec) if v != 0]).replace('1.0', '')
@@ -216,7 +193,7 @@ class Trainer:
                                        name=vec_name))
 
         params_test = {p: v.mean() for p, v in self.param_prior_dists.items()}
-        n_y = len(self.forward_model(self.x, **params_test))
+        n_y = len(self.forward_model(self.args, **params_test))
         n_vec = len(self.vecs)
 
         y_1 = np.zeros((n_samples, n_y))
@@ -224,10 +201,10 @@ class Trainer:
 
         for s_idx in range(n_samples):
             params_1 = {p: v.rvs() for p, v in self.param_prior_dists.items()}
-            y_1[s_idx] = self.forward_model(self.x, **params_1)
+            y_1[s_idx] = self.forward_model(self.args, **params_1)
             for v_idx, vec in enumerate(self.vecs):
                 params_2 = {k: v + dv * dv0 for (k, v), dv in zip(params_1.items(), vec)}
-                y_2[v_idx, s_idx] = self.forward_model(self.x, **params_2)
+                y_2[v_idx, s_idx] = self.forward_model(self.args, **params_2)
 
         dy = (y_2 - y_1) / dv0
         sample_mu, sample_l = knn_estimation(y_1, dy, k=k)
@@ -295,7 +272,7 @@ def log_mvnpdf(x, mean, cov):
     """
     log of multivariate normal distribution
     :param x: input numpy array
-    :param mean: mean of the distribution numpy array same size of x
+    :param mean: mean of the distribution numpy array same size of args
     :param cov: covariance of distribution, numpy array
     :return scalar
     """

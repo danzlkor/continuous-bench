@@ -75,7 +75,7 @@ def compute_summary(signal, acq: Acquisition, sph_degree=4):
     :param signal: array of simulated diffusion signal (..., n_bvecs)
     :param acq: Acquisition object containing acquisition parameters
     :param sph_degree: degree of sh coefficients
-    :return: summary_measures (..., n_shells x n_smm - invalids)
+    :return: summary_measures (..., n_shells args n_smm - invalids)
     """
     assert signal.shape[-1] == len(acq.idx_shells)
 
@@ -152,7 +152,7 @@ def noise_variance(gradients, smm, l, sigma_n, l_max):
 def cart2spherical(x, y, z):
     """
     Converts to spherical coordinates
-    :param x: x-component of the vector
+    :param x: args-component of the vector
     :param y: y-component of the vector
     :param z: z-component of the vector
     :return: tuple with (r, phi, theta)-coordinates
