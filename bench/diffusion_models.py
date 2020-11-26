@@ -93,7 +93,7 @@ def ball(bval=0, bvec=np.array([0, 0, 1]), d_iso=1., s0=def_s0):
     return s0 * np.exp(-bval * d_iso)
 
 
-def stick(bval=0, bvec=np.array([0, 0, 1]), d_a=1., theta=0., phi=0., s0=def_s0):
+def stick(bval=0, bvec=np.array([0, 0, 1]), d_a=1., theta=0., phi=0.0, s0=def_s0):
     """
     Simulates diffusion signal from single stick model
 
@@ -317,7 +317,6 @@ def bingham_noddi(bval=0, bvec=np.array([0, 0, 1]),
 def spherical2cart(theta, phi, r=1):
     """
     Converts spherical to cartesian coordinates
-
     :param theta: angel from z axis
     :param phi: angle from x axis
     :param r: radius
@@ -332,7 +331,6 @@ def spherical2cart(theta, phi, r=1):
 def cart2spherical(n):
     """
     Converts to spherical coordinates
-
     :param n: (:, 3) array containing vectors in (x,y,z) coordinates
     :return: tuple with (phi, theta, r)-coordinates
     """

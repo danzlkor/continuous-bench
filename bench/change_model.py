@@ -23,23 +23,13 @@ from typing import Mapping
 class ChangeVector:
     """
     class for a single model of change
-
-    :arg vec: maps parameter name to how much it changes
-    :arg mu_mdl: maps position in data space to mean change due to this vector
-    :arg l_mdl: maps position in data space to covariance matrix of change due to this vector
-    :arg sigma_v: standard deviation for the size of change
-    :arg prior: how likely is this model of change
     """
-    vec: Mapping[str, float]
+    vec: np.ndarray
     mu_mdl: Pipeline
     l_mdl: Pipeline
     sigma_v: float = 0.1
     prior: float = 1
-    name: str = None
-
-    def __post_init__(self):
-        if self.name is None:
-            self.name = ' '.join([f'{v:+1.1f}{p}' for p, v in self.vec.items()]).replace('1.0', '')
+    name: str = 'unnamed'
 
     def estimate_change(self, y: np.ndarray):
         """
@@ -60,20 +50,14 @@ class ChangeVector:
         return mu, sigma
 
 
+@dataclass
 class ChangeModel:
-    """
-    All possible change vectors for a given data model
-    """
+    models: List[ChangeVector]
+    name: str
 
-    def __init__(self, models: List[ChangeVector], model_name: str='unnamed'):
-        """
-        Create a new model of change
-
-        :param models: list of possible changes
-        :param model_name: name of model
-        """
-        self.models = models
-        self.model_name = model_name
+    def __post_init__(self):
+        if self.name is None:
+            self.name = 'unnamed'
 
     def save(self, path='./', file_name=None):
         """
@@ -174,27 +158,11 @@ def make_pipeline(degree: int, alpha: float) -> Pipeline:
 @dataclass
 class Trainer:
     """
-    A class for training models of change
-
-        Attributes
-        ----------
-        forward_model : Callable
-            The forward model, it must be function of the form f(x, **params) that returns a numpy array
-        args : Any
-            Any object that the function receives as input argument (in case of scalar functions
-            it must accept a sequence and return a value per item
-        param_prior_dists : Mapping
-            A dictionary with keys being name of the forward model parameters and values
-            must be scipy.stats distribution objects
-        vecs : numpy array
-            a matrix with each row representing one vector of change in the parameter space. the number of columns
-            should match the number of parameters.
-        sigma_v:
+        A class for training models of change
     """
     forward_model: Callable
-    """the forward model, it must be function of the form f(x, **params)"""
-    x: Any
-
+    """ The forward model, it must be function of the form f(args, **params) that returns a numpy array. """
+    args: Any
     param_prior_dists: Mapping[str, rv_continuous]
     vecs: np.ndarray = None
     sigma_v: Union[float, List[float], np.ndarray] = 0.1
@@ -235,7 +203,7 @@ class Trainer:
           """
         models = []
         for vec, sigma_v, prior in zip(self.vecs, self.sigma_v, self.priors):
-            vec_name = ' '.join([f'{v:+1.1f}{p}' for p, v in zip(self.param_names, vec) if v != 0]).replace('1.0', '')
+            vec_name = ' + '.join([f'{v:1.1f}{p}' for p, v in zip(self.param_names, vec) if v != 0]).replace('1.0', '')
             models.append(ChangeVector(vec=vec,
                                        mu_mdl=make_pipeline(poly_degree, regularization),
                                        l_mdl=make_pipeline(poly_degree, regularization),

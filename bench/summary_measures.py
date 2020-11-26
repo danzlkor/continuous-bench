@@ -185,14 +185,8 @@ def nan_mat(shape):
 def fit_summary_to_dataset(data: list, bvecs: list, bvals: str, xfms: list, roi_mask: str, sph_degree: int,
                            output: str):
     """
-    Submits jobs to process diffusion data for each subject
-
-    Submitted jobs do the following
-
-        - extract diffusion data for each voxel in mask
-        - fits spherical harmonics to the diffusion data
-        - compute summary measures from spherical harmonics
-        - stores the summary measures in a separate image
+    Resamples diffusion data to std space, fits spherical harmonics to the input images and stores the outputs per
+    seubject in a separate image.
 
     :param data: list of filenames for diffusion images.
     :param bvecs: list of filenames for bvecs
@@ -203,13 +197,12 @@ def fit_summary_to_dataset(data: list, bvecs: list, bvals: str, xfms: list, roi_
     :param sph_degree: degree for spherical harmonics.
     :return: saves images to the specified path and returns true flag if the process done completely.
     """
-    job_id = None
     os.makedirs(output, exist_ok=True)
     if len(glob.glob(output + '/subj_*.nii.gz')) < len(data):
         py_file_path = os.path.realpath(__file__)
         task_list = list()
         for subj_idx, (x, d, bv) in enumerate(zip(xfms, data, bvecs)):
-            cmd = f'{sys.excecutable} {py_file_path} {subj_idx} {d} {x} {bv} {bvals} {roi_mask} {sph_degree} {output}'
+            cmd = f'python3 {py_file_path} {subj_idx} {d} {x} {bv} {bvals} {roi_mask} {sph_degree} {output}'
             task_list.append(cmd)
             # from_cmd(cmd.split()[1:])
 
@@ -220,13 +213,11 @@ def fit_summary_to_dataset(data: list, bvecs: list, bvals: str, xfms: list, roi_
                 f.close()
 
                 job_id = run(f'fsl_sub -t {output}/tasklist.txt '
-                             f'-T 240 -N bench_summary -l {output}/log -s openmp,2')
+                             f'-q short.q -N bench_summary -l {output}/log -s openmp,2')
                 print(f'Jobs were submitted to SGE. waiting ...')
                 fslsub.hold(job_id)
         else:
-            for task in task_list:
-                print('running ', task)
-                os.system(task)
+            os.system('; '.join(task_list))
 
         fails = len(data) - len(glob.glob(output + '/subj_*.nii.gz'))
         if fails > 0:
@@ -236,13 +227,14 @@ def fit_summary_to_dataset(data: list, bvecs: list, bvals: str, xfms: list, roi_
     else:
         print('Summary measurements already exist in the specified path.'
               'If you want to re-compute them, delete the current files.')
-    return job_id
+        fails = 0
+
+    return fails == 0
 
 
 def read_summary_images(summary_dir: str, mask: str, normalize=True):
     """
     Reads summary measure images
-
     :param summary_dir: path to the summary measurements
     :param mask: roi mask file name
     :param normalize: normalize the data by group average
@@ -281,7 +273,6 @@ def read_summary_images(summary_dir: str, mask: str, normalize=True):
 def normalize_summaries(summaries, summary_names):
     """
     Normalises summary measures for all subjects. (divide by average attenuation)
-
     :param summary_names: name of summaries, needed for knowing how to normalize
     :param summaries: array of summaries for all subjects
     :return: normalised summaries

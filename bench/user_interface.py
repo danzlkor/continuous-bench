@@ -12,7 +12,9 @@ import nibabel as nib
 
 def inference_from_cmd(argv=None):
     """
-    Wrapper function to parse input and run main.
+    Wrapper function to parse the input from commandline and run the requested pipeline.
+
+
     :param argv: string from command line containing all required inputs 
     :return: saves the output images to the specified path
     """

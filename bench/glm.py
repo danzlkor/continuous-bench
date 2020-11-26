@@ -1,6 +1,5 @@
-
 """
-This module reads diffusion data and returns data in proper format for inference
+    This module reads diffusion data and returns data in proper format for inference
 """
 
 import numpy as np
@@ -13,7 +12,9 @@ from typing import List
 
 def group_glm(data, design_mat, design_con):
     """
-    Performs group glm on the given data 
+    Performs group glm on the given data
+
+
     :param data: 3d numpy array (n_subj, n_vox, n_dim) 
     :param design_mat: path to design.mat file
     :param design_con: path to design.con file, the first contrast must be first group mean, the second contrast is the 
@@ -46,9 +47,11 @@ def group_glm(data, design_mat, design_con):
 
 def loadcontrast(design_con):
     """
-        Reads design.con file. This function adopted from fslpy.data.loadContrasts with some minor changes
-        :param design_con: path to a design.con file generated with fsl glm_gui
-        :return: name of contrasts and the contrast vectors.
+    Reads design.con file. This function adopted from fslpy.data.loadContrasts with some minor changes
+
+
+    :param design_con: path to a design.con file generated with fsl glm_gui
+    :return: name of contrasts and the contrast vectors.
     """
     names = {}
     with open(design_con, 'rt') as f:
@@ -78,6 +81,8 @@ def loadcontrast(design_con):
 def voxelwise_group_glm(data, weights, design_con):
     """
     Performs voxel-wise group glm on the given data with weights
+
+
     :param data: 3d numpy array (n_subj, n_vox, n_dim)
     :param weights: 2d numpy array (n_subj, n_vox)
     :param design_con: path to design.con file, the first contrast must be first group mean, the second contrast is the
@@ -115,15 +120,14 @@ def voxelwise_group_glm(data, weights, design_con):
 
 def read_glm_weights(data: List[str], xfm: List[str],  mask: str, output: str):
     """
-    It voxelwise glm weights for each subject in an arbitrary space and a transformation from that space to standard,
+    Voxelwise glm weights for each subject in an arbitrary space and a transformation from that space to standard,
     then takes voxels that lie within the mask (that is in standard space).
-    Args:
-        output: output directory to save intermediate transformation files
-        data: list of nifti files one per subject
-        xfm: list of transformations from the native space to standad space
-        mask: address of roi mask in standard space
 
-    Returns: weights matrix (n_subj , n_vox). For the voxels that lie outside of image boundaries it places nans.
+    :param output: output directory to save intermediate transformation files
+    :param data: list of nifti files one per subject
+    :param xfm: list of transformations from the native space to standad space
+    :param mask: address of roi mask in standard space
+    :returns: weights matrix (n_subj , n_vox). For the voxels that lie outside of image boundaries it places nans.
 
     """
 
@@ -143,6 +147,3 @@ def read_glm_weights(data: List[str], xfm: List[str],  mask: str, output: str):
         weights[subj_idx, valid_vox] = data_img.data[valid_subj_indices].astype(float)
         print(subj_idx, end=' ', flush=True)
     return weights
-
-
-
