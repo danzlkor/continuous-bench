@@ -231,6 +231,7 @@ class Trainer:
             :param dv0: the amount perturbation in parameter to estimate derivatives
             :param poly_degree: polynomial degree for regression
             :param regularization: ridge regression alpha
+            :param model_name: name of the model.
           """
         models = []
         for vec, sigma_v, prior in zip(self.vecs, self.sigma_v, self.priors):

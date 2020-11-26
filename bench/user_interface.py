@@ -143,8 +143,11 @@ def train_from_cmd(argv=None):
     forward_model = funcdict[args.model]
     param_dist = diffusion_models.prior_distributions[args.model]
 
-    idx_shells, shells = acquisition.ShellParameters.create_shells(bval=args.bval)
-    bvecs = diffusion_models.uniform_sampling_sphere(len(idx_shells))
+    bvals = np.genfromtxt(args.bval)
+    idx_shells, shells = acquisition.ShellParameters.create_shells(bval=bvals)
+
+    bvecs = np.array(diffusion_models.spherical2cart(
+        *diffusion_models.uniform_sampling_sphere(len(idx_shells)))).T
     acq = acquisition.Acquisition(shells, idx_shells, bvecs)
     trainer = change_model.Trainer(forward_model=diffusion_models.decorator(forward_model),
                                    x=(acq, int(args.d)),
@@ -171,7 +174,6 @@ def train_parse_args(argv):
     optional.add_argument("-p", default=2, type=int, help="polynomial degree for design matrix", required=False)
     optional.add_argument("-d", default=4, type=int, help="spherical harmonics degree", required=False)
     optional.add_argument("--alpha", default=0.5, type=float, help="regularization weight", required=False)
-    optional.add_argument("--bvec", help="bvecs file", required=False)
     optional.add_argument("--change-vecs", help="vectors of change", default=None, required=False)
 
     args = parser.parse_args(argv)
