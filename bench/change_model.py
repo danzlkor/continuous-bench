@@ -212,7 +212,7 @@ class Trainer:
                                        name=vec_name))
 
         params_test = {p: v.mean() for p, v in self.param_prior_dists.items()}
-        n_y = len(self.forward_model(self.x, **params_test))
+        n_y = len(self.forward_model(self.args, **params_test))
         n_vec = len(self.vecs)
 
         y_1 = np.zeros((n_samples, n_y))
@@ -220,10 +220,10 @@ class Trainer:
 
         for s_idx in range(n_samples):
             params_1 = {p: v.rvs() for p, v in self.param_prior_dists.items()}
-            y_1[s_idx] = self.forward_model(self.x, **params_1)
+            y_1[s_idx] = self.forward_model(self.args, **params_1)
             for v_idx, vec in enumerate(self.vecs):
                 params_2 = {k: v + dv * dv0 for (k, v), dv in zip(params_1.items(), vec)}
-                y_2[v_idx, s_idx] = self.forward_model(self.x, **params_2)
+                y_2[v_idx, s_idx] = self.forward_model(self.args, **params_2)
 
         dy = (y_2 - y_1) / dv0
         sample_mu, sample_l = knn_estimation(y_1, dy, k=k)
@@ -305,9 +305,6 @@ def log_mvnpdf(x, mean, cov):
 
 
 def param_log_posterior(dv, dd, mu, sigma_p, sigma_n, sigma_v):
-    """
-      Computes the log of function inside integral N(mu * dv , sigma_p * dv^2 + sigma_n) * N(0, sigma_v)
-    """
 
     mean = np.squeeze(mu * dv)
     cov = np.squeeze(sigma_p) * dv ** 2 + sigma_n

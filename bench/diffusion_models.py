@@ -63,7 +63,8 @@ prior_distributions = dict(
                                              a=-dif_coeff / 0.3, b=np.Inf),
                    'tortuosity': stats.uniform(loc=0, scale=1),
                    'odi': stats.uniform(loc=.2, scale=.4),
-                   'odi_ratio': stats.uniform(loc=.4, scale=.5)
+                   'odi_ratio': stats.uniform(loc=.4, scale=.5),
+                   'psi': stats.uniform(loc=np.pi/2, scale=np.pi/2)
                    }
 )
 
@@ -272,10 +273,13 @@ def watson_noddi(bval=0, bvec=np.array([0, 0, 1]),
     assert s0 >= 0, 's0 cant be negative'
     a_iso = ball(bval=bval, bvec=bvec, d_iso=d_iso, s0=s_iso)
     a_int = bingham_zeppelin(bval=bval, bvec=bvec, d_a=d_a_in, d_r=0,
-                             odi=odi, odi2=odi, theta=theta, phi=phi, s0=s_in)
+                             odi=odi, odi2=odi, 
+                             psi=0, theta=theta, phi=phi, s0=s_in)
+    
     a_ext = bingham_zeppelin(bval=bval, bvec=bvec, d_a=d_a_ex,
                              d_r=d_a_ex * tortuosity,
-                             odi=odi, odi2=odi, theta=theta, phi=phi, s0=s_ex)
+                             odi=odi, odi2=odi, 
+                             psi=0, theta=theta, phi=phi, s0=s_ex)
 
     return (a_iso + a_int + a_ext) * s0
 
@@ -283,7 +287,7 @@ def watson_noddi(bval=0, bvec=np.array([0, 0, 1]),
 def bingham_noddi(bval=0, bvec=np.array([0, 0, 1]),
                   s_iso=0.5, s_in=0.5, s_ex=.5,
                   d_iso=1., d_a_in=1., d_a_ex=1., tortuosity=0.5,
-                  odi=1, odi_ratio=1, theta=0., phi=0., s0=1.):
+                  odi=1, odi_ratio=1, psi=0, theta=0., phi=0., s0=1.):
     """
     Simulates diffusion signal with Bingham dispressed NODDI model
 
@@ -298,6 +302,7 @@ def bingham_noddi(bval=0, bvec=np.array([0, 0, 1]),
     :param tortuosity: ratio for radial diffusion coefficient for intra-axonal compartment
     :param odi: dispersion parameter of bingham distribution
     :param odi_ratio: ratio for dispersion parameter of bingham distribution
+    :param psi: fanning orientation
     :param theta: orientation of stick from z axis
     :param phi: orientation of stick from x axis
     :param s0: attenuation for b=0
@@ -306,9 +311,11 @@ def bingham_noddi(bval=0, bvec=np.array([0, 0, 1]),
 
     a_iso = ball(bval=bval, bvec=bvec, d_iso=d_iso, s0=s_iso)
     a_int = bingham_zeppelin(bval=bval, bvec=bvec, d_a=d_a_in, d_r=0,
-                             odi=odi, odi2=odi * odi_ratio, theta=theta, phi=phi, s0=s_in)
+                             odi=odi, odi2=odi * odi_ratio,
+                             psi=psi, theta=theta, phi=phi, s0=s_in)
     a_ext = bingham_zeppelin(bval=bval, bvec=bvec, d_a=d_a_ex, d_r=d_a_ex * tortuosity,
-                             odi=odi, odi2=odi * odi_ratio, theta=theta, phi=phi, s0=s_ex)
+                             odi=odi, odi2=odi * odi_ratio,
+                             psi=psi, theta=theta, phi=phi, s0=s_ex)
 
     return (a_iso + a_int + a_ext) * s0
 

@@ -152,7 +152,7 @@ def train_from_cmd(argv=None):
         *diffusion_models.uniform_sampling_sphere(len(idx_shells)))).T
     acq = acquisition.Acquisition(shells, idx_shells, bvecs)
     trainer = change_model.Trainer(forward_model=diffusion_models.decorator(forward_model),
-                                   x=(acq, int(args.d)),
+                                   args=(acq, int(args.d)),
                                    vecs=args.change_vecs,
                                    param_prior_dists=param_dist)
 
