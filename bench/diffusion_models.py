@@ -530,11 +530,12 @@ def simulate_signal(model, acq, params):
     return signal
 
 
-def decorator(model):
-    def func(x, **params):
-        acq, sph_degree = x
+def train_decorator(model):
+    def func(args, **params):
+        acq, sph_degree, noise_level = args
         sig = simulate_signal(model, acq, params)
-        sm = summary_measures.compute_summary(sig, acq, sph_degree=sph_degree)
+        noise = np.random.randn(*sig.shape) * noise_level
+        sm = summary_measures.compute_summary(sig + noise, acq, sph_degree=sph_degree)
         sm = np.stack(list(sm.values()))
         return sm
     return func

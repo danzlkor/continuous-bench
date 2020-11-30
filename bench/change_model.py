@@ -5,7 +5,7 @@ This module contains classes and functions to train a change model and make infe
 import numpy as np
 from scipy.spatial import KDTree
 from scipy.stats import rv_continuous
-from typing import Callable, List, Any, Mapping, Union, Sequence
+from typing import Callable, List, Any, Union, Sequence, Mapping
 from progressbar import ProgressBar
 from dataclasses import dataclass
 from sklearn.preprocessing import PolynomialFeatures
@@ -16,7 +16,6 @@ from scipy.integrate import quad
 from scipy.optimize import minimize_scalar, root_scalar
 import warnings
 import pickle
-from typing import Mapping
 
 
 @dataclass
@@ -53,11 +52,11 @@ class ChangeVector:
 @dataclass
 class ChangeModel:
     models: List[ChangeVector]
-    name: str
+    model_name: str
 
     def __post_init__(self):
-        if self.name is None:
-            self.name = 'unnamed'
+        if self.model_name is None:
+            self.model_name = 'unnamed'
 
     def save(self, path='./', file_name=None):
         """
@@ -132,7 +131,7 @@ class ChangeModel:
                     except np.linalg.LinAlgError as err:
                         if 'Singular matrix' in str(err):
                             log_prob[sam_idx, vec_idx] = -1e3
-                            warnings.warn(f'noise covariance was singular for sample {sam_idx}'
+                            warnings.warn(f'noise covariance is singular for sample {sam_idx}'
                                           f'with variances {np.diag(sigma_n_s)}')
                         else:
                             raise
@@ -155,6 +154,26 @@ def make_pipeline(degree: int, alpha: float) -> Pipeline:
     return Pipeline(steps=steps)
 
 
+def string_to_dict(str_):
+    dict_ = {}
+    for term in str_.split(' '):
+        sign = term[0]
+        if '*' in term:
+            n = term[1:].split('*')
+            coef = n[0]
+            pname = n[1]
+        else:
+            coef = '1'
+            pname = term[1:]
+
+        dict_[pname] = float(sign + coef)
+    return dict_
+
+
+def dict_to_str(dict_):
+    return ' '.join([f'{v:+1.1f}*{p}' for p, v in dict_.items() if v != 0]).replace('1.0', '')
+
+
 @dataclass
 class Trainer:
     """
@@ -164,32 +183,59 @@ class Trainer:
     """ The forward model, it must be function of the form f(args, **params) that returns a numpy array. """
     args: Any
     param_prior_dists: Mapping[str, rv_continuous]
-    vecs: np.ndarray = None
+    change_vecs: List[Mapping] = None
     sigma_v: Union[float, List[float], np.ndarray] = 0.1
     priors: Union[float, Sequence] = 1
 
     def __post_init__(self):
-        if self.vecs is None:
-            self.vecs = np.eye(len(self.param_prior_dists))
 
-        if self.vecs.shape[1] != len(self.param_prior_dists):
-            raise (f'Length of change vectors must be equal to the number of parameters. '
-                   f'{len(self.param_prior_dists)} expected but {self.vecs.shape[1]} is given.')
+        self.param_names = list(self.param_prior_dists.keys())
+
+        if self.change_vecs is None:
+            self.change_vecs = [{p: c} for p in self.param_names for c in (-1, 1)]
+            self.vec_names = [dict_to_str(s) for s in self.change_vecs]
+        elif np.all([p is dict for p in self.change_vecs]):
+            self.vec_names = [dict_to_str(s) for s in self.change_vecs]
+        elif np.all([p is str for p in self.change_vecs]):
+            self.vec_names = self.change_vecs
+            self.change_vecs = [string_to_dict(str(s)) for s in self.vec_names]
+        else:
+            raise ValueError(" Change vectors are not defined properly.")
+
+        for d in self.change_vecs:
+            for pname in d.keys():
+                if pname not in self.param_names:
+                    raise KeyError(f"parameter {pname} is not defined as a free parameters of the forward model."
+                                   f"The parameters are {self.param_names}")
+
+        self.n_vecs = len(self.change_vecs)
+
         if np.isscalar(self.sigma_v):
-            self.sigma_v = [self.sigma_v] * len(self.vecs)
-
-        if len(self.sigma_v) != self.vecs.shape[0]:
+            self.sigma_v = [self.sigma_v] * self.n_vecs
+        elif len(self.sigma_v) != self.n_vecs:
             raise ("sigma_v must be either a scalar (same for all change models) "
                    "or a sequence with size of number of change models.")
 
         if np.isscalar(self.priors):
-            self.priors = [self.priors] * len(self.vecs)
-
-        if len(self.priors) != self.vecs.shape[0]:
+            self.priors = [self.priors] * self.n_vecs
+        elif len(self.priors) != self.n_vecs:
             raise ("priors must be either a scalar (same for all change models) "
                    "or a sequence with size of number of change models.")
 
-        self.param_names = list(self.param_prior_dists.keys())
+        params_test = {p: v.mean() for p, v in self.param_prior_dists.items()}
+        try:
+            self.n_y = self.forward_model(self.args, **params_test).size
+        except Exception as ex:
+            print("The provided function does not work with the given parameters and args.")
+            raise ex
+        if self.n_y == 1:
+            raise ValueError('The forward model must produce at least two dimensional output.')
+
+    def vec_to_dict(self, vec: np.ndarray):
+        return {p: v for p, v in zip(self.param_names, vec) if v != 0}
+
+    def dict_to_vec(self, dict_: Mapping):
+        return np.arry([dict_.get(p, 0) for p in self.param_names])
 
     def train(self, n_samples=10000, poly_degree=2, regularization=1, k=100, dv0=1e-6, model_name=None):
         """
@@ -202,38 +248,62 @@ class Trainer:
             :param model_name: name of the model.
           """
         models = []
-        for vec, sigma_v, prior in zip(self.vecs, self.sigma_v, self.priors):
-            vec_name = ' + '.join([f'{v:1.1f}{p}' for p, v in zip(self.param_names, vec) if v != 0]).replace('1.0', '')
-            models.append(ChangeVector(vec=vec,
+        for vec, name, sigma_v, prior in zip(self.change_vecs, self.vec_names, self.sigma_v, self.priors):
+            models.append(ChangeVector(vec=self.dict_to_vec(vec),
                                        mu_mdl=make_pipeline(poly_degree, regularization),
                                        l_mdl=make_pipeline(poly_degree, regularization),
                                        sigma_v=sigma_v,
                                        prior=prior,
-                                       name=vec_name))
+                                       name=str(name)))
 
-        params_test = {p: v.mean() for p, v in self.param_prior_dists.items()}
-        n_y = len(self.forward_model(self.args, **params_test))
-        n_vec = len(self.vecs)
-
-        y_1 = np.zeros((n_samples, n_y))
-        y_2 = np.zeros((n_vec, n_samples, n_y))
-
-        for s_idx in range(n_samples):
-            params_1 = {p: v.rvs() for p, v in self.param_prior_dists.items()}
-            y_1[s_idx] = self.forward_model(self.args, **params_1)
-            for v_idx, vec in enumerate(self.vecs):
-                params_2 = {k: v + dv * dv0 for (k, v), dv in zip(params_1.items(), vec)}
-                y_2[v_idx, s_idx] = self.forward_model(self.args, **params_2)
-
+        y_1, y_2 = self.generate_samples(n_samples, dv0)
         dy = (y_2 - y_1) / dv0
         sample_mu, sample_l = knn_estimation(y_1, dy, k=k)
 
-        for idx in range(n_vec):
+        for idx in range(self.n_vecs):
             models[idx].mu_mdl.fit(y_1, sample_mu[idx])
             models[idx].l_mdl.fit(y_1, sample_l[idx])
             print(f'Model of change for vector {models[idx].name} trained successfully.')
 
-        return ChangeModel(models=models, name=model_name)
+        return ChangeModel(models=models, model_name=model_name)
+
+    def generate_samples(self, n_samples: int, eff_size: float) -> tuple:
+        y_1 = np.zeros((n_samples, self.n_y))
+        y_2 = np.zeros((self.n_vecs, n_samples, self.n_y))
+
+        for s_idx in range(n_samples):
+            params_1 = {p: v.rvs() for p, v in self.param_prior_dists.items()}
+            y_1[s_idx] = self.forward_model(self.args, **params_1)
+            for v_idx, vec in enumerate(self.change_vecs):
+                params_2 = {k: v + dv * eff_size for (k, v), dv in zip(params_1.items(), vec)}
+                y_2[v_idx, s_idx] = self.forward_model(self.args, **params_2)
+        return y_1, y_2
+
+    def generate_test_samples(self, n_samples=1000, effect_size=0.1, noise_level=0.0, n_repeats=100):
+        y_1 = np.zeros((n_samples, self.n_y))
+        y_2 = np.zeros((n_samples, self.n_y))
+        sigma_n = np.zeros((n_samples, self.n_y, self.n_y))
+        true_change = np.random.randint(0, self.n_vecs + 1, n_samples)
+        args = (*self.args[:-1], noise_level)
+
+        y_1_r = np.zeros((n_repeats, self.n_y))
+        y_2_r = np.zeros_like(y_1_r)
+        for s_idx in range(n_samples):
+            params_1 = {p: v.rvs() for p, v in self.param_prior_dists.items()}
+            if true_change[s_idx] == 0:
+                params_2 = params_1
+            else:
+                params_2 = {k: v + dv * effect_size for (k, v), dv in
+                            zip(params_1.items(), self.change_vecs[true_change[s_idx] - 1])}
+
+            for r in range(n_repeats):
+                y_1_r[r] = self.forward_model(args, **params_1)
+                y_2_r[r] = self.forward_model(args, **params_2)
+
+            y_1[s_idx] = y_1_r.mean(axis=0)
+            y_2[s_idx] = y_2_r.mean(axis=0)
+            sigma_n[s_idx] = np.cov(y_1_r - y_2_r)
+        return y_1, y_2, sigma_n
 
 
 # helper functions:

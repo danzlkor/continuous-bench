@@ -151,7 +151,7 @@ def train_from_cmd(argv=None):
     bvecs = np.array(diffusion_models.spherical2cart(
         *diffusion_models.uniform_sampling_sphere(len(idx_shells)))).T
     acq = acquisition.Acquisition(shells, idx_shells, bvecs)
-    trainer = change_model.Trainer(forward_model=diffusion_models.decorator(forward_model),
+    trainer = change_model.Trainer(forward_model=diffusion_models.train_decorator(forward_model),
                                    args=(acq, int(args.d)),
                                    vecs=args.change_vecs,
                                    param_prior_dists=param_dist)

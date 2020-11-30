@@ -69,7 +69,7 @@ def compute_summary_shell(signal, bvecs, sph_degree=4, lmax=6):
     return smm
 
 
-def compute_summary(signal, acq: Acquisition, sph_degree=4):
+def compute_summary(signal, acq: Acquisition, sph_degree):
     """
     Computes summary measurements from simulated diffusion MRI signal
     :param signal: array of simulated diffusion signal (..., n_bvecs)
@@ -90,13 +90,13 @@ def compute_summary(signal, acq: Acquisition, sph_degree=4):
     return sum_meas
 
 
-def noise_propagation(signal, data, acq, sigma_n=1, sph_degree=4):
+def noise_propagation(summaries, acq, sph_degree, sigma_n=1):
     """
     Computes noise covariance matrix of measurements for a given signal
-        :param signal: single shell signal
-        :param data: (n_samples, dim) array of data
+        :param summaries: (n_samples, dim) array of data
         :param acq: acquisition parameters
         :param sigma_n: noise std
+        :param sph_degree: degree for spherical harmonics
         :return: mu, cov(n_sample, dim, dim)
     """
     variances = list()
@@ -105,16 +105,37 @@ def noise_propagation(signal, data, acq, sigma_n=1, sph_degree=4):
         bval = this_shell.bval
         if bval == 0:
             variances.append(
-                noise_variance(acq.bvecs[dirs], data[(0, 'l0')], 0, sigma_n, this_shell.lmax))
+                noise_variance(acq.bvecs[dirs], summaries[0], 0, sigma_n, this_shell.lmax))
 
         else:
             for l in np.arange(0, sph_degree + 1, 2):
-                name = (bval, f'l{l}')
-                variances.append(
-                    noise_variance(acq.bvecs[dirs], data[name], l, sigma_n, this_shell.lmax))
+                idx = (shell_idx - 1) * (sph_degree // 2 + 1) + l//2 + 1
+                variances.append(noise_variance(acq.bvecs[dirs], summaries[idx], l, sigma_n, this_shell.lmax))
 
     cov = block_diag(*variances)
     return cov
+
+
+def noise_variance(gradients, smm, l, sigma_n, l_max):
+    """
+
+    :param gradients:
+    :param smm:
+    :param l:
+    :param sigma_n:
+    :param l_max:
+    :return:
+    """
+    if l == 0:
+        _, phi, theta = cart2spherical(*gradients.T)
+        sh_mat, m, l = real_sym_sh_basis(l_max, theta, phi)
+        c = np.linalg.pinv(sh_mat).T
+        j = c[..., l == 0].mean(axis=-1)
+        return j.T.dot(j) * (sigma_n ** 2)
+    else:
+        ng = gradients.shape[0]
+        f = 4 * np.pi * (sigma_n ** 2) / ng
+        return smm * 4 * f / (2 * l + 1) + 2 * (f ** 2) / (2 * l + 1)
 
 
 def compute_summary_jacobian(signal, gradients, lmax=6, max_degree=4):
@@ -134,19 +155,6 @@ def compute_summary_jacobian(signal, gradients, lmax=6, max_degree=4):
 
     der = {f"l{deg}": compute_smm_derivative(deg) for deg in np.arange(0, max_degree + 1, 2)}
     return der
-
-
-def noise_variance(gradients, smm, l, sigma_n, l_max):
-    if l == 0:
-        _, phi, theta = cart2spherical(*gradients.T)
-        sh_mat, m, l = real_sym_sh_basis(l_max, theta, phi)
-        c = np.linalg.pinv(sh_mat).T
-        j = c[..., l == 0].mean(axis=-1)
-        return j.T.dot(j) * (sigma_n ** 2)
-    else:
-        ng = gradients.shape[0]
-        f = 4 * np.pi * (sigma_n ** 2) / ng
-        return smm * 4 * f / (2 * l + 1) + 2 * (f ** 2) / (2 * l + 1)
 
 
 def cart2spherical(x, y, z):
