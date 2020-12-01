@@ -8,7 +8,7 @@ import numba
 from bench import summary_measures
 
 # prior distributions:
-def_s0 = 1.
+
 dif_coeff = 1.7  # unit: um^2/ms
 
 prior_distributions = dict(
@@ -40,27 +40,20 @@ prior_distributions = dict(
 
     watson_noddi={'s_iso': stats.gamma(a=1, scale=1 / 2),
                   's_in': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
-                  's_ex': stats.truncnorm(loc=.4, scale=.2, a=-5, b=np.Inf),
-                  'd_iso': stats.truncnorm(loc=3, scale=.1, a=-3 / 0.1, b=np.Inf),
-                  'd_a_in': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3,
-                                            b=np.Inf),
-                  'd_a_ex': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3,
-                                            b=np.Inf),
+                  's_ex': stats.truncnorm(loc=.4, scale=.2, a=-.5 / .2, b=np.Inf),
+                  'd_iso': stats.truncnorm(loc=3, scale=.1, a=-3 / .1, b=np.Inf),
+                  'd_a_in': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
+                  'd_a_ex': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
                   'tortuosity': stats.uniform(loc=0, scale=1),
                   'odi': stats.uniform(loc=.2, scale=.4),
                   },
 
     bingham_noddi={'s_iso': stats.gamma(a=1, scale=1 / 2),
-                   's_in': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2,
-                                           b=np.Inf),
-                   's_ex': stats.truncnorm(loc=.4, scale=.2, a=-5,
-                                           b=np.Inf),
-                   'd_iso': stats.truncnorm(loc=3, scale=.1, a=-3 / 0.1,
-                                            b=np.Inf),
-                   'd_a_in': stats.truncnorm(loc=dif_coeff, scale=.3,
-                                             a=-dif_coeff / 0.3, b=np.Inf),
-                   'd_a_ex': stats.truncnorm(loc=dif_coeff, scale=.3,
-                                             a=-dif_coeff / 0.3, b=np.Inf),
+                   's_in': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
+                   's_ex': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
+                   'd_iso': stats.truncnorm(loc=3, scale=.1, a=-3 / .1, b=np.Inf),
+                   'd_a_in': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
+                   'd_a_ex': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
                    'tortuosity': stats.uniform(loc=0, scale=1),
                    'odi': stats.uniform(loc=.2, scale=.4),
                    'odi_ratio': stats.uniform(loc=.4, scale=.5),
@@ -70,7 +63,7 @@ prior_distributions = dict(
 
 
 # basic compartment definitions:
-def ball(bval=0, bvec=np.array([0, 0, 1]), d_iso=1., s0=def_s0):
+def ball(bval=0, bvec=np.array([0, 0, 1]), d_iso=1., s0=1.0):
     """
     Simulates diffusion signal for isotropic diffusion
 
@@ -94,7 +87,7 @@ def ball(bval=0, bvec=np.array([0, 0, 1]), d_iso=1., s0=def_s0):
     return s0 * np.exp(-bval * d_iso)
 
 
-def stick(bval=0, bvec=np.array([0, 0, 1]), d_a=1., theta=0., phi=0.0, s0=def_s0):
+def stick(bval=0, bvec=np.array([0, 0, 1]), d_a=1., theta=0., phi=0.0, s0=1.0):
     """
     Simulates diffusion signal from single stick model
 
@@ -118,7 +111,7 @@ def stick(bval=0, bvec=np.array([0, 0, 1]), d_a=1., theta=0., phi=0.0, s0=def_s0
 
 
 def cigar(bval=0, bvec=np.array([0, 0, 1]), theta=0., phi=0,
-          d_a=1., d_r=0., s0=def_s0):
+          d_a=1., d_r=0., s0=1.0):
     """
     Simulates diffusion signal from single stick model
 
@@ -156,6 +149,7 @@ def bingham_zeppelin(bval=0, bvec=np.array([[0, 0, 1]]), d_a=1., d_r=0.,
     :param s0: attenuation for b=0
     :return: simulated signal (M,)
     """
+    assert s0 >= 0, 's0 cannot be negative'
     if odi2 is None:
         odi2 = odi  # make it watson distribution.
     assert odi >= odi2 > 0, 'odis must be positive and in order'
@@ -202,11 +196,12 @@ def watson_zeppelin_numerical(bval=0, bvec=np.array([[0, 0, 1]]), d_a=1., d_r=0.
     :return: simulated signal (M,)
     """
     assert odi > 0, 'odis must be positive'
-    if bvec.ndim == 1:
-        bvec = bvec[np.newaxis, :]
 
     if np.isscalar(bval):
         bval = bval * np.ones(bvec.shape[0])
+
+    if bvec.ndim == 1:
+        bvec = bvec[np.newaxis, :]
 
     k = 1 / np.tan(odi * np.pi / 2)
     mu = np.array(spherical2cart(theta, phi))
@@ -226,7 +221,7 @@ def watson_zeppelin_numerical(bval=0, bvec=np.array([[0, 0, 1]]), d_a=1., d_r=0.
 # multi-compartment models:
 
 def ball_stick(bval=0, bvec=np.array([0, 0, 1]), theta=0., phi=0.0, d_a=dif_coeff / 2, d_iso=dif_coeff,
-               s_iso=1, s_a=1, s0=def_s0):
+               s_iso=1, s_a=1, s0=1.0):
     """
     Simulates diffusion signal from ball and stick model
 
@@ -242,7 +237,7 @@ def ball_stick(bval=0, bvec=np.array([0, 0, 1]), theta=0., phi=0.0, d_a=dif_coef
     :return: simulated signal (M,)
     """
     assert s_iso >= 0, 'volume fraction cant be negative'
-    assert s_a >= 0, 'volume fraction cant be greater than 1'
+    assert s_a >= 0, 'volume fraction cant be negative'
 
     return s_a * stick(bval, bvec, d_a, theta, phi, s0) + s_iso * ball(bval, bvec, d_iso, s0)
 
@@ -417,7 +412,6 @@ def plot_response_function(response, shells, idx_shells, bvecs, res=40, maxs=5):
     plt.show()
 
 
-
 @numba.jit(nopython=True)
 def find_t(l1, l2, l3):
     """
@@ -443,16 +437,16 @@ def find_t(l1, l2, l3):
     inv3 = 1. / 3.
     p = (a1 - a2 * a2 * inv3) * inv3
     q = (-9 * a2 * a1 + 27 * a0 + 2 * a2 * a2 * a2) / 54
-    D = q * q + p * p * p
+    d = q * q + p * p * p
     offset = a2 * inv3
 
-    if D > 0:
-        ee = np.sqrt(D)
+    if d > 0:
+        ee = np.sqrt(d)
         z1 = (-q + ee) ** inv3 + (-q - ee) ** inv3 - offset
         z2 = z1
         z3 = z1
-    elif D < 0:
-        ee = np.sqrt(-D)
+    elif d < 0:
+        ee = np.sqrt(-d)
         angle = 2 * inv3 * np.arctan(ee / (np.sqrt(q * q + ee * ee) - q))
         sqrt3 = np.sqrt(3.)
         c = np.cos(angle)
@@ -462,7 +456,7 @@ def find_t(l1, l2, l3):
         z2 = -ee * (c + sqrt3 * s) - offset
         z3 = -ee * (c - sqrt3 * s) - offset
     else:
-        tmp = (-q) ** (inv3)
+        tmp = -q ** inv3
         z1 = 2 * tmp - offset
         if p != 0 or q != 0:
             z2 = tmp - offset
@@ -496,19 +490,19 @@ def hyp_sapprox(x):
         return 1
     else:
         t = find_t(-x[0], -x[1], -x[2])
-        R = 1.
-        K2 = 0.
-        K3 = 0.
-        K4 = 0.
+        r = 1.
+        k2 = 0.
+        k3 = 0.
+        k4 = 0.
 
         for idx in range(3):
-            R /= np.sqrt(-x[idx] - t)
-            K2 += 0.5 * (x[idx] + t) ** -2
-            K3 -= (x[idx] + t) ** -3
-            K4 += 3 * (x[idx] + t) ** -4
+            r /= np.sqrt(-x[idx] - t)
+            k2 += 0.5 * (x[idx] + t) ** -2
+            k3 -= (x[idx] + t) ** -3
+            k4 += 3 * (x[idx] + t) ** -4
 
-        T = K4 / (8 * K2 * K2) - 5 * K3 * K3 / (24 * K2 ** 3)
-        c1 = (np.sqrt(2 / K2) * np.pi * R * np.exp(-t)) * np.exp(T) / (4 * np.pi)
+        tau = k4 / (8 * k2 * k2) - 5 * k3 * k3 / (24 * k2 ** 3)
+        c1 = (np.sqrt(2 / k2) * np.pi * r * np.exp(-t)) * np.exp(tau) / (4 * np.pi)
         return c1
 
 

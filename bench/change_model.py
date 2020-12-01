@@ -23,16 +23,21 @@ class ChangeVector:
     """
     class for a single model of change
     """
-    vec: np.ndarray
+    vec: Mapping
     mu_mdl: Pipeline
     l_mdl: Pipeline
     lim: str = 'b'
     sigma_v: float = 0.1
     prior: float = 1
-    name: str = 'unnamed'
+    name: str = None
 
     def __post_init__(self):
-        self.vec = self.vec / np.linalg.norm(self.vec)
+        scale = np.linalg.norm(list(self.vec.values()))
+        if scale != 1:
+            warnings.warn(f'Change vector {self.name} does not have a unit length')
+
+        if self.name is None:
+            self.name = dict_to_string(self.vec)
 
     def estimate_change(self, y: np.ndarray):
         """
@@ -127,13 +132,13 @@ class ChangeModel:
                 for vec_idx, ch_mdl in enumerate(self.models, 1):
                     try:
                         mu, sigma_p = ch_mdl.estimate_change(y_s)
-                        fun = lambda dv: posterior_dv(dv, dy_s,
-                                                      mu, sigma_p, sigma_n_s,
-                                                      ch_mdl.sigma_v, ch_mdl.lim)
+                        log_post = lambda dv: log_posterior_dv(dv, dy_s,
+                                                               mu, sigma_p, sigma_n_s,
+                                                               ch_mdl.sigma_v, ch_mdl.lim)
 
-                        peak, low, high = find_range(fun)
-                        fun2 = lambda dv: np.exp(fun(dv))
-                        integral = quad(fun2, low, high, epsrel=1e-3)[0]
+                        peak, low, high = find_range(log_post)
+                        post = lambda dv: np.exp(log_post(dv))
+                        integral = quad(post, low, high, epsrel=1e-3)[0]
                         log_prob[sam_idx, vec_idx] = np.log(integral) if integral > 0 else -np.inf
 
                     except np.linalg.LinAlgError as err:
@@ -183,8 +188,8 @@ def string_to_dict(str_):
     return dict_
 
 
-def dict_to_str(dict_):
-    return ' '.join([f'{v:+1.1f}*{p}' for p, v in dict_.items() if v != 0]).replace('1.0', '')
+def dict_to_string(dict_):
+    return ' '.join([f'{v:+1.1f}*{p}' for p, v in dict_.items() if v != 0]).replace('1.0*', '')
 
 
 @dataclass
@@ -205,23 +210,26 @@ class Trainer:
         self.param_names = list(self.param_prior_dists.keys())
 
         if self.change_vecs is None:
-            self.change_vecs = [{p: c} for p in self.param_names for c in (-1, 1)]
-            self.vec_names = [dict_to_str(s) for s in self.change_vecs]
+            self.change_vecs = [{p: 1} for p in self.param_names]
+            self.vec_names = [dict_to_string(s) for s in self.change_vecs]
         elif np.all([p is dict for p in self.change_vecs]):
-            self.vec_names = [dict_to_str(s) for s in self.change_vecs]
+            self.vec_names = [dict_to_string(s) for s in self.change_vecs]
         elif np.all([isinstance(p, str) for p in self.change_vecs]):
             self.vec_names = self.change_vecs
             self.change_vecs = [string_to_dict(str(s)) for s in self.vec_names]
         else:
             raise ValueError(" Change vectors are not defined properly.")
 
-        for d in self.change_vecs:
-            for pname in d.keys():
+        self.n_vecs = len(self.change_vecs)
+
+        for idx in range(self.n_vecs):
+            for pname in self.change_vecs[idx].keys():
                 if pname not in self.param_names:
                     raise KeyError(f"parameter {pname} is not defined as a free parameters of the forward model."
                                    f"The parameters are {self.param_names}")
-
-        self.n_vecs = len(self.change_vecs)
+            # normalize change vectors to have a unit L2 norm:
+            scale = np.linalg.norm(list(self.change_vecs[idx].values()))
+            self.change_vecs[idx] = {k: v / scale for k, v in self.change_vecs[idx].items()}
 
         if np.isscalar(self.sigma_v):
             self.sigma_v = [self.sigma_v] * self.n_vecs
@@ -237,11 +245,11 @@ class Trainer:
 
         params_test = {p: v.mean() for p, v in self.param_prior_dists.items()}
         try:
-            self.n_y = self.forward_model(**self.args, **params_test).size
+            self.n_dim = self.forward_model(**self.args, **params_test).size
         except Exception as ex:
             print("The provided function does not work with the given parameters and args.")
             raise ex
-        if self.n_y == 1:
+        if self.n_dim == 1:
             raise ValueError('The forward model must produce at least two dimensional output.')
 
     def vec_to_dict(self, vec: np.ndarray):
@@ -250,7 +258,7 @@ class Trainer:
     def dict_to_vec(self, dict_: Mapping):
         return np.array([dict_.get(p, 0) for p in self.param_names])
 
-    def train(self, n_samples=10000, poly_degree=2, regularization=1, k=100, dv0=1e-6, model_name=None):
+    def train(self, n_samples=1000, poly_degree=2, regularization=1, k=100, dv0=1e-6, model_name=None):
         """
           Train change models (estimates w_mu and w_l) using forward model simulation
             :param n_samples: number simulated samples to estimate forward model
@@ -262,17 +270,16 @@ class Trainer:
           """
         models = []
         for vec, name, sigma_v, prior in zip(self.change_vecs, self.vec_names, self.sigma_v, self.priors):
-            models.append(ChangeVector(vec=self.dict_to_vec(vec),
+            models.append(ChangeVector(vec=vec,
                                        mu_mdl=make_pipeline(poly_degree, regularization),
                                        l_mdl=make_pipeline(poly_degree, regularization),
                                        sigma_v=sigma_v,
                                        prior=prior,
                                        name=str(name)))
 
-        y_1, y_2 = self.generate_samples(n_samples, dv0)
+        y_1, y_2 = self.generate_train_samples(n_samples, dv0)
         dy = (y_2 - y_1) / dv0
         sample_mu, sample_l = knn_estimation(y_1, dy, k=k)
-
         for idx in range(self.n_vecs):
             models[idx].mu_mdl.fit(y_1, sample_mu[idx])
             models[idx].l_mdl.fit(y_1, sample_l[idx])
@@ -280,45 +287,63 @@ class Trainer:
 
         return ChangeModel(models=models, model_name=model_name)
 
-    def generate_samples(self, n_samples: int, eff_size: float) -> tuple:
-        y_1 = np.zeros((n_samples, self.n_y))
-        y_2 = np.zeros((self.n_vecs, n_samples, self.n_y))
+    def generate_train_samples(self, n_samples: int, dv0: float) -> tuple:
+        y_1 = np.zeros((n_samples, self.n_dim))
+        y_2 = np.zeros((self.n_vecs, n_samples, self.n_dim))
 
-        for s_idx in range(n_samples):
+        print('Generating training samples:')
+        pbar = ProgressBar()
+        for s_idx in pbar(range(n_samples)):
             params_1 = {p: v.rvs() for p, v in self.param_prior_dists.items()}
             y_1[s_idx] = self.forward_model(**self.args, **params_1)
             for v_idx, vec in enumerate(self.change_vecs):
-                params_2 = {k: v + dv * eff_size for (k, v), dv in zip(params_1.items(), self.dict_to_vec(vec))}
+                params_2 = {k: np.abs(v + vec.get(k, 0) * dv0) for k, v in params_1.items()}
                 y_2[v_idx, s_idx] = self.forward_model(**self.args, **params_2)
+                if np.any(np.abs(y_2[v_idx, s_idx] - y_1[s_idx]) > 0.001):
+                    y_2[v_idx, s_idx] = self.forward_model(**self.args, **params_2)
+
         return y_1, y_2
 
     def generate_test_samples(self, n_samples=1000, effect_size=0.1, noise_level=0.0, n_repeats=100):
-        y_1 = np.zeros((n_samples, self.n_y))
-        y_2 = np.zeros((n_samples, self.n_y))
-        sigma_n = np.zeros((n_samples, self.n_y, self.n_y))
+        """
+        Important note: for this feature the forward model needs to have an internal noise model t
+        hat accepts the parameter 'noise_level'.
+        :param n_samples:
+        :param effect_size:
+        :param noise_level:
+        :param n_repeats:
+        :return:
+        """
+        y_1 = np.zeros((n_samples, self.n_dim))
+        y_2 = np.zeros((n_samples, self.n_dim))
+        sigma_n = np.zeros((n_samples, self.n_dim, self.n_dim))
         true_change = np.random.randint(0, self.n_vecs + 1, n_samples)
-        args = (*self.args[:-1], noise_level)
 
-        y_1_r = np.zeros((n_repeats, self.n_y))
+        args = self.args.copy()
+        args['noise_level'] = noise_level
+
+        y_1_r = np.zeros((n_repeats, self.n_dim))
         y_2_r = np.zeros_like(y_1_r)
-        for s_idx in range(n_samples):
+
+        print('Generating test samples:')
+        pbar = ProgressBar()
+        for s_idx in pbar(range(n_samples)):
+            tc = true_change[s_idx]
             params_1 = {p: v.rvs() for p, v in self.param_prior_dists.items()}
-            if true_change[s_idx] == 0:
+            if tc == 0:
                 params_2 = params_1
             else:
-                # noinspection PyTypeChecker
-                params_2 = {k: v + dv * effect_size for (k, v), dv in
-                            zip(params_1.items(),
-                                self.vec_to_dict(self.change_vecs[true_change[s_idx] - 1]))}
+                params_2 = {k: np.abs(v + self.change_vecs[tc - 1].get(k, 0) * effect_size)
+                            for k, v in params_1.items()}
 
             for r in range(n_repeats):
-                y_1_r[r] = self.forward_model(args, **params_1)
-                y_2_r[r] = self.forward_model(args, **params_2)
+                y_1_r[r] = self.forward_model(**args, **params_1)
+                y_2_r[r] = self.forward_model(**args, **params_2)
 
             y_1[s_idx] = y_1_r.mean(axis=0)
             y_2[s_idx] = y_2_r.mean(axis=0)
-            sigma_n[s_idx] = np.cov(y_1_r - y_2_r)
-        return y_1, y_2, sigma_n
+            sigma_n[s_idx] = np.cov((y_1_r - y_2_r).T)
+        return true_change, y_1, y_2, sigma_n
 
 
 # helper functions:
@@ -326,15 +351,15 @@ def knn_estimation(y, dy, k=50, lam=1e-6):
     """
     Computes mean and covariance of change per sample using its K nearest neighbours.
 
-    :param y: (n_samples, dim) array of summary measurements
-    :param dy: (n_params, n_samples, dim) array of derivatives per poi
+    :param y: (n_samples, n_dim) array of summary measurements
+    :param dy: (n_vecs, n_samples, n_dim) array of derivatives per vector of change
     :param k: number of neighbourhood samples
     :param lam: shrinkage value to avoid degenerate covariance matrices
     :return: mu and l per data point
     """
-    n_params, n_samples, dim = dy.shape
+    n_vecs, n_samples, dim = dy.shape
     mu = np.zeros_like(dy)
-    low_tr = np.zeros((n_params, n_samples, dim * (dim + 1) // 2))
+    tril = np.zeros((n_vecs, n_samples, dim * (dim + 1) // 2))
 
     idx = np.tril_indices(dim)
     diag_idx = np.argwhere(idx[0] == idx[1])
@@ -342,16 +367,16 @@ def knn_estimation(y, dy, k=50, lam=1e-6):
     tree = KDTree(y)
     _, neigbs = tree.query(y, k)
     pbar = ProgressBar()
-    print('KNN approximation of sample mean and covariance:')
-    for p in pbar(range(n_params)):
+    print('KNN approximation of sample means and covariances:')
+    for vec_idx in pbar(range(n_vecs)):
         for sample_idx in range(n_samples):
-            pop = dy[p, neigbs[sample_idx]]
-            mu[p, sample_idx, :] = pop.mean(axis=0)
-            low_tr[p, sample_idx, :] = np.linalg.cholesky(np.cov(pop.T) + lam * np.eye(dim))[np.tril_indices(dim)]
+            pop = dy[vec_idx, neigbs[sample_idx]]
+            mu[vec_idx, sample_idx] = pop.mean(axis=0)
+            tril[vec_idx, sample_idx] = np.linalg.cholesky(np.cov(pop.T) + lam * np.eye(dim))[np.tril_indices(dim)]
             for i in diag_idx:
-                low_tr[p, sample_idx, i] = np.log(low_tr[p, sample_idx, i])
+                tril[vec_idx, sample_idx, i] = np.log(tril[vec_idx, sample_idx, i])
 
-    return mu, low_tr
+    return mu, tril
 
 
 def l_to_sigma(l_vec):
@@ -389,7 +414,7 @@ def log_mvnpdf(x, mean, cov):
     return np.log(c) + e
 
 
-def posterior_dv(dv, dy, mu, sigma_p, sigma_n, sigma_v, lims):
+def log_posterior_dv(dv, dy, mu, sigma_p, sigma_n, sigma_v, lims):
     if lims == 'b':
         log_prior = log_mvnpdf(x=dv, mean=np.zeros(1), cov=sigma_v ** 2)
     elif (lims == 'n' and dv > 0) or (lims == 'p' and dv < 0):
@@ -407,7 +432,7 @@ def posterior_dv(dv, dy, mu, sigma_p, sigma_n, sigma_v, lims):
 def find_range(f: Callable, scale=1e2, search_rad=1):
     minus_f = lambda dv: -f(dv)
     peak = minimize_scalar(minus_f).x
-    f2 = lambda dv: f(dv) - (f(peak) -np.log(scale))
+    f2 = lambda dv: f(dv) - (f(peak) - np.log(scale))
     try:
         lower = root_scalar(f2, bracket=[-search_rad + peak, peak], method='brentq').root
     except Exception as e:
