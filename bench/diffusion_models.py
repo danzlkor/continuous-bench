@@ -530,9 +530,8 @@ def simulate_signal(model, acq, params):
     return signal
 
 
-def train_decorator(model):
-    def func(args, **params):
-        acq, sph_degree, noise_level = args
+def bench_decorator(model):
+    def func(acq, sph_degree, noise_level, **params):
         sig = simulate_signal(model, acq, params)
         noise = np.random.randn(*sig.shape) * noise_level
         sm = summary_measures.compute_summary(sig + noise, acq, sph_degree=sph_degree)

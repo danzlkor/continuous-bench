@@ -26,9 +26,13 @@ class ChangeVector:
     vec: np.ndarray
     mu_mdl: Pipeline
     l_mdl: Pipeline
+    lim: str = 'b'
     sigma_v: float = 0.1
     prior: float = 1
     name: str = 'unnamed'
+
+    def __post_init__(self):
+        self.vec = self.vec / np.linalg.norm(self.vec)
 
     def estimate_change(self, y: np.ndarray):
         """
@@ -85,8 +89,8 @@ class ChangeModel:
         lls = self.compute_log_likelihood(data, delta_data, sigma_n)
         priors = np.array([1.] + [m.prior for m in self.models])  # the 1 is for empty set
         priors = priors / priors.sum()
-        log_posteriors = lls + np.log(priors)
-        posteriors = np.exp(log_posteriors)
+        model_log_posteriors = lls + np.log(priors)
+        posteriors = np.exp(model_log_posteriors)
         posteriors = posteriors / posteriors.sum(axis=1)[:, np.newaxis]
         predictions = np.argmax(posteriors, axis=1)
         return posteriors, predictions
@@ -123,9 +127,13 @@ class ChangeModel:
                 for vec_idx, ch_mdl in enumerate(self.models, 1):
                     try:
                         mu, sigma_p = ch_mdl.estimate_change(y_s)
-                        fun = lambda dv: np.exp(param_log_posterior(dv, dy_s, mu, sigma_p, sigma_n_s, ch_mdl.sigma_v))
-                        limits = find_range(dy_s, mu, sigma_p, sigma_n_s, ch_mdl.sigma_v)
-                        integral = quad(fun, *limits, epsrel=1e-3)[0]
+                        fun = lambda dv: posterior_dv(dv, dy_s,
+                                                      mu, sigma_p, sigma_n_s,
+                                                      ch_mdl.sigma_v, ch_mdl.lim)
+
+                        peak, low, high = find_range(fun)
+                        fun2 = lambda dv: np.exp(fun(dv))
+                        integral = quad(fun2, low, high, epsrel=1e-3)[0]
                         log_prob[sam_idx, vec_idx] = np.log(integral) if integral > 0 else -np.inf
 
                     except np.linalg.LinAlgError as err:
@@ -150,21 +158,26 @@ class ChangeModel:
 
 def make_pipeline(degree: int, alpha: float) -> Pipeline:
     steps = [('features', PolynomialFeatures(degree=degree)),
-                 ('reg', linear_model.Ridge(alpha=alpha, fit_intercept=False))]
+             ('reg', linear_model.Ridge(alpha=alpha, fit_intercept=False))]
     return Pipeline(steps=steps)
 
 
 def string_to_dict(str_):
     dict_ = {}
     for term in str_.split(' '):
-        sign = term[0]
+        if term[0] in ('+', '-'):
+            sign = term[0]
+            term = term[1:]
+        else:
+            sign = '+'
+
         if '*' in term:
-            n = term[1:].split('*')
+            n = term.split('*')
             coef = n[0]
             pname = n[1]
         else:
             coef = '1'
-            pname = term[1:]
+            pname = term
 
         dict_[pname] = float(sign + coef)
     return dict_
@@ -196,7 +209,7 @@ class Trainer:
             self.vec_names = [dict_to_str(s) for s in self.change_vecs]
         elif np.all([p is dict for p in self.change_vecs]):
             self.vec_names = [dict_to_str(s) for s in self.change_vecs]
-        elif np.all([p is str for p in self.change_vecs]):
+        elif np.all([isinstance(p, str) for p in self.change_vecs]):
             self.vec_names = self.change_vecs
             self.change_vecs = [string_to_dict(str(s)) for s in self.vec_names]
         else:
@@ -224,7 +237,7 @@ class Trainer:
 
         params_test = {p: v.mean() for p, v in self.param_prior_dists.items()}
         try:
-            self.n_y = self.forward_model(self.args, **params_test).size
+            self.n_y = self.forward_model(**self.args, **params_test).size
         except Exception as ex:
             print("The provided function does not work with the given parameters and args.")
             raise ex
@@ -235,7 +248,7 @@ class Trainer:
         return {p: v for p, v in zip(self.param_names, vec) if v != 0}
 
     def dict_to_vec(self, dict_: Mapping):
-        return np.arry([dict_.get(p, 0) for p in self.param_names])
+        return np.array([dict_.get(p, 0) for p in self.param_names])
 
     def train(self, n_samples=10000, poly_degree=2, regularization=1, k=100, dv0=1e-6, model_name=None):
         """
@@ -273,10 +286,10 @@ class Trainer:
 
         for s_idx in range(n_samples):
             params_1 = {p: v.rvs() for p, v in self.param_prior_dists.items()}
-            y_1[s_idx] = self.forward_model(self.args, **params_1)
+            y_1[s_idx] = self.forward_model(**self.args, **params_1)
             for v_idx, vec in enumerate(self.change_vecs):
-                params_2 = {k: v + dv * eff_size for (k, v), dv in zip(params_1.items(), vec)}
-                y_2[v_idx, s_idx] = self.forward_model(self.args, **params_2)
+                params_2 = {k: v + dv * eff_size for (k, v), dv in zip(params_1.items(), self.dict_to_vec(vec))}
+                y_2[v_idx, s_idx] = self.forward_model(**self.args, **params_2)
         return y_1, y_2
 
     def generate_test_samples(self, n_samples=1000, effect_size=0.1, noise_level=0.0, n_repeats=100):
@@ -293,8 +306,10 @@ class Trainer:
             if true_change[s_idx] == 0:
                 params_2 = params_1
             else:
+                # noinspection PyTypeChecker
                 params_2 = {k: v + dv * effect_size for (k, v), dv in
-                            zip(params_1.items(), self.change_vecs[true_change[s_idx] - 1])}
+                            zip(params_1.items(),
+                                self.vec_to_dict(self.change_vecs[true_change[s_idx] - 1]))}
 
             for r in range(n_repeats):
                 y_1_r[r] = self.forward_model(args, **params_1)
@@ -319,7 +334,7 @@ def knn_estimation(y, dy, k=50, lam=1e-6):
     """
     n_params, n_samples, dim = dy.shape
     mu = np.zeros_like(dy)
-    l = np.zeros((n_params, n_samples, dim * (dim + 1) // 2))
+    low_tr = np.zeros((n_params, n_samples, dim * (dim + 1) // 2))
 
     idx = np.tril_indices(dim)
     diag_idx = np.argwhere(idx[0] == idx[1])
@@ -332,11 +347,11 @@ def knn_estimation(y, dy, k=50, lam=1e-6):
         for sample_idx in range(n_samples):
             pop = dy[p, neigbs[sample_idx]]
             mu[p, sample_idx, :] = pop.mean(axis=0)
-            l[p, sample_idx, :] = np.linalg.cholesky(np.cov(pop.T) + lam * np.eye(dim))[np.tril_indices(dim)]
+            low_tr[p, sample_idx, :] = np.linalg.cholesky(np.cov(pop.T) + lam * np.eye(dim))[np.tril_indices(dim)]
             for i in diag_idx:
-                l[p, sample_idx, i] = np.log(l[p, sample_idx, i])
+                low_tr[p, sample_idx, i] = np.log(low_tr[p, sample_idx, i])
 
-    return mu, l
+    return mu, low_tr
 
 
 def l_to_sigma(l_vec):
@@ -374,35 +389,39 @@ def log_mvnpdf(x, mean, cov):
     return np.log(c) + e
 
 
-def param_log_posterior(dv, dd, mu, sigma_p, sigma_n, sigma_v):
+def posterior_dv(dv, dy, mu, sigma_p, sigma_n, sigma_v, lims):
+    if lims == 'b':
+        log_prior = log_mvnpdf(x=dv, mean=np.zeros(1), cov=sigma_v ** 2)
+    elif (lims == 'n' and dv > 0) or (lims == 'p' and dv < 0):
+        return -np.inf
+    else:
+        log_prior = log_mvnpdf(x=dv, mean=np.zeros(1), cov=sigma_v ** 2) * 2
 
     mean = np.squeeze(mu * dv)
     cov = np.squeeze(sigma_p) * dv ** 2 + sigma_n
-    log_lh = log_mvnpdf(x=dd, mean=mean, cov=cov)
-    log_prior = log_mvnpdf(x=dv, mean=np.zeros(1), cov=sigma_v ** 2)
+    log_lh = log_mvnpdf(x=dy, mean=mean, cov=cov)
 
     return log_lh + log_prior
 
 
-def find_range(dd, mu, sigma_p, sigma_n, sigma_v, scale=1e2, search_range=100):
-    """
-      Computes the proper range for integration of the likelihood function
-    """
-    f = lambda dv: -param_log_posterior(dv, dd, mu, sigma_p, sigma_n, sigma_v)
-    peak = minimize_scalar(f).x
-
-    f2 = lambda dv: -f(dv) - (-f(peak) - np.log(scale))
+def find_range(f: Callable, scale=1e2, search_rad=1):
+    minus_f = lambda dv: -f(dv)
+    peak = minimize_scalar(minus_f).x
+    f2 = lambda dv: f(dv) - (f(peak) -np.log(scale))
     try:
-        lower = root_scalar(f2, bracket=[-search_range + peak, peak], method='brentq').root
-        upper = root_scalar(f2, bracket=[peak, search_range + peak], method='brentq').root
-
+        lower = root_scalar(f2, bracket=[-search_rad + peak, peak], method='brentq').root
     except Exception as e:
-        print(f"Error of type {e.__class__} occurred, while finding limits of integral."
-              f"The peak +/-{search_range} is used instead")
-        lower = -search_range + peak
-        upper = search_range + peak
+        print(f"Error of type {e.__class__} occurred, while finding lower limit of integral."
+              f"The peak - {search_rad} is used instead")
+        lower = -search_rad + peak
+    try:
+        upper = root_scalar(f2, bracket=[peak, search_rad + peak], method='brentq').root
+    except Exception as e:
+        print(f"Error of type {e.__class__} occurred, while finding higher limit of integral."
+              f"The peak +{search_rad} is used instead")
+        upper = search_rad + peak
 
-    return lower, upper
+    return peak, lower, upper
 
 
 def performance_measures(posteriors, true_change, set_names):
