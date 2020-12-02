@@ -15,6 +15,7 @@ import os
 from scipy.integrate import quad
 from scipy.optimize import minimize_scalar, root_scalar
 import warnings
+import inspect
 import pickle
 
 
@@ -26,7 +27,7 @@ class ChangeVector:
     vec: Mapping
     mu_mdl: Pipeline
     l_mdl: Pipeline
-    lim: str = 'b'
+    lim: str = 'p'
     sigma_v: float = 0.1
     prior: float = 1
     name: str = None
@@ -57,6 +58,11 @@ class ChangeVector:
 
         return mu, sigma
 
+    def log_posterior_pdf(self, y, dy, sigma_n):
+        mu, sigma_p = self.estimate_change(y)
+        log_post = lambda dv: log_posterior_dv(dv, dy, mu, sigma_p, sigma_n,
+                                               self.sigma_v, self.lim)
+        return log_post
 
 @dataclass
 class ChangeModel:
@@ -84,21 +90,21 @@ class ChangeModel:
         """
         Computes the posterior probabilities for each model of change
 
-        :param data: numpy array (..., d) containing the first group average
-        :param delta_data: numpy array (..., d) containing the change between groups.
-        :param sigma_n: numpy array or list (..., d, d)
-        :return: posterior probabilities for each voxel (..., n_params)
+        :param data: numpy array (..., n_dim) containing the first group average
+        :param delta_data: numpy array (..., n_dim) containing the change between groups.
+        :param sigma_n: numpy array or list (..., n_dim, n_dim)
+        :return: posterior probabilities for each voxel (..., n_vecs)
         """
 
         print(f'running inference for {data.shape[0]} samples ...')
-        lls = self.compute_log_likelihood(data, delta_data, sigma_n)
+        lls, peaks = self.compute_log_likelihood(data, delta_data, sigma_n)
         priors = np.array([1.] + [m.prior for m in self.models])  # the 1 is for empty set
         priors = priors / priors.sum()
         model_log_posteriors = lls + np.log(priors)
         posteriors = np.exp(model_log_posteriors)
         posteriors = posteriors / posteriors.sum(axis=1)[:, np.newaxis]
         predictions = np.argmax(posteriors, axis=1)
-        return posteriors, predictions
+        return posteriors, predictions, peaks
 
     # warnings.filterwarnings("ignore", category=RuntimeWarning)
 
@@ -108,15 +114,16 @@ class ChangeModel:
 
         Compares the observed data with the result from :func:`predict`.
 
-        :param y: (n_samples, n_x) array of summary measurements
-        :param delta_y: (n_samples, n_x) array of delta data
-        :param sigma_n: (n_samples, dim, dim) noise covariance per sample
+        :param y: (n_samples, n_dim) array of data
+        :param delta_y: (n_samples, n_dim) array of delta data
+        :param sigma_n: (n_samples, n_dim, n_dim) noise covariance per sample
         :return: np array containing log likelihood for each sample per class
         """
 
         n_samples, n_x = y.shape
         n_models = len(self.models) + 1
         log_prob = np.zeros((n_samples, n_models))
+        peaks = np.zeros((n_samples, n_models))
         pbar = ProgressBar()
 
         for sam_idx in pbar(range(n_samples)):
@@ -140,7 +147,7 @@ class ChangeModel:
                         post = lambda dv: np.exp(log_post(dv))
                         integral = quad(post, low, high, epsrel=1e-3)[0]
                         log_prob[sam_idx, vec_idx] = np.log(integral) if integral > 0 else -np.inf
-
+                        peaks[sam_idx, vec_idx] = peak
                     except np.linalg.LinAlgError as err:
                         if 'Singular matrix' in str(err):
                             log_prob[sam_idx, vec_idx] = -1e3
@@ -149,7 +156,7 @@ class ChangeModel:
                         else:
                             raise
 
-        return log_prob
+        return log_prob, peaks
 
     @classmethod
     def load(cls, filename):
@@ -285,6 +292,9 @@ class Trainer:
             models[idx].l_mdl.fit(y_1, sample_l[idx])
             print(f'Model of change for vector {models[idx].name} trained successfully.')
 
+        if model_name is None:
+            model_name = getattr(self.forward_model, '__name__', None)
+
         return ChangeModel(models=models, model_name=model_name)
 
     def generate_train_samples(self, n_samples: int, dv0: float) -> tuple:
@@ -299,15 +309,15 @@ class Trainer:
             for v_idx, vec in enumerate(self.change_vecs):
                 params_2 = {k: np.abs(v + vec.get(k, 0) * dv0) for k, v in params_1.items()}
                 y_2[v_idx, s_idx] = self.forward_model(**self.args, **params_2)
-                if np.any(np.abs(y_2[v_idx, s_idx] - y_1[s_idx]) > 0.001):
-                    y_2[v_idx, s_idx] = self.forward_model(**self.args, **params_2)
+                if np.any(np.abs(y_2[v_idx, s_idx] - y_1[s_idx]) > 1e3 * dv0):
+                    warnings.warn('Derivatives are too large, something might be wrong!')
 
         return y_1, y_2
 
     def generate_test_samples(self, n_samples=1000, effect_size=0.1, noise_level=0.0, n_repeats=100):
         """
         Important note: for this feature the forward model needs to have an internal noise model t
-        hat accepts the parameter 'noise_level'.
+        hat accepts the parameter 'noise_level'. Otherwise, gaussian white noise is added to the measurements.
         :param n_samples:
         :param effect_size:
         :param noise_level:
@@ -320,14 +330,16 @@ class Trainer:
         true_change = np.random.randint(0, self.n_vecs + 1, n_samples)
 
         args = self.args.copy()
-        args['noise_level'] = noise_level
-
-        y_1_r = np.zeros((n_repeats, self.n_dim))
-        y_2_r = np.zeros_like(y_1_r)
+        has_noise_model = 'noise_level' in inspect.getfullargspec(self.forward_model).args
+        if has_noise_model:
+            args['noise_level'] = noise_level
+            y_1_r = np.zeros((n_repeats, self.n_dim))
+            y_2_r = np.zeros_like(y_1_r)
 
         print('Generating test samples:')
         pbar = ProgressBar()
         for s_idx in pbar(range(n_samples)):
+
             tc = true_change[s_idx]
             params_1 = {p: v.rvs() for p, v in self.param_prior_dists.items()}
             if tc == 0:
@@ -336,13 +348,18 @@ class Trainer:
                 params_2 = {k: np.abs(v + self.change_vecs[tc - 1].get(k, 0) * effect_size)
                             for k, v in params_1.items()}
 
-            for r in range(n_repeats):
-                y_1_r[r] = self.forward_model(**args, **params_1)
-                y_2_r[r] = self.forward_model(**args, **params_2)
+            if has_noise_model:
+                for r in range(n_repeats):
+                    y_1_r[r] = self.forward_model(**args, **params_1)
+                    y_2_r[r] = self.forward_model(**args, **params_2)
+                y_1[s_idx] = y_1_r.mean(axis=0)
+                y_2[s_idx] = y_2_r.mean(axis=0)
+                sigma_n[s_idx] = np.cov((y_1_r - y_2_r).T)
+            else:
+                y_1[s_idx] = self.forward_model(**args, **params_1) + np.random.randn(self.n_dim) * noise_level
+                y_2[s_idx] = self.forward_model(**args, **params_2) + np.random.randn(self.n_dim) * noise_level
+                sigma_n[s_idx] = np.eye(self.n_dim) * noise_level ** 2
 
-            y_1[s_idx] = y_1_r.mean(axis=0)
-            y_2[s_idx] = y_2_r.mean(axis=0)
-            sigma_n[s_idx] = np.cov((y_1_r - y_2_r).T)
         return true_change, y_1, y_2, sigma_n
 
 
@@ -372,7 +389,12 @@ def knn_estimation(y, dy, k=50, lam=1e-6):
         for sample_idx in range(n_samples):
             pop = dy[vec_idx, neigbs[sample_idx]]
             mu[vec_idx, sample_idx] = pop.mean(axis=0)
-            tril[vec_idx, sample_idx] = np.linalg.cholesky(np.cov(pop.T) + lam * np.eye(dim))[np.tril_indices(dim)]
+            try:
+                tril[vec_idx, sample_idx] = np.linalg.cholesky(np.cov(pop.T) + lam * np.eye(dim))[np.tril_indices(dim)]
+            except Exception as ex:
+                print(ex)
+                raise ex
+
             for i in diag_idx:
                 tril[vec_idx, sample_idx, i] = np.log(tril[vec_idx, sample_idx, i])
 
@@ -429,7 +451,14 @@ def log_posterior_dv(dv, dy, mu, sigma_p, sigma_n, sigma_v, lims):
     return log_lh + log_prior
 
 
-def find_range(f: Callable, scale=1e2, search_rad=1):
+def find_range(f: Callable, scale=1e-1, search_rad=1):
+    """
+     find the range for integration
+    :param f: function in logarithmic scale, e.g. log_posterior
+    :param scale: the ratio of limits to peak
+    :param search_rad: radious to search for limits
+    :return: peak, lower limit and higher limit of the function
+    """
     minus_f = lambda dv: -f(dv)
     peak = minimize_scalar(minus_f).x
     f2 = lambda dv: f(dv) - (f(peak) - np.log(scale))

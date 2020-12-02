@@ -43,15 +43,20 @@ def inference_from_cmd(argv=None):
     if args.model is None:
         print(f'Summary measures are stored in {args.summary_dir}.\n done.')
     else:
-        summaries, invalid_vox = summary_measures.read_summary_images(summary_dir=args.summary_dir, mask=args.mask)
+        summaries, invalid_vox = summary_measures.read_summary_images(
+            summary_dir=args.summary_dir, mask=args.mask)
 
         summaries = summaries[:, invalid_vox == 0, :]
+
         # perform glm:
         data, delta_data, sigma_n = glm.group_glm(summaries, args.design_mat, args.design_con)
+        glm_dir = f'{args.output}/Glm'
+        write_nifti(('data',), data, args.mask, glm_dir, invalid_vox)
+        write_nifti(('delta_data',), delta_data, args.mask, glm_dir, invalid_vox)
 
         # perform inference:
         ch_mdl = change_model.ChangeModel.load(args.model)
-        posteriors, predictions = ch_mdl.predict(data, delta_data, sigma_n)
+        posteriors, predictions, peaks = ch_mdl.predict(data, delta_data, sigma_n)
 
         # save the results:
         vec_names = ['No-change'] + [m.name for m in ch_mdl.models]
@@ -150,14 +155,20 @@ def train_from_cmd(argv=None):
 
     bvecs = np.array(diffusion_models.spherical2cart(
         *diffusion_models.uniform_sampling_sphere(len(idx_shells)))).T
-    acq = acquisition.Acquisition(shells, idx_shells, bvecs)
-    trainer = change_model.Trainer(forward_model=diffusion_models.train_decorator(forward_model),
-                                   args=(acq, int(args.d)),
-                                   vecs=args.change_vecs,
-                                   param_prior_dists=param_dist)
 
-    ch_model = trainer.train(n_samples=int(args.n), k=int(args.k), model_name=forward_model.__name__,
-                             poly_degree=int(args.p), regularization=float(args.alpha))
+    acq = acquisition.Acquisition(shells, idx_shells, bvecs)
+    func_args = {'acq': acq, 'sph_degree': args.d, 'noise_level': 0}
+    trainer = change_model.Trainer(
+        forward_model=diffusion_models.bench_decorator(forward_model),
+        args=func_args,
+        change_vecs=args.change_vecs,
+        param_prior_dists=param_dist)
+
+    ch_model = trainer.train(n_samples=int(args.n), k=int(args.k),
+                             model_name=forward_model.__name__,
+                             poly_degree=int(args.p),
+                             regularization=float(args.alpha))
+
     ch_model.save(path='', file_name=args.output)
     print('Change model trained successfully')
 
@@ -192,32 +203,14 @@ def train_parse_args(argv):
     return args
 
 
-def write_nifti(model_names: list, posteriors: np.ndarray, mask_add: str, output='.', invalids=None):
-    """
-    Writes the results to nifti files per change model.
-
-    """
-    if os.path.isdir(output):
-        warn('Output directory already exists, contents might be overwritten.')
-    else:
-        os.makedirs(output, exist_ok=True)
-
-    winner = np.argmax(posteriors, axis=1)
+def write_nifti(data: np.ndarray, mask_add: str, fname: str, invalids=None):
     mask = Image(mask_add)
-
     std_indices = np.array(np.where(mask.data > 0)).T
     std_indices_valid = std_indices[[not v for v in invalids]]
     std_indices_invalid = std_indices[invalids == 1]
 
-    for s_i, s_name in enumerate(model_names):
-        data = posteriors[:, s_i]
-        tmp1 = np.zeros(mask.shape)
-        tmp1[tuple(std_indices_valid.T)] = data
-        tmp1[tuple(std_indices_invalid.T)] = np.nan
-        tmp2 = np.zeros(mask.shape)
-        tmp2[tuple(std_indices_valid.T)] = winner == s_i
-        tmp2[tuple(std_indices_invalid.T)] = np.nan
-        mat = np.stack([tmp1, tmp2], axis=-1)
+    img = np.zeros((*mask.shape, data.shape[1]))
+    img[tuple(std_indices_valid.T)] = data
+    img[tuple(std_indices_invalid.T)] = np.nan
 
-        fname = f"{output}/{s_name}.nii.gz"
-        nib.Nifti1Image(mat, mask.nibImage.affine).to_filename(fname)
+    nib.Nifti1Image(img, mask.nibImage.affine).to_filename(fname)

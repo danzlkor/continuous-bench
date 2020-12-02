@@ -531,4 +531,5 @@ def bench_decorator(model):
         sm = summary_measures.compute_summary(sig + noise, acq, sph_degree=sph_degree)
         sm = np.stack(list(sm.values()))
         return sm
+    func.__name__ = model.__name__
     return func
