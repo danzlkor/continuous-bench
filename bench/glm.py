@@ -5,7 +5,7 @@
 import numpy as np
 from fsl.data.featdesign import loadDesignMat
 from fsl.data.image import Image
-from .summary_measures import transform_indices
+from .summary_measures import sample_from_native_space
 import os
 from typing import List
 
@@ -95,6 +95,8 @@ def voxelwise_group_glm(data, weights, design_con):
         print(f'running glm for {data.shape[0]} subjects and {data.shape[1]}')
     else:
         raise ValueError(f' glm weights and data are not matched')
+    if data.ndim == 2:
+        data = data[..., np.newaxis]
 
     n_subj, n_vox, n_dim = data.shape
     copes = np.zeros((n_vox, n_dim, 2))
@@ -141,9 +143,7 @@ def read_glm_weights(data: List[str], xfm: List[str],  mask: str, output: str):
     print('Reading GLM weights:')
 
     for subj_idx, (d, x) in enumerate(zip(data, xfm)):
-        data_img = Image(d)
-        subj_indices, valid_vox = transform_indices(x, mask_img, data_img, f"{output}/def_field_{subj_idx}.nii.gz")
-        valid_subj_indices = tuple(subj_indices[valid_vox, :].T)
-        weights[subj_idx, valid_vox] = data_img.data[valid_subj_indices].astype(float)
+        data, valid_vox = sample_from_native_space(d, x, mask, f"{output}/def_field_{subj_idx}.nii.gz")
+        weights[subj_idx, valid_vox] = data
         print(subj_idx, end=' ', flush=True)
     return weights

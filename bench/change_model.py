@@ -18,6 +18,9 @@ import warnings
 import inspect
 import pickle
 
+from scipy.stats import multivariate_normal
+
+possible_lims = ['positive', 'negative', 'twosided']
 
 @dataclass
 class ChangeVector:
@@ -27,13 +30,13 @@ class ChangeVector:
     vec: Mapping
     mu_mdl: Pipeline
     l_mdl: Pipeline
-    lim: str = 'p'
+    lim: str
     sigma_v: float = 0.1
     prior: float = 1
     name: str = None
 
     def __post_init__(self):
-        scale = np.linalg.norm(list(self.vec.values()))
+        scale = np.round(np.linalg.norm(list(self.vec.values())), 3)
         if scale != 1:
             warnings.warn(f'Change vector {self.name} does not have a unit length')
 
@@ -60,9 +63,10 @@ class ChangeVector:
 
     def log_posterior_pdf(self, y, dy, sigma_n):
         mu, sigma_p = self.estimate_change(y)
-        log_post = lambda dv: log_posterior_dv(dv, dy, mu, sigma_p, sigma_n,
-                                               self.sigma_v, self.lim)
+        log_post = lambda dv: log_posterior_dv(dv=dv, dy=dy, mu=mu, sigma_p=sigma_p, sigma_n=sigma_n,
+                                               sigma_v=self.sigma_v, lims=self.lim)
         return log_post
+
 
 @dataclass
 class ChangeModel:
@@ -120,7 +124,7 @@ class ChangeModel:
         :return: np array containing log likelihood for each sample per class
         """
 
-        n_samples, n_x = y.shape
+        n_samples, n_dim = y.shape
         n_models = len(self.models) + 1
         log_prob = np.zeros((n_samples, n_models))
         peaks = np.zeros((n_samples, n_models))
@@ -134,18 +138,15 @@ class ChangeModel:
             if np.isnan(y_s).any() or np.isnan(dy_s).any() or np.isnan(sigma_n_s).any():
                 log_prob[sam_idx, :] = np.zeros(n_models)
             else:
-                log_prob[sam_idx, 0] = log_mvnpdf(x=dy_s, mean=np.zeros(n_x), cov=sigma_n_s)
+                log_prob[sam_idx, 0] = log_mvnpdf(x=dy_s, mean=np.zeros(n_dim), cov=sigma_n_s)
 
                 for vec_idx, ch_mdl in enumerate(self.models, 1):
                     try:
-                        mu, sigma_p = ch_mdl.estimate_change(y_s)
-                        log_post = lambda dv: log_posterior_dv(dv, dy_s,
-                                                               mu, sigma_p, sigma_n_s,
-                                                               ch_mdl.sigma_v, ch_mdl.lim)
+                        log_post_pdf = ch_mdl.log_posterior_pdf(y_s, dy_s, sigma_n_s)
 
-                        peak, low, high = find_range(log_post)
-                        post = lambda dv: np.exp(log_post(dv))
-                        integral = quad(post, low, high, epsrel=1e-3)[0]
+                        peak, low, high = find_range(log_post_pdf)
+                        post_pdf = lambda dv: np.exp(log_post_pdf(dv))
+                        integral = quad(post_pdf, low, high, epsrel=1e-3)[0]
                         log_prob[sam_idx, vec_idx] = np.log(integral) if integral > 0 else -np.inf
                         peaks[sam_idx, vec_idx] = peak
                     except np.linalg.LinAlgError as err:
@@ -176,6 +177,11 @@ def make_pipeline(degree: int, alpha: float) -> Pipeline:
 
 def string_to_dict(str_):
     dict_ = {}
+    str_ = str_.replace('+ ', '+')
+    str_ = str_.replace('- ', '-')
+    str_ = str_.replace('* ', '*')
+    str_ = str_.replace(' *', '*')
+
     for term in str_.split(' '):
         if term[0] in ('+', '-'):
             sign = term[0]
@@ -196,7 +202,36 @@ def string_to_dict(str_):
 
 
 def dict_to_string(dict_):
-    return ' '.join([f'{v:+1.1f}*{p}' for p, v in dict_.items() if v != 0]).replace('1.0*', '')
+    str_ = ' '.join([f'{v:+1.1f}*{p}' for p, v in
+                     dict_.items() if v != 0]).replace('1.0*', '')
+    if str_[0] == '+':
+        str_ = str_[1:]
+    str_ = str_.replace(' +', ' + ')
+    str_ = str_.replace(' -', ' - ')
+    return str_
+
+
+def parse_change_vecs(vec_texts: List[str]):
+    vecs = list()
+    lims = list()
+    for txt in vec_texts:
+        if '#' in txt:
+            txt = txt[:txt.find('#')]
+
+        sub = txt.split(',')
+        this_vec = string_to_dict(sub[0])
+        if len(sub) > 1:
+            this_lims = sub[1].rstrip().lower().split()
+            for l in this_lims:
+                if l not in possible_lims:
+                    raise ValueError(f'limits should be any of {possible_lims} but got {l}.')
+        else:
+            this_lims=['twosided']
+
+        vecs.append(this_vec)
+        lims.append(this_lims)
+
+    return vecs, lims
 
 
 @dataclass
@@ -209,6 +244,7 @@ class Trainer:
     args: Any
     param_prior_dists: Mapping[str, rv_continuous]
     change_vecs: List[Mapping] = None
+    lims: List = None
     sigma_v: Union[float, List[float], np.ndarray] = 0.1
     priors: Union[float, Sequence] = 1
 
@@ -218,15 +254,18 @@ class Trainer:
 
         if self.change_vecs is None:
             self.change_vecs = [{p: 1} for p in self.param_names]
-            self.vec_names = [dict_to_string(s) for s in self.change_vecs]
+            self.lims = [['twosided']] * len(self.change_vecs)
+
         elif np.all([p is dict for p in self.change_vecs]):
-            self.vec_names = [dict_to_string(s) for s in self.change_vecs]
+            if self.lims is None:
+                self.lims = [['twosided']] * len(self.change_vecs)
+
         elif np.all([isinstance(p, str) for p in self.change_vecs]):
-            self.vec_names = self.change_vecs
-            self.change_vecs = [string_to_dict(str(s)) for s in self.vec_names]
+            self.change_vecs, self.lims = parse_change_vecs(self.change_vecs)
         else:
             raise ValueError(" Change vectors are not defined properly.")
 
+        self.vec_names = [dict_to_string(s) for s in self.change_vecs]
         self.n_vecs = len(self.change_vecs)
 
         for idx in range(self.n_vecs):
@@ -275,22 +314,30 @@ class Trainer:
             :param regularization: ridge regression alpha
             :param model_name: name of the model.
           """
-        models = []
-        for vec, name, sigma_v, prior in zip(self.change_vecs, self.vec_names, self.sigma_v, self.priors):
-            models.append(ChangeVector(vec=vec,
-                                       mu_mdl=make_pipeline(poly_degree, regularization),
-                                       l_mdl=make_pipeline(poly_degree, regularization),
-                                       sigma_v=sigma_v,
-                                       prior=prior,
-                                       name=str(name)))
-
         y_1, y_2 = self.generate_train_samples(n_samples, dv0)
         dy = (y_2 - y_1) / dv0
         sample_mu, sample_l = knn_estimation(y_1, dy, k=k)
-        for idx in range(self.n_vecs):
-            models[idx].mu_mdl.fit(y_1, sample_mu[idx])
-            models[idx].l_mdl.fit(y_1, sample_l[idx])
-            print(f'Model of change for vector {models[idx].name} trained successfully.')
+
+        models = []
+        print('Trained models are:')
+        for idx, (vec, name, sigma_v, prior, lims) \
+                in enumerate(zip(self.change_vecs, self.vec_names, self.sigma_v, self.priors, self.lims)):
+
+            mu_mdl = make_pipeline(poly_degree, regularization)
+            l_mdl = make_pipeline(poly_degree, regularization)
+            mu_mdl.fit(y_1, sample_mu[idx])
+            l_mdl.fit(y_1, sample_l[idx])
+            for l in lims:
+                models.append(
+                    ChangeVector(vec=vec,
+                                 mu_mdl=mu_mdl,
+                                 l_mdl=l_mdl,
+                                 sigma_v=sigma_v,
+                                 prior=prior,
+                                 lim=l,
+                                 name=str(name) + ', ' + l)
+                )
+                print(models[-1].name)
 
         if model_name is None:
             model_name = getattr(self.forward_model, '__name__', None)
@@ -301,7 +348,7 @@ class Trainer:
         y_1 = np.zeros((n_samples, self.n_dim))
         y_2 = np.zeros((self.n_vecs, n_samples, self.n_dim))
 
-        print('Generating training samples:')
+        print(f'Generating {n_samples} training samples:')
         pbar = ProgressBar()
         for s_idx in pbar(range(n_samples)):
             params_1 = {p: v.rvs() for p, v in self.param_prior_dists.items()}
@@ -324,10 +371,12 @@ class Trainer:
         :param n_repeats:
         :return:
         """
+        tmp_mdl = self.train(n_samples=2, k=1, dv0=1e-6)
+
         y_1 = np.zeros((n_samples, self.n_dim))
         y_2 = np.zeros((n_samples, self.n_dim))
         sigma_n = np.zeros((n_samples, self.n_dim, self.n_dim))
-        true_change = np.random.randint(0, self.n_vecs + 1, n_samples)
+        true_change = np.random.randint(0, len(tmp_mdl.models) + 1, n_samples)
 
         args = self.args.copy()
         has_noise_model = 'noise_level' in inspect.getfullargspec(self.forward_model).args
@@ -336,25 +385,34 @@ class Trainer:
             y_1_r = np.zeros((n_repeats, self.n_dim))
             y_2_r = np.zeros_like(y_1_r)
 
-        print('Generating test samples:')
+        print(f'Generating {n_samples} test samples:')
         pbar = ProgressBar()
         for s_idx in pbar(range(n_samples)):
-
             tc = true_change[s_idx]
             params_1 = {p: v.rvs() for p, v in self.param_prior_dists.items()}
             if tc == 0:
                 params_2 = params_1
             else:
-                params_2 = {k: np.abs(v + self.change_vecs[tc - 1].get(k, 0) * effect_size)
+                lim = tmp_mdl.models[tc-1].lim
+                if lim == 'positive':
+                    sign = 1
+                elif lim == 'negative':
+                    sign = -1
+                elif lim == 'twosided':
+                    sign = np.sign(np.random.randn())
+                else:
+                    raise ValueError('Limits are not recognized')
+
+                params_2 = {k: np.abs(v + tmp_mdl.models[tc - 1].vec.get(k, 0) * effect_size * sign)
                             for k, v in params_1.items()}
 
             if has_noise_model:
                 for r in range(n_repeats):
                     y_1_r[r] = self.forward_model(**args, **params_1)
                     y_2_r[r] = self.forward_model(**args, **params_2)
-                y_1[s_idx] = y_1_r.mean(axis=0)
-                y_2[s_idx] = y_2_r.mean(axis=0)
-                sigma_n[s_idx] = np.cov((y_1_r - y_2_r).T)
+                y_1[s_idx] = y_1_r[0]  # a random sample.
+                y_2[s_idx] = y_2_r[0]
+                sigma_n[s_idx] = np.cov((y_2_r - y_1_r).T)
             else:
                 y_1[s_idx] = self.forward_model(**args, **params_1) + np.random.randn(self.n_dim) * noise_level
                 y_2[s_idx] = self.forward_model(**args, **params_2) + np.random.randn(self.n_dim) * noise_level
@@ -431,27 +489,31 @@ def log_mvnpdf(x, mean, cov):
         cov = np.array([[cov]])
 
     d = mean.shape[-1]
-    e = -.5 * (x - mean).T @ np.linalg.inv(cov) @ (x - mean)
-    c = 1 / np.sqrt(((2 * np.pi) ** d) * np.linalg.det(cov.astype(float)))
-    return np.log(c) + e
+    expo = -0.5 * (x - mean).T @ np.linalg.inv(cov) @ (x - mean)
+    nc = -0.5 * np.log(((2 * np.pi) ** d) * np.linalg.det(cov.astype(float)))
+
+    # var2 = np.log(multivariate_normal(mean=mean, cov=cov).pdf(x))
+    return expo + nc
 
 
 def log_posterior_dv(dv, dy, mu, sigma_p, sigma_n, sigma_v, lims):
-    if lims == 'b':
+    if lims == 'twosided':
         log_prior = log_mvnpdf(x=dv, mean=np.zeros(1), cov=sigma_v ** 2)
-    elif (lims == 'n' and dv > 0) or (lims == 'p' and dv < 0):
-        return -np.inf
+    elif (lims == 'positive' and dv < 0) or (lims == 'negative' and dv > 0):
+        return -1e6
+    elif (lims == 'positive' and dv >= 0) or (lims == 'negative' and dv <= 0):
+        log_prior = log_mvnpdf(x=dv, mean=np.zeros(1), cov=sigma_v ** 2) + np.log(2)
     else:
-        log_prior = log_mvnpdf(x=dv, mean=np.zeros(1), cov=sigma_v ** 2) * 2
+        raise ValueError('Limits are not set correctly.')
 
     mean = np.squeeze(mu * dv)
-    cov = np.squeeze(sigma_p) * dv ** 2 + sigma_n
+    cov = np.squeeze(sigma_p) * (dv ** 2) + sigma_n
     log_lh = log_mvnpdf(x=dy, mean=mean, cov=cov)
 
     return log_lh + log_prior
 
 
-def find_range(f: Callable, scale=1e-1, search_rad=1):
+def find_range(f: Callable, scale=1e-2, search_rad=0.2):
     """
      find the range for integration
     :param f: function in logarithmic scale, e.g. log_posterior
@@ -460,20 +522,24 @@ def find_range(f: Callable, scale=1e-1, search_rad=1):
     :return: peak, lower limit and higher limit of the function
     """
     minus_f = lambda dv: -f(dv)
+    np.seterr(invalid='raise')
     peak = minimize_scalar(minus_f).x
-    f2 = lambda dv: f(dv) - (f(peak) - np.log(scale))
-    try:
-        lower = root_scalar(f2, bracket=[-search_rad + peak, peak], method='brentq').root
-    except Exception as e:
-        print(f"Error of type {e.__class__} occurred, while finding lower limit of integral."
-              f"The peak - {search_rad} is used instead")
-        lower = -search_rad + peak
-    try:
-        upper = root_scalar(f2, bracket=[peak, search_rad + peak], method='brentq').root
-    except Exception as e:
-        print(f"Error of type {e.__class__} occurred, while finding higher limit of integral."
-              f"The peak +{search_rad} is used instead")
-        upper = search_rad + peak
+
+    f_norm = lambda dv: f(dv) - (f(peak) + np.log(scale))
+    lower, upper = -search_rad + peak, search_rad + peak
+    if f_norm(lower) < 0:
+        try:
+            lower = root_scalar(f_norm, bracket=[lower, peak], method='brentq').root
+        except Exception as e:
+            print(f"Error of type {e.__class__} occurred, while finding lower limit of integral."
+                  f"The peak + search_rad ({peak:1.6f} + {search_rad}) is used instead")
+
+    if f_norm(upper) < 0:
+        try:
+            upper = root_scalar(f_norm, bracket=[peak, upper], method='brentq').root
+        except Exception as e:
+            print(f"Error of type {e.__class__} occurred, while finding higher limit of integral."
+                  f"The peak + search_rad ({peak:1.6f} + {search_rad}) is used instead")
 
     return peak, lower, upper
 

@@ -17,8 +17,8 @@ from bench.acquisition import Acquisition, ShellParameters
 from scipy.linalg import block_diag
 
 
-def summary_name(b, l):
-    return f"b{b:1.1f}_l{l}"
+def summary_name(bval, degree):
+    return f"b{bval:1.1f}_l{degree}"
 
 
 def fit_shm(bvecs, signal, lmax=6):
@@ -90,12 +90,12 @@ def compute_summary(signal, acq: Acquisition, sph_degree):
     return sum_meas
 
 
-def noise_propagation(summaries, acq, sph_degree, sigma_n=1):
+def noise_propagation(summaries, acq, sph_degree, noise_level):
     """
     Computes noise covariance matrix of measurements for a given signal
         :param summaries: (n_samples, dim) array of data
         :param acq: acquisition parameters
-        :param sigma_n: noise std
+        :param noise_level: noise std
         :param sph_degree: degree for spherical harmonics
         :return: mu, cov(n_sample, dim, dim)
     """
@@ -105,12 +105,12 @@ def noise_propagation(summaries, acq, sph_degree, sigma_n=1):
         bval = this_shell.bval
         if bval == 0:
             variances.append(
-                noise_variance(acq.bvecs[dirs], summaries[0], 0, sigma_n, this_shell.lmax))
+                noise_variance(acq.bvecs[dirs], summaries[0], 0, noise_level, this_shell.lmax))
 
         else:
             for l in np.arange(0, sph_degree + 1, 2):
-                idx = (shell_idx - 1) * (sph_degree // 2 + 1) + l//2 + 1
-                variances.append(noise_variance(acq.bvecs[dirs], summaries[idx], l, sigma_n, this_shell.lmax))
+                idx = (shell_idx - 1) * (sph_degree // 2 + 1) + l // 2 + 1
+                variances.append(noise_variance(acq.bvecs[dirs], summaries[idx], l, noise_level, this_shell.lmax))
 
     cov = block_diag(*variances)
     return cov
@@ -259,11 +259,11 @@ def read_summary_images(summary_dir: str, mask: str, normalize=True):
         summary_list.append(Image(f).data[mask_img.data > 0, :])
 
     print(f'loaded summaries from {n_subj} subjects')
-    all_summaries = np.array(summary_list) # n_subj, n_vox, n_dim
+    all_summaries = np.array(summary_list)  # n_subj, n_vox, n_dim
     subj_n_invalids = np.isnan(all_summaries).sum(axis=(1, 2))
     faulty_subjs = np.argwhere(subj_n_invalids > 0.2 * all_summaries.shape[1])
     for s in faulty_subjs:
-        warn(f'Subject No. {s+1} has more than 20% out of scope voxels. You may need to exclude it in the GLM.')
+        warn(f'Subject No. {s + 1} has more than 20% out of scope voxels. You may need to exclude it in the GLM.')
 
     invalid_voxs = np.isnan(all_summaries).any(axis=(0, 2))
 
@@ -303,33 +303,61 @@ def normalize_summaries(summaries, summary_names):
     return summaries_norm
 
 
-def transform_indices(xfm, mask, native_img, def_field_name='def_field_tmp.nii.gz'):
+def convert_warp_to_deformation_field(warp_field, std_image, def_field, overwrite=False):
     """
-        Finds corresponding coordinates in native space defined by native_img to coordinates in standard space.
-        :param xfm: address to transformation from native to standard space
-        :param mask: mask image.
-        :param native_img: image sample in native space (e.g. diffusion)
-        :param def_field_name: name of the temporary deformation field.
-        :return: transformed indices and list of voxels that lie within diffusion space.
+    Converts a warp wield to a deformation field
+
+    This is required because fnirt.Readfnirt only accepts deformation field. If the def_field
+     exists it does nothing.
+    :param warp_field:
+    :param std_image:
+    :param def_field:
+    :param overwrite:
+    :return:
     """
-    std_indices = np.array(np.where(mask.data > 0)).T
-    if not os.path.exists(def_field_name):
-        convertwarp(def_field_name, mask, warp1=xfm)
-        img = nib.load(def_field_name)
+    if not os.path.exists(def_field) or overwrite is True:
+        convertwarp(def_field, std_image, warp1=warp_field)
+        img = nib.load(def_field)
         img.header['intent_code'] = 2006  # for displacement field style warps
-        img.to_filename(def_field_name)
+        img.to_filename(def_field)
 
-    transform = fnirt.readFnirt(def_field_name, native_img, mask)
-    # os.remove(def_field_name)
-    subj_indices = np.around(transform.transform(std_indices, 'voxel', 'voxel')).astype(int)
 
-    valid_vox = [np.all([0 < subj_indices[j, i] < native_img.shape[i] for i in range(3)])
-                 for j in range(subj_indices.shape[0])]
+def transform_indices(native_image, std_mask, def_field):
+    """
+    Findes nearest neighbour of each voxel of a standard space mask in native space image.
+    :param native_image:
+    :param std_mask:
+    :param def_field:
+    :return:
+    """
+    std_indices = np.array(np.where(std_mask.data > 0)).T
+    transform = fnirt.readFnirt(def_field, native_image, std_mask)
+    native_indices = np.around(transform.transform(std_indices, 'voxel', 'voxel')).astype(int)
+
+    valid_vox = [np.all([0 < native_indices[j, i] < native_image.shape[i] for i in range(3)])
+                 for j in range(native_indices.shape[0])]
 
     if not np.all(valid_vox):
-        warn('Transformation on mask gave invalid coordinates')
+        warn('Some voxels lie out of native space.')
 
-    return subj_indices, valid_vox
+    return native_indices, valid_vox
+
+
+def sample_from_native_space(image, xfm, mask, def_field):
+    """
+    Sample data from native space using a mask in standard space
+    :param image:
+    :param xfm:
+    :param mask:
+    :param def_field:
+    :return:
+    """
+    convert_warp_to_deformation_field(xfm, mask, def_field)
+    data_img = Image(image)
+    mask_img = Image(mask)
+    subj_indices, valid_vox = transform_indices(data_img, mask_img, def_field)
+    data_vox = data_img.data[tuple(subj_indices[valid_vox, :].T)].astype(float)
+    return data_vox, valid_vox
 
 
 def fit_summary_to_image(subj_idx: str, diff_add: str, xfm_add: str, bvec_add: str,
@@ -354,13 +382,8 @@ def fit_summary_to_image(subj_idx: str, diff_add: str, xfm_add: str, bvec_add: s
     print('sph_degree: ' + str(sph_degree))
     print('output path: ' + output_add)
 
-    diffusion_img = Image(diff_add)
-    mask_img = Image(mask_add)
-    subj_indices, valid_vox = transform_indices(xfm_add, mask_img, diffusion_img,
-                                                f"{output_add}/def_field_{subj_idx}.nii.gz")
-
-    diffusion_vox = diffusion_img.data[tuple(subj_indices[valid_vox, :].T)].astype(float)
-
+    def_field = f"{output_add}/def_field_{subj_idx}.nii.gz"
+    data, valid_vox = sample_from_native_space(diff_add, xfm_add, mask_add, def_field)
     bvecs = np.genfromtxt(bvec_add)
     if bvecs.shape[1] > bvecs.shape[0]:
         bvecs = bvecs.T
@@ -368,9 +391,10 @@ def fit_summary_to_image(subj_idx: str, diff_add: str, xfm_add: str, bvec_add: s
     idx_shells, shells = ShellParameters.create_shells(bval=bvals)
     acq = Acquisition(shells, idx_shells, bvecs)
 
-    summaries = compute_summary(diffusion_vox, acq, sph_degree=sph_degree)
+    summaries = compute_summary(data, acq, sph_degree=sph_degree)
 
     # write to nifti:
+    mask_img = Image(mask_add)
     mat = np.zeros((*mask_img.shape, len(summaries))) + np.nan
     std_indices = np.array(np.where(mask_img.data > 0)).T
     std_indices_valid = std_indices[valid_vox]

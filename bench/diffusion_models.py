@@ -40,7 +40,7 @@ prior_distributions = dict(
 
     watson_noddi={'s_iso': stats.gamma(a=1, scale=1 / 2),
                   's_in': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
-                  's_ex': stats.truncnorm(loc=.4, scale=.2, a=-.5 / .2, b=np.Inf),
+                  's_ex': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
                   'd_iso': stats.truncnorm(loc=3, scale=.1, a=-3 / .1, b=np.Inf),
                   'd_a_in': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
                   'd_a_ex': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),

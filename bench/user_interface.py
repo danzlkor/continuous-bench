@@ -158,6 +158,10 @@ def train_from_cmd(argv=None):
 
     acq = acquisition.Acquisition(shells, idx_shells, bvecs)
     func_args = {'acq': acq, 'sph_degree': args.d, 'noise_level': 0}
+    if args.change_vecs is not None:
+        with open(args.change_vecs, 'r') as reader:
+            args.change_vecs = [line.rstrip() for line in reader]
+
     trainer = change_model.Trainer(
         forward_model=diffusion_models.bench_decorator(forward_model),
         args=func_args,
@@ -170,7 +174,7 @@ def train_from_cmd(argv=None):
                              regularization=float(args.alpha))
 
     ch_model.save(path='', file_name=args.output)
-    print('Change model trained successfully')
+    print('All change models were trained successfully')
 
 
 def train_parse_args(argv):
@@ -211,6 +215,6 @@ def write_nifti(data: np.ndarray, mask_add: str, fname: str, invalids=None):
 
     img = np.zeros((*mask.shape, data.shape[1]))
     img[tuple(std_indices_valid.T)] = data
-    img[tuple(std_indices_invalid.T)] = np.nan
+    img[tuple(std_indices_invalid.T)] = 0
 
     nib.Nifti1Image(img, mask.nibImage.affine).to_filename(fname)
