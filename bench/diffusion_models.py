@@ -44,8 +44,8 @@ prior_distributions = dict(
                   'd_iso': stats.truncnorm(loc=3, scale=.1, a=-3 / .1, b=np.Inf),
                   'd_a_in': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
                   'd_a_ex': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
-                  'tortuosity': stats.uniform(loc=0, scale=1),
-                  'odi': stats.uniform(loc=.2, scale=.4),
+                  'tortuosity': stats.uniform(loc=0.1, scale=.8),
+                  'odi': stats.uniform(loc=.1, scale=.8),
                   },
 
     bingham_noddi={'s_iso': stats.gamma(a=1, scale=1 / 2),
@@ -54,10 +54,10 @@ prior_distributions = dict(
                    'd_iso': stats.truncnorm(loc=3, scale=.1, a=-3 / .1, b=np.Inf),
                    'd_a_in': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
                    'd_a_ex': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
-                   'tortuosity': stats.uniform(loc=0, scale=1),
-                   'odi': stats.uniform(loc=.2, scale=.4),
-                   'odi_ratio': stats.uniform(loc=.4, scale=.5),
-                   'psi': stats.uniform(loc=np.pi/2, scale=np.pi/2)
+                   'tortuosity': stats.uniform(loc=0.1, scale=.8),
+                   'odi': stats.uniform(loc=.2, scale=.6),
+                   'odi_ratio': stats.uniform(loc=.1, scale=.8),
+                   # 'psi': stats.uniform(loc=np.pi/2, scale=np.pi/2)
                    }
 )
 

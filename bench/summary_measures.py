@@ -360,8 +360,8 @@ def sample_from_native_space(image, xfm, mask, def_field):
     return data_vox, valid_vox
 
 
-def fit_summary_to_image(subj_idx: str, diff_add: str, xfm_add: str, bvec_add: str,
-                         bval_add: str, mask_add: str, sph_degree: int, output_add: str):
+def fit_summary_single_subject(subj_idx: str, diff_add: str, xfm_add: str, bvec_add: str,
+                               bval_add: str, mask_add: str, sph_degree: int, output_add: str):
     """
         the main function that fits summary measurements for a single subject
         :param subj_idx: used to name the summary files.
@@ -423,7 +423,7 @@ def from_cmd(args):
     mask_add_ = args[5]
     sph_degree = int(args[6])
     output_add_ = args[7]
-    fit_summary_to_image(subj_idx_, diff_add_, xfm_add_, bvec_add_, bval_add_, mask_add_, sph_degree, output_add_)
+    fit_summary_single_subject(subj_idx_, diff_add_, xfm_add_, bvec_add_, bval_add_, mask_add_, sph_degree, output_add_)
 
 
 if __name__ == '__main__':
