@@ -4,7 +4,7 @@ This module contains classes and functions to train a change model and make infe
 
 import numpy as np
 from scipy.spatial import KDTree
-from scipy.stats import rv_continuous
+from scipy.stats import rv_continuous, lognorm
 from typing import Callable, List, Any, Union, Sequence, Mapping
 from progressbar import ProgressBar
 from dataclasses import dataclass
@@ -18,9 +18,8 @@ import warnings
 import inspect
 import pickle
 
-from scipy.stats import multivariate_normal
+INTEGRAL_LIMITS = ['positive', 'negative', 'twosided']
 
-possible_lims = ['positive', 'negative', 'twosided']
 
 @dataclass
 class ChangeVector:
@@ -31,7 +30,6 @@ class ChangeVector:
     mu_mdl: Pipeline
     l_mdl: Pipeline
     lim: str
-    sigma_v: float = 0.1
     prior: float = 1
     name: str = None
 
@@ -63,8 +61,7 @@ class ChangeVector:
 
     def log_posterior_pdf(self, y, dy, sigma_n):
         mu, sigma_p = self.estimate_change(y)
-        log_post = lambda dv: log_posterior_dv(dv=dv, dy=dy, mu=mu, sigma_p=sigma_p, sigma_n=sigma_n,
-                                               sigma_v=self.sigma_v, lims=self.lim)
+        log_post = lambda dv: log_posterior_dv(dv=dv, dy=dy, mu=mu, sigma_p=sigma_p, sigma_n=sigma_n, lims=self.lim)
         return log_post
 
 
@@ -223,8 +220,8 @@ def parse_change_vecs(vec_texts: List[str]):
         if len(sub) > 1:
             this_lims = sub[1].rstrip().lower().split()
             for l in this_lims:
-                if l not in possible_lims:
-                    raise ValueError(f'limits should be any of {possible_lims} but got {l}.')
+                if l not in INTEGRAL_LIMITS:
+                    raise ValueError(f'limits should be any of {INTEGRAL_LIMITS} but got {l}.')
         else:
             this_lims=['twosided']
 
@@ -245,7 +242,6 @@ class Trainer:
     param_prior_dists: Mapping[str, rv_continuous]
     change_vecs: List[Mapping] = None
     lims: List = None
-    sigma_v: Union[float, List[float], np.ndarray] = 0.1
     priors: Union[float, Sequence] = 1
 
     def __post_init__(self):
@@ -277,11 +273,6 @@ class Trainer:
             scale = np.linalg.norm(list(self.change_vecs[idx].values()))
             self.change_vecs[idx] = {k: v / scale for k, v in self.change_vecs[idx].items()}
 
-        if np.isscalar(self.sigma_v):
-            self.sigma_v = [self.sigma_v] * self.n_vecs
-        elif len(self.sigma_v) != self.n_vecs:
-            raise ("sigma_v must be either a scalar (same for all change models) "
-                   "or a sequence with size of number of change models.")
 
         if np.isscalar(self.priors):
             self.priors = [self.priors] * self.n_vecs
@@ -320,8 +311,8 @@ class Trainer:
 
         models = []
         print('Trained models are:')
-        for idx, (vec, name, sigma_v, prior, lims) \
-                in enumerate(zip(self.change_vecs, self.vec_names, self.sigma_v, self.priors, self.lims)):
+        for idx, (vec, name, prior, lims) \
+                in enumerate(zip(self.change_vecs, self.vec_names, self.priors, self.lims)):
 
             mu_mdl = make_pipeline(poly_degree, regularization)
             l_mdl = make_pipeline(poly_degree, regularization)
@@ -332,7 +323,6 @@ class Trainer:
                     ChangeVector(vec=vec,
                                  mu_mdl=mu_mdl,
                                  l_mdl=l_mdl,
-                                 sigma_v=sigma_v,
                                  prior=prior,
                                  lim=l,
                                  name=str(name) + ', ' + l)
@@ -496,15 +486,21 @@ def log_mvnpdf(x, mean, cov):
     return expo + nc
 
 
-def log_posterior_dv(dv, dy, mu, sigma_p, sigma_n, sigma_v, lims):
+def log_posterior_dv(dv, dy, mu, sigma_p, sigma_n, lims):
+
     if lims == 'twosided':
-        log_prior = log_mvnpdf(x=dv, mean=np.zeros(1), cov=sigma_v ** 2)
+        scale = np.linalg.norm(mu)
+        log_prior = np.log(lognorm(s=scale).pdf(x=np.abs(dv))) - np.log(2)
+
+    elif (lims == 'positive' and dv >= 0) or (lims == 'negative' and dv <= 0):
+        scale = np.linalg.norm(mu)
+        log_prior = np.log(lognorm(s=scale).pdf(x=np.abs(dv)))
+
     elif (lims == 'positive' and dv < 0) or (lims == 'negative' and dv > 0):
         return -1e6
-    elif (lims == 'positive' and dv >= 0) or (lims == 'negative' and dv <= 0):
-        log_prior = log_mvnpdf(x=dv, mean=np.zeros(1), cov=sigma_v ** 2) + np.log(2)
+
     else:
-        raise ValueError('Limits are not set correctly.')
+        raise ValueError('Limits of integral are not set correctly.')
 
     mean = np.squeeze(mu * dv)
     cov = np.squeeze(sigma_p) * (dv ** 2) + sigma_n

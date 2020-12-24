@@ -12,6 +12,7 @@ import sys
 from fsl.data.featdesign import loadDesignMat
 from warnings import warn
 import scipy.stats as st
+from typing import Union, Callable, List
 
 
 def ball_stick_func(grad, s_iso, s_a, d_iso, d_a):
@@ -37,14 +38,13 @@ def watson_noddi_func(grad, s_iso, s_int, s_ext, tortuosity, odi):
     return signal
 
 
-def bingham_noddi_func(grad, s_iso, s_int, s_ext, odi):
+def bingham_noddi_func(grad, s_iso, s_int, s_ext, odi, odi_ratio):
     bval = grad[:, 0]
     bvec = grad[:, 1:]
     d_iso = 3
     dax_int = 1.7
     dax_ext = 1.7
-    tortuosity = 0.5
-    odi_ratio = 1
+    tortuosity = s_int / (s_int + s_ext)
 
     signal = dm.bingham_noddi(bval=bval, bvec=bvec,
                              s_iso=s_iso, s_in=s_int, s_ex=s_ext,
@@ -60,6 +60,11 @@ func_dict = {'ball_stick': (ball_stick_func, ball_stick_param_bounds),
              'watson_noddi': (watson_noddi_func, watson_noddi_param_bounds),
              'bingham_noddi': (bingham_noddi_func, bingham_noddi_param_bounds)
              }
+
+
+def fit_model(forward_model: Callable, y: np.ndarray, sigma_n:Union[np.ndarray, List]):
+
+    pass
 
 
 def invert(diffusion_sig, forward_model_name, bvals, bvecs):
@@ -78,6 +83,8 @@ def invert(diffusion_sig, forward_model_name, bvals, bvecs):
     for i in pbar(range(diffusion_sig.shape[0])):
         try:
             pe[i], tmp = curve_fit(func, grads, diffusion_sig[i], bounds=param_bounds, p0=0.5 * param_bounds[1])
+
+
             vpe[i] = np.diagonal(tmp)
         except (RuntimeError, ValueError):
             print(f'Optimal paramaters could not be estimated for sample {i}')
