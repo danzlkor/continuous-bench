@@ -89,6 +89,7 @@ class ShellParameters:
             - List with the individual shells
         """
         nparams = None
+        ref = None
         for name, params in parameters.items():
             if np.array(params).size == 1:
                 continue
@@ -199,5 +200,3 @@ class Acquisition:
         print(to_string(shells))
         print('')
         return cls(shells, idx_shells, bvecs, name)
-
-

@@ -1,4 +1,4 @@
-from bench import diffusion_models as dm, summary_measures, user_interface
+from bench import diffusion_models as dm, summary_measures, user_interface, acquisition
 from scipy.optimize import curve_fit
 import numpy as np
 from progressbar import ProgressBar
@@ -13,6 +13,8 @@ from fsl.data.featdesign import loadDesignMat
 from warnings import warn
 import scipy.stats as st
 
+sph_degree = 4
+
 
 def ball_stick_func(grad, s_iso, s_a, d_iso, d_a):
     signal = np.zeros(grad.shape[0])
@@ -24,38 +26,47 @@ def ball_stick_func(grad, s_iso, s_a, d_iso, d_a):
     return signal
 
 
-def watson_noddi_func(grad, s_iso, s_int, s_ext, tortuosity, odi):
+def watson_noddi_func(grad, s_iso, s_int, s_ext, odi):
     bval = grad[:, 0]
     bvec = grad[:, 1:]
+
+    # fixed parameters:
     d_iso = 3
     dax_int = 1.7
     dax_ext = 1.7
+    tortuosity = s_int / (s_int + s_ext)
+
     signal = dm.watson_noddi(bval=bval, bvec=bvec,
                              s_iso=s_iso, s_in=s_int, s_ex=s_ext,
                              d_iso=d_iso, d_a_in=dax_int, d_a_ex=dax_ext,
                              tortuosity=tortuosity, odi=odi)
-    return signal
+
+    acq = acquisition.ShellParameters.create_shells(bval=bval)
+    sm = summary_measures.compute_summary(signal, acq, sph_degree=sph_degree)
+    sm = np.stack(list(sm.values()))
+    return sm
 
 
-def bingham_noddi_func(grad, s_iso, s_int, s_ext, odi):
+def bingham_noddi_func(grad, s_iso, s_int, s_ext, odi, odi_ratio):
     bval = grad[:, 0]
     bvec = grad[:, 1:]
+
+    # fixed parameters:
     d_iso = 3
     dax_int = 1.7
     dax_ext = 1.7
-    tortuosity = 0.5
-    odi_ratio = 1
+    tortuosity = s_int / (s_int + s_ext)
 
     signal = dm.bingham_noddi(bval=bval, bvec=bvec,
-                             s_iso=s_iso, s_in=s_int, s_ex=s_ext,
-                             d_iso=d_iso, d_a_in=dax_int, d_a_ex=dax_ext,
-                             tortuosity=tortuosity, odi=odi, odi_ratio=odi_ratio)
+                              s_iso=s_iso, s_in=s_int, s_ex=s_ext,
+                              d_iso=d_iso, d_a_in=dax_int, d_a_ex=dax_ext,
+                              tortuosity=tortuosity, odi=odi, odi_ratio=odi_ratio)
     return signal
 
 
 ball_stick_param_bounds = np.array([[0, 0, 0, 0], [1.5, 1.5, 4, 3]])
 watson_noddi_param_bounds = np.array([[0, 0, 0, 0, 0], [1.5, 1.5, 1.5, 1, 1]])
-bingham_noddi_param_bounds = np.array([[0, 0, 0, 0],[1.5, 1.5, 1.5, 1]])
+bingham_noddi_param_bounds = np.array([[0, 0, 0, 0], [1.5, 1.5, 1.5, 1]])
 func_dict = {'ball_stick': (ball_stick_func, ball_stick_param_bounds),
              'watson_noddi': (watson_noddi_func, watson_noddi_param_bounds),
              'bingham_noddi': (bingham_noddi_func, bingham_noddi_param_bounds)
@@ -116,8 +127,10 @@ def from_command_line(argv=None):
         py_file_path = os.path.realpath(__file__)
         task_list = list()
         for subj_idx, (x, d, bv) in enumerate(zip(args.xfm, args.data, args.bvecs)):
-            task_list.append(f'python3 {py_file_path} {subj_idx} {d} {x} {bv} {args.bval} {args.mask} {args.model} {pe_dir}')
-            parse_args_and_fit(f'{py_file_path} {subj_idx} {d} {x} {bv} {args.bval} {args.mask} {args.model} {pe_dir}'.split())
+            task_list.append(
+                f'python3 {py_file_path} {subj_idx} {d} {x} {bv} {args.bval} {args.mask} {args.model} {pe_dir}')
+            parse_args_and_fit(
+                f'{py_file_path} {subj_idx} {d} {x} {bv} {args.bval} {args.mask} {args.model} {pe_dir}'.split())
         if 'SGE_ROOT' in os.environ.keys():
             print('Submitting jobs to SGE ...')
             with open(f'{args.output}/tasklist.txt', 'w') as f:
@@ -154,14 +167,14 @@ def from_command_line(argv=None):
         varpe1 = fit_results[x[:, 0] == 1, :, :len(param_names)].var(axis=0)
         varpe2 = fit_results[x[:, 1] == 1, :, :len(param_names)].var(axis=0)
 
-        z_values = (pe2 - pe1) / np.sqrt(varpe1/np.sqrt(x[:, 0].sum()) + varpe2 / np.sqrt(x[:, 1].sum()))
+        z_values = (pe2 - pe1) / np.sqrt(varpe1 / np.sqrt(x[:, 0].sum()) + varpe2 / np.sqrt(x[:, 1].sum()))
         p_values = st.norm.sf(abs(z_values)) * 2  # two-sided
 
         # _, delta, sigma = group_glm(pes, args.design_mat, args.design_con)
         # zvals = delta / np.sqrt(np.diagonal(sigma, axis1=1, axis2=2))
         for d, p in zip(p_values, param_names):
             fname = f'{args.output}/zmaps/{p}'
-            user_interface.write_nifti(d, args.mask, fname=fname , invalids=invalids)
+            user_interface.write_nifti(d, args.mask, fname=fname, invalids=invalids)
         print(f'Analysis completed sucessfully, the z-maps are stored at {args.output}')
 
 
@@ -175,7 +188,7 @@ def single_sub_fit(subj_idx, diff_add, xfm_add, bvec_add, bval_add, mask_add, md
     print('output path: ' + output_add)
 
     bvals = np.genfromtxt(bval_add)
-    bvals = np.round(bvals/1000, 1)
+    bvals = np.round(bvals / 1000, 1)
     bvecs = np.genfromtxt(bvec_add)
     if bvecs.shape[1] > bvecs.shape[0]:
         bvecs = bvecs.T
