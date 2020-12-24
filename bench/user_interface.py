@@ -82,8 +82,6 @@ def inference_parse_args(argv):
     inference.add_argument("--design-con", help="Design contrast for the group glm", required=False)
     inference.add_argument("--model", help="Forward model, either name of a standard model or full path to"
                                            "a trained model json file", default=None, required=False)
-    inference.add_argument("--sigma-v", default=0.1,
-                           help="Standard deviation for prior change in parameters (default = 0.1)", required=False)
 
     # pre-processing arguments:
     preproc = parser.add_argument_group("Summary fit arguments")

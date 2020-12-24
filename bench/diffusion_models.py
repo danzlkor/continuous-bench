@@ -305,6 +305,7 @@ def bingham_noddi(bval=0, bvec=np.array([0, 0, 1]),
         """
 
     a_iso = ball(bval=bval, bvec=bvec, d_iso=d_iso, s0=s_iso)
+
     a_int = bingham_zeppelin(bval=bval, bvec=bvec, d_a=d_a_in, d_r=0,
                              odi=odi, odi2=odi * odi_ratio,
                              psi=psi, theta=theta, phi=phi, s0=s_in)

@@ -1,4 +1,4 @@
-from bench import diffusion_models as dm, summary_measures, user_interface, acquisition
+from bench import diffusion_models as dm, summary_measures, user_interface
 from scipy.optimize import curve_fit
 import numpy as np
 from progressbar import ProgressBar
@@ -12,6 +12,7 @@ import sys
 from fsl.data.featdesign import loadDesignMat
 from warnings import warn
 import scipy.stats as st
+from typing import Union, Callable, List
 
 sph_degree = 4
 
@@ -26,7 +27,7 @@ def ball_stick_func(grad, s_iso, s_a, d_iso, d_a):
     return signal
 
 
-def watson_noddi_func(grad, s_iso, s_int, s_ext, odi):
+def watson_noddi_func(grad, s_iso, s_int, s_ext, tortuosity, odi):
     bval = grad[:, 0]
     bvec = grad[:, 1:]
 
@@ -40,11 +41,7 @@ def watson_noddi_func(grad, s_iso, s_int, s_ext, odi):
                              s_iso=s_iso, s_in=s_int, s_ex=s_ext,
                              d_iso=d_iso, d_a_in=dax_int, d_a_ex=dax_ext,
                              tortuosity=tortuosity, odi=odi)
-
-    acq = acquisition.ShellParameters.create_shells(bval=bval)
-    sm = summary_measures.compute_summary(signal, acq, sph_degree=sph_degree)
-    sm = np.stack(list(sm.values()))
-    return sm
+    return signal
 
 
 def bingham_noddi_func(grad, s_iso, s_int, s_ext, odi, odi_ratio):
@@ -58,19 +55,24 @@ def bingham_noddi_func(grad, s_iso, s_int, s_ext, odi, odi_ratio):
     tortuosity = s_int / (s_int + s_ext)
 
     signal = dm.bingham_noddi(bval=bval, bvec=bvec,
-                              s_iso=s_iso, s_in=s_int, s_ex=s_ext,
-                              d_iso=d_iso, d_a_in=dax_int, d_a_ex=dax_ext,
-                              tortuosity=tortuosity, odi=odi, odi_ratio=odi_ratio)
+                             s_iso=s_iso, s_in=s_int, s_ex=s_ext,
+                             d_iso=d_iso, d_a_in=dax_int, d_a_ex=dax_ext,
+                             tortuosity=tortuosity, odi=odi, odi_ratio=odi_ratio)
     return signal
 
 
 ball_stick_param_bounds = np.array([[0, 0, 0, 0], [1.5, 1.5, 4, 3]])
 watson_noddi_param_bounds = np.array([[0, 0, 0, 0, 0], [1.5, 1.5, 1.5, 1, 1]])
-bingham_noddi_param_bounds = np.array([[0, 0, 0, 0], [1.5, 1.5, 1.5, 1]])
+bingham_noddi_param_bounds = np.array([[0, 0, 0, 0],[1.5, 1.5, 1.5, 1]])
 func_dict = {'ball_stick': (ball_stick_func, ball_stick_param_bounds),
              'watson_noddi': (watson_noddi_func, watson_noddi_param_bounds),
              'bingham_noddi': (bingham_noddi_func, bingham_noddi_param_bounds)
              }
+
+
+def fit_model(forward_model: Callable, y: np.ndarray, sigma_n:Union[np.ndarray, List]):
+
+    pass
 
 
 def invert(diffusion_sig, forward_model_name, bvals, bvecs):
@@ -89,6 +91,8 @@ def invert(diffusion_sig, forward_model_name, bvals, bvecs):
     for i in pbar(range(diffusion_sig.shape[0])):
         try:
             pe[i], tmp = curve_fit(func, grads, diffusion_sig[i], bounds=param_bounds, p0=0.5 * param_bounds[1])
+
+
             vpe[i] = np.diagonal(tmp)
         except (RuntimeError, ValueError):
             print(f'Optimal paramaters could not be estimated for sample {i}')
@@ -167,14 +171,14 @@ def from_command_line(argv=None):
         varpe1 = fit_results[x[:, 0] == 1, :, :len(param_names)].var(axis=0)
         varpe2 = fit_results[x[:, 1] == 1, :, :len(param_names)].var(axis=0)
 
-        z_values = (pe2 - pe1) / np.sqrt(varpe1 / np.sqrt(x[:, 0].sum()) + varpe2 / np.sqrt(x[:, 1].sum()))
+        z_values = (pe2 - pe1) / np.sqrt(varpe1/np.sqrt(x[:, 0].sum()) + varpe2 / np.sqrt(x[:, 1].sum()))
         p_values = st.norm.sf(abs(z_values)) * 2  # two-sided
 
         # _, delta, sigma = group_glm(pes, args.design_mat, args.design_con)
         # zvals = delta / np.sqrt(np.diagonal(sigma, axis1=1, axis2=2))
         for d, p in zip(p_values, param_names):
             fname = f'{args.output}/zmaps/{p}'
-            user_interface.write_nifti(d, args.mask, fname=fname, invalids=invalids)
+            user_interface.write_nifti(d, args.mask, fname=fname , invalids=invalids)
         print(f'Analysis completed sucessfully, the z-maps are stored at {args.output}')
 
 
@@ -188,7 +192,7 @@ def single_sub_fit(subj_idx, diff_add, xfm_add, bvec_add, bval_add, mask_add, md
     print('output path: ' + output_add)
 
     bvals = np.genfromtxt(bval_add)
-    bvals = np.round(bvals / 1000, 1)
+    bvals = np.round(bvals/1000, 1)
     bvecs = np.genfromtxt(bvec_add)
     if bvecs.shape[1] > bvecs.shape[0]:
         bvecs = bvecs.T
