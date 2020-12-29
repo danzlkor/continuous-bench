@@ -18,7 +18,8 @@ import warnings
 import inspect
 import pickle
 
-INTEGRAL_LIMITS = ['positive', 'negative', 'twosided']
+BOUNDS = {'negative': (-np.inf, 0), 'positive': (0, np.inf), 'twosided': (-np.inf, np.inf)}
+INTEGRAL_LIMITS = list(BOUNDS.keys())
 
 
 def log_lh(dv, dy, mu, sigma_p, sigma_n):
@@ -28,16 +29,20 @@ def log_lh(dv, dy, mu, sigma_p, sigma_n):
 
 
 def log_prior(dv, mu, sigma_n, lim):
-    if dv == 0 or (lim == 'positive' and dv < 0) or (lim == 'negative' and dv > 0):
-        return -1e6
-    else:
-        scale = 3 * np.sqrt(mu @ sigma_n @ mu.T) / (np.linalg.norm(mu) ** 2)
-        p = np.log(gamma(a=1, scale=scale).pdf(x=np.abs(dv)))
+    if lim == 'negative':
+        dv = -dv
+    elif lim == 'twosided':
+        dv = np.abs(dv)
 
-        if lim == 'twosided':
-            return p - np.log(2)
-        elif (lim == 'positive') or (lim == 'negative'):
-            return p
+    scale = 3 * np.sqrt(mu @ sigma_n @ mu.T) / (np.linalg.norm(mu) ** 2)
+    p = gamma(a=1, scale=scale).pdf(x=dv)
+
+    if p == 0:
+        return -1e6
+    if lim == 'twosided':
+        return np.log(p/2)
+    else:
+        return np.log(p)
 
 
 @dataclass
@@ -164,7 +169,7 @@ class ChangeModel:
                     try:
                         log_post_pdf = ch_mdl.log_posterior_pdf(y_s, dy_s, sigma_n_s)
 
-                        peak, low, high = find_range(log_post_pdf)
+                        peak, low, high = find_range(log_post_pdf, ch_mdl.lim)
                         post_pdf = lambda dv: np.exp(log_post_pdf(dv))
                         integral = quad(post_pdf, low, high, epsrel=1e-3)[0]
                         log_prob[sam_idx, vec_idx] = np.log(integral) if integral > 0 else -np.inf
@@ -509,7 +514,7 @@ def log_mvnpdf(x, mean, cov):
     return expo + nc
 
 
-def find_range(f: Callable, scale=1e-2, search_rad=0.2):
+def find_range(f: Callable, lim, scale=1e-2, search_rad=0.2):
     """
      find the range for integration
     :param f: function in logarithmic scale, e.g. log_posterior
@@ -519,7 +524,7 @@ def find_range(f: Callable, scale=1e-2, search_rad=0.2):
     """
     minus_f = lambda dv: -f(dv)
     np.seterr(invalid='raise')
-    peak = minimize_scalar(minus_f).x
+    peak = minimize_scalar(minus_f, bounds=BOUNDS[lim]).x
 
     f_norm = lambda dv: f(dv) - (f(peak) + np.log(scale))
     lower, upper = -search_rad + peak, search_rad + peak
