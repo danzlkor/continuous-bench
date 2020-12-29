@@ -4,7 +4,7 @@ This module contains classes and functions to train a change model and make infe
 
 import numpy as np
 from scipy.spatial import KDTree
-from scipy.stats import rv_continuous, lognorm
+from scipy.stats import rv_continuous, gamma
 from typing import Callable, List, Any, Union, Sequence, Mapping
 from progressbar import ProgressBar
 from dataclasses import dataclass
@@ -19,6 +19,25 @@ import inspect
 import pickle
 
 INTEGRAL_LIMITS = ['positive', 'negative', 'twosided']
+
+
+def log_lh(dv, dy, mu, sigma_p, sigma_n):
+    mean = np.squeeze(mu * dv)
+    cov = np.squeeze(sigma_p) * (dv ** 2) + sigma_n
+    return log_mvnpdf(x=dy, mean=mean, cov=cov)
+
+
+def log_prior(dv, mu, sigma_n, lim):
+    if dv == 0 or (lim == 'positive' and dv < 0) or (lim == 'negative' and dv > 0):
+        return -1e6
+    else:
+        scale = 3 * np.sqrt(mu @ sigma_n @ mu.T) / (np.linalg.norm(mu) ** 2)
+        p = np.log(gamma(a=1, scale=scale).pdf(x=np.abs(dv)))
+
+        if lim == 'twosided':
+            return p - np.log(2)
+        elif (lim == 'positive') or (lim == 'negative'):
+            return p
 
 
 @dataclass
@@ -61,8 +80,12 @@ class ChangeVector:
 
     def log_posterior_pdf(self, y, dy, sigma_n):
         mu, sigma_p = self.estimate_change(y)
-        log_post = lambda dv: log_posterior_dv(dv=dv, dy=dy, mu=mu, sigma_p=sigma_p, sigma_n=sigma_n, lims=self.lim)
-        return log_post
+        lim = self.lim
+
+        def pdf(dv):
+            return log_prior(dv, mu, sigma_n, lim) + log_lh(dv, dy, mu, sigma_p, sigma_n)
+
+        return pdf
 
 
 @dataclass
@@ -484,29 +507,6 @@ def log_mvnpdf(x, mean, cov):
 
     # var2 = np.log(multivariate_normal(mean=mean, cov=cov).pdf(x))
     return expo + nc
-
-
-def log_posterior_dv(dv, dy, mu, sigma_p, sigma_n, lims):
-
-    if lims == 'twosided':
-        scale = np.linalg.norm(mu)
-        log_prior = np.log(lognorm(s=scale).pdf(x=np.abs(dv))) - np.log(2)
-
-    elif (lims == 'positive' and dv >= 0) or (lims == 'negative' and dv <= 0):
-        scale = np.linalg.norm(mu)
-        log_prior = np.log(lognorm(s=scale).pdf(x=np.abs(dv)))
-
-    elif (lims == 'positive' and dv < 0) or (lims == 'negative' and dv > 0):
-        return -1e6
-
-    else:
-        raise ValueError('Limits of integral are not set correctly.')
-
-    mean = np.squeeze(mu * dv)
-    cov = np.squeeze(sigma_p) * (dv ** 2) + sigma_n
-    log_lh = log_mvnpdf(x=dy, mean=mean, cov=cov)
-
-    return log_lh + log_prior
 
 
 def find_range(f: Callable, scale=1e-2, search_rad=0.2):
