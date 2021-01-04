@@ -80,7 +80,8 @@ def log_posterior(params, x, y, sigma_n, func, priors):
     return -(log_likelihood(params, x, y, sigma_n, func) + log_prior(params, priors))
 
 
-def map_fit(forward_model: Callable, acq, priors: dict, y: np.ndarray, sigma_n: Union[np.ndarray, List]):
+def map_fit(forward_model: Callable, acq: acquisition.Acquisition,
+            priors: dict, y: np.ndarray, sigma_n: Union[np.ndarray, List]):
     p = optimize.minimize(log_posterior, args=(acq, y, sigma_n, forward_model, priors),
                           x0=np.array([0, 0, 0]), options={'disp': True})
 
@@ -91,38 +92,37 @@ def estimate_shms(signal, acq, sph_degree):
 
     sum_meas = list()
     residuals = list()
-    noise_level = 1
+
     for shell_idx, this_shell in enumerate(acq.shells):
         dir_idx = acq.idx_shells == shell_idx
-        lmax = this_shell.lmax
         bvecs = acq.bvecs[dir_idx]
         shell_signal = signal[..., dir_idx]
-
         _, phi, theta = summary_measures.cart2spherical(*bvecs.T)
-        y, m, l = summary_measures.real_sym_sh_basis(lmax, theta, phi)
+        y, m, l = summary_measures.real_sym_sh_basis(this_shell.lmax, theta, phi)
         coeffs = shell_signal.dot(np.linalg.pinv(y.T))
-        shell_err = shell_signal - coeffs @ y.T
-        residuals.append(shell_err)
+        residuals.append(shell_signal - coeffs @ y.T)
 
-        smm = [coeffs[..., l == 0].mean(axis=-1)]
-        _, phi, theta = summary_measures.cart2spherical(*bvecs.T)
-        sh_mat, m, l = summary_measures.real_sym_sh_basis(lmax, theta, phi)
-        c = np.linalg.pinv(sh_mat).T
-        j = c[..., l == 0].mean(axis=-1)
-        snn = [j.T.dot(j) * (noise_level ** 2)]
-
-        if lmax > 0:
+        sum_meas.append(coeffs[..., l == 0].mean(axis=-1))
+        if this_shell.lmax > 0:
             for degree in np.arange(2, sph_degree + 1, 2):
-                smm.append(np.power(coeffs[..., l == degree], 2).mean(axis=-1))
-
-                ng = bvecs.shape[0]
-                f = 4 * np.pi * (noise_level ** 2) / ng
-                snn.append(smm * 4 * f / (2 * l + 1) + 2 * (f ** 2) / (2 * l + 1))
-
-        sum_meas += smm
+                sum_meas.append(np.power(coeffs[..., l == degree], 2).mean(axis=-1))
 
     noise_level = np.concatenate(residuals, axis=-1).std(axis=-1)
-    sigma_n = summary_measures.noise_propagation(sum_meas, acq, sph_degree, noise_level)
+    variances = []
+
+    s_idx = 0
+    for shell_idx, this_shell in enumerate(acq.shells):
+        ng = np.sum(acq.idx_shells == shell_idx)
+        variances.append(sum_meas[s_idx].T.dot(sum_meas[s_idx]) * (noise_level ** 2))
+        s_idx += 1
+        if this_shell.lmax > 0:
+            for l in np.arange(2, sph_degree + 1, 2):
+                f = 4 * np.pi * (noise_level ** 2) / ng
+                variances.append(sum_meas[s_idx] * 4 * f / (2 * l + 1) + 2 * (f ** 2) / (2 * l + 1))
+                s_idx += 1
+
+    sigma_n = np.array([np.diag(v) for v in np.array(variances).T])
+    sum_meas = np.array(sum_meas).T
     return sum_meas, sigma_n
 
 
@@ -132,13 +132,13 @@ def invert(diffusion_sig, forward_model_name, bvals, bvecs, sph_degree):
         func, priors = func_dict[forward_model_name]
     else:
         raise ValueError('Forward model is not available in the library.')
+
     idx_shells, shells = acquisition.ShellParameters.create_shells(bval=bvals)
     acq = acquisition.Acquisition(shells, idx_shells, bvecs)
-
+    y, sigma_n = estimate_shms(diffusion_sig, acq, sph_degree)
     n_vox = diffusion_sig.shape[0]
     for i in range(n_vox):
-        y, sigma_n = estimate_shms(diffusion_sig, acq, sph_degree)
-        pe = map_fit(func, priors, y, sigma_n)
+        pe = map_fit(func, acq, priors, y[i], sigma_n[i])
 
     return pe
 
