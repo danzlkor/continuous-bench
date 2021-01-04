@@ -530,7 +530,7 @@ def bench_decorator(model):
         sig = simulate_signal(model, acq, params)
         noise = np.random.randn(*sig.shape) * noise_level
         sm = summary_measures.compute_summary(sig + noise, acq, sph_degree=sph_degree)
-        sm = np.stack(list(sm.values()))
+        sm = np.stack(sm)
         return sm
     func.__name__ = model.__name__
     return func

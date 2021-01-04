@@ -1,8 +1,7 @@
-from bench import diffusion_models as dm, summary_measures, user_interface
-from scipy.optimize import curve_fit
+from bench import diffusion_models as dm, summary_measures, user_interface, acquisition, change_model
 import numpy as np
-from progressbar import ProgressBar
 import os
+from scipy import optimize
 from nibabel import Nifti1Image
 from fsl.data.image import Image
 import glob
@@ -13,8 +12,6 @@ from fsl.data.featdesign import loadDesignMat
 from warnings import warn
 import scipy.stats as st
 from typing import Union, Callable, List
-
-sph_degree = 4
 
 
 def ball_stick_func(grad, s_iso, s_a, d_iso, d_a):
@@ -27,7 +24,7 @@ def ball_stick_func(grad, s_iso, s_a, d_iso, d_a):
     return signal
 
 
-def watson_noddi_func(grad, s_iso, s_int, s_ext, tortuosity, odi):
+def watson_noddi_func(grad, s_iso, s_int, s_ext, odi):
     bval = grad[:, 0]
     bvec = grad[:, 1:]
 
@@ -70,37 +67,80 @@ func_dict = {'ball_stick': (ball_stick_func, ball_stick_param_bounds),
              }
 
 
-def fit_model(forward_model: Callable, y: np.ndarray, sigma_n:Union[np.ndarray, List]):
+def log_likelihood(params, x, y, sigma_n, func):
+    return change_model.log_mvnpdf(mean=np.squeeze(func(x, *params)), cov=sigma_n, x=np.squeeze(y))
 
-    pass
+
+def log_prior(params, priors):
+    return np.sum([np.log(f.pdf(v))
+                   for v, f in zip(params, priors.values())])
 
 
-def invert(diffusion_sig, forward_model_name, bvals, bvecs):
-    grads = np.hstack([bvals[:, np.newaxis], bvecs])
-    pbar = ProgressBar()
+def log_posterior(params, x, y, sigma_n, func, priors):
+    return -(log_likelihood(params, x, y, sigma_n, func) + log_prior(params, priors))
+
+
+def map_fit(forward_model: Callable, acq, priors: dict, y: np.ndarray, sigma_n: Union[np.ndarray, List]):
+    p = optimize.minimize(log_posterior, args=(acq, y, sigma_n, forward_model, priors),
+                          x0=np.array([0, 0, 0]), options={'disp': True})
+
+    return p.x
+
+
+def estimate_shms(signal, acq, sph_degree):
+
+    sum_meas = list()
+    residuals = list()
+    noise_level = 1
+    for shell_idx, this_shell in enumerate(acq.shells):
+        dir_idx = acq.idx_shells == shell_idx
+        lmax = this_shell.lmax
+        bvecs = acq.bvecs[dir_idx]
+        shell_signal = signal[..., dir_idx]
+
+        _, phi, theta = summary_measures.cart2spherical(*bvecs.T)
+        y, m, l = summary_measures.real_sym_sh_basis(lmax, theta, phi)
+        coeffs = shell_signal.dot(np.linalg.pinv(y.T))
+        shell_err = shell_signal - coeffs @ y.T
+        residuals.append(shell_err)
+
+        smm = [coeffs[..., l == 0].mean(axis=-1)]
+        _, phi, theta = summary_measures.cart2spherical(*bvecs.T)
+        sh_mat, m, l = summary_measures.real_sym_sh_basis(lmax, theta, phi)
+        c = np.linalg.pinv(sh_mat).T
+        j = c[..., l == 0].mean(axis=-1)
+        snn = [j.T.dot(j) * (noise_level ** 2)]
+
+        if lmax > 0:
+            for degree in np.arange(2, sph_degree + 1, 2):
+                smm.append(np.power(coeffs[..., l == degree], 2).mean(axis=-1))
+
+                ng = bvecs.shape[0]
+                f = 4 * np.pi * (noise_level ** 2) / ng
+                snn.append(smm * 4 * f / (2 * l + 1) + 2 * (f ** 2) / (2 * l + 1))
+
+        sum_meas += smm
+
+    noise_level = np.concatenate(residuals, axis=-1).std(axis=-1)
+    sigma_n = summary_measures.noise_propagation(sum_meas, acq, sph_degree, noise_level)
+    return sum_meas, sigma_n
+
+
+def invert(diffusion_sig, forward_model_name, bvals, bvecs, sph_degree):
 
     if forward_model_name in list(func_dict.keys()):
-        func, param_bounds = func_dict[forward_model_name]
+        func, priors = func_dict[forward_model_name]
     else:
         raise ValueError('Forward model is not available in the library.')
+    idx_shells, shells = acquisition.ShellParameters.create_shells(bval=bvals)
+    acq = acquisition.Acquisition(shells, idx_shells, bvecs)
 
-    fails = []
-    pe = np.zeros((diffusion_sig.shape[0], len(param_bounds[0])))
-    vpe = np.zeros((diffusion_sig.shape[0], len(param_bounds[0])))
+    n_vox = diffusion_sig.shape[0]
+    for i in range(n_vox):
+        y, sigma_n = estimate_shms(diffusion_sig, acq, sph_degree)
+        pe = map_fit(func, priors, y, sigma_n)
 
-    for i in pbar(range(diffusion_sig.shape[0])):
-        try:
-            pe[i], tmp = curve_fit(func, grads, diffusion_sig[i], bounds=param_bounds, p0=0.5 * param_bounds[1])
-
-
-            vpe[i] = np.diagonal(tmp)
-        except (RuntimeError, ValueError):
-            print(f'Optimal paramaters could not be estimated for sample {i}')
-            pe[i] = 0.5 * param_bounds[1]
-            fails.append(i)
-    if len(fails) > 0:
-        print(f'{len(fails)} samples failed, middle of range returned instead.')
-    return pe, vpe
+    return pe
 
 
 def read_pes(pe_dir, mask_add):
@@ -120,7 +160,7 @@ def read_pes(pe_dir, mask_add):
     return pes, invalids
 
 
-def from_command_line(argv=None):
+def pipeline(argv=None):
     args = user_interface.inference_parse_args(argv)
     os.makedirs(args.output, exist_ok=True)
     pe_dir = f'{args.output}/pes'
@@ -200,10 +240,7 @@ def single_sub_fit(subj_idx, diff_add, xfm_add, bvec_add, bval_add, mask_add, md
     def_field = f"{output_add}/def_field_{subj_idx}.nii.gz"
     data, valid_vox = summary_measures.sample_from_native_space(diff_add, xfm_add, mask_add, def_field)
 
-    mean_b0 = data[:, bvals == 0].mean()
-    diffusion_vox_normalized = data / mean_b0
-
-    params, var_params = invert(diffusion_vox_normalized, mdl_name, bvals, bvecs)
+    params, var_params = invert(data, mdl_name, bvals, bvecs, sph_degree=4)
     print(f'subject {subj_idx} parameters estimated.')
 
     # write down [pes, vpes] to 4d files

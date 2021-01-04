@@ -1,6 +1,7 @@
 """
 This module contains functions to fit spherical harmonics to diffusion data.
 """
+
 from fsl.transform import fnirt
 from fsl.data.image import Image
 import nibabel as nib
@@ -17,8 +18,11 @@ from bench.acquisition import Acquisition, ShellParameters
 from scipy.linalg import block_diag
 
 
-def summary_name(bval, degree):
-    return f"b{bval:1.1f}_l{degree}"
+def summary_names(acq, sph_degree):
+    return [f"b{sh.bval:1.1f}_l{degree}"
+            for sh in acq.shells
+            for degree in np.arange(0, sph_degree+1 , 2)
+            if degree <= sh.lmax]
 
 
 def fit_shm(bvecs, signal, lmax=6):
@@ -39,7 +43,7 @@ def fit_shm(bvecs, signal, lmax=6):
     return signal.dot(np.linalg.pinv(y.T)), m, l
 
 
-def compute_summary_shell(signal, bvecs, sph_degree=4, lmax=6):
+def fit_summary_shell(signal, bvecs, sph_degree=4, lmax=6):
     """
     Creates summary data based on diffusion MRI data
 
@@ -64,7 +68,7 @@ def compute_summary_shell(signal, bvecs, sph_degree=4, lmax=6):
             else:
                 return np.power(coeffs[..., l == degree], 2).mean(axis=-1)
 
-    smm = {f'l{degree}': sm(degree) for degree in np.arange(0, sph_degree + 1, 2)}
+    smm = [sm(degree) for degree in np.arange(0, sph_degree + 1, 2)]
 
     return smm
 
@@ -79,15 +83,13 @@ def compute_summary(signal, acq: Acquisition, sph_degree):
     """
     assert signal.shape[-1] == len(acq.idx_shells)
 
-    sum_meas = dict()
+    summaries = list()
     for shell_idx, this_shell in enumerate(acq.shells):
         dir_idx = acq.idx_shells == shell_idx
-        if this_shell.bval == 0:
-            smm = compute_summary_shell(acq.bvecs[dir_idx], signal[..., dir_idx], sph_degree, this_shell.lmax)
-        else:
-            smm = compute_summary_shell(acq.bvecs[dir_idx], signal[..., dir_idx], sph_degree, this_shell.lmax)
-        sum_meas.update({(this_shell.bval, k): v for k, v in smm.items()})
-    return sum_meas
+        shell_summaries = fit_summary_shell(acq.bvecs[dir_idx], signal[..., dir_idx], sph_degree, this_shell.lmax)
+        summaries += shell_summaries
+
+    return summaries
 
 
 def noise_propagation(summaries, acq, sph_degree, noise_level):
@@ -105,7 +107,7 @@ def noise_propagation(summaries, acq, sph_degree, noise_level):
         bval = this_shell.bval
         if bval == 0:
             variances.append(
-                noise_variance(acq.bvecs[dirs], summaries[0], 0, noise_level, this_shell.lmax))
+                noise_variance(acq.bvecs[dirs], summaries[..., 0], 0, noise_level, this_shell.lmax))
 
         else:
             for l in np.arange(0, sph_degree + 1, 2):
@@ -118,7 +120,6 @@ def noise_propagation(summaries, acq, sph_degree, noise_level):
 
 def noise_variance(gradients, smm, l, sigma_n, l_max):
     """
-
     :param gradients:
     :param smm:
     :param l:
@@ -190,6 +191,7 @@ def nan_mat(shape):
 
 
 #  image functions:
+
 def fit_summary_to_dataset(data: list, bvecs: list, bvals: str, xfms: list, roi_mask: str, sph_degree: int,
                            output: str):
     """
@@ -271,7 +273,6 @@ def read_summary_images(summary_dir: str, mask: str, normalize=True):
         warn(f'{invalid_voxs.sum()} voxels are excluded since they were '
              f'outside of the image in at least one subject.')
     summary_names = np.load(f'{summary_dir}/summary_names.npy')
-    summary_names = [(float(b), l) for (b, l) in list(summary_names)]
     if normalize:
         all_summaries = normalize_summaries(all_summaries, summary_names)
 
@@ -399,12 +400,12 @@ def fit_summary_single_subject(subj_idx: str, diff_add: str, xfm_add: str, bvec_
     std_indices = np.array(np.where(mask_img.data > 0)).T
     std_indices_valid = std_indices[valid_vox]
 
-    mat[tuple(std_indices_valid.T)] = np.array(list(summaries.values())).T
+    mat[tuple(std_indices_valid.T)] = np.array(summaries).T
 
     fname = f"{output_add}/subj_{subj_idx}.nii.gz"
     nib.Nifti1Image(mat, mask_img.nibImage.affine).to_filename(fname)
     if subj_idx == '0':
-        np.save(f'{output_add}/summary_names', list(summaries.keys()))
+        np.save(f'{output_add}/summary_names', summary_names(acq, sph_degree))
 
     print(f'Summary measurements for subject {subj_idx} computed')
 
