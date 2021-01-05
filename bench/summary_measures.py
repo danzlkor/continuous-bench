@@ -339,7 +339,7 @@ def transform_indices(native_image, std_mask, def_field):
                  for j in range(native_indices.shape[0])]
 
     if not np.all(valid_vox):
-        warn('Some voxels lie out of native space.')
+        warn('Some voxels in mask lie out of native space box.')
 
     return native_indices, valid_vox
 

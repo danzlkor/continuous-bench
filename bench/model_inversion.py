@@ -2,7 +2,6 @@ from bench import diffusion_models as dm, summary_measures, user_interface, acqu
 import numpy as np
 import os
 from scipy import optimize
-from nibabel import Nifti1Image
 from fsl.data.image import Image
 import glob
 import fsl.utils.fslsub as fslsub
@@ -12,80 +11,136 @@ from fsl.data.featdesign import loadDesignMat
 from warnings import warn
 import scipy.stats as st
 from typing import Union, Callable, List
+from progressbar import ProgressBar
 
 
-def ball_stick_func(grad, s_iso, s_a, d_iso, d_a):
-    signal = np.zeros(grad.shape[0])
-    for i in range(len(grad)):
-        bval = grad[i, 0]
-        bvec = grad[i, 1:]
-        signal[i] = dm.ball_stick(bval=bval, bvec=bvec[np.newaxis, :], s_iso=s_iso, s_a=s_a,
-                                  d_iso=d_iso, d_a=d_a)
-    return signal
-
-
-def watson_noddi_func(grad, s_iso, s_int, s_ext, odi):
-    bval = grad[:, 0]
-    bvec = grad[:, 1:]
-
-    # fixed parameters:
-    d_iso = 3
-    dax_int = 1.7
-    dax_ext = 1.7
-    tortuosity = s_int / (s_int + s_ext)
-
-    signal = dm.watson_noddi(bval=bval, bvec=bvec,
-                             s_iso=s_iso, s_in=s_int, s_ex=s_ext,
-                             d_iso=d_iso, d_a_in=dax_int, d_a_ex=dax_ext,
-                             tortuosity=tortuosity, odi=odi)
-    return signal
-
-
-def bingham_noddi_func(grad, s_iso, s_int, s_ext, odi, odi_ratio):
-    bval = grad[:, 0]
-    bvec = grad[:, 1:]
-
-    # fixed parameters:
-    d_iso = 3
-    dax_int = 1.7
-    dax_ext = 1.7
-    tortuosity = s_int / (s_int + s_ext)
-
-    signal = dm.bingham_noddi(bval=bval, bvec=bvec,
-                             s_iso=s_iso, s_in=s_int, s_ex=s_ext,
-                             d_iso=d_iso, d_a_in=dax_int, d_a_ex=dax_ext,
-                             tortuosity=tortuosity, odi=odi, odi_ratio=odi_ratio)
-    return signal
-
-
-ball_stick_param_bounds = np.array([[0, 0, 0, 0], [1.5, 1.5, 4, 3]])
-watson_noddi_param_bounds = np.array([[0, 0, 0, 0, 0], [1.5, 1.5, 1.5, 1, 1]])
-bingham_noddi_param_bounds = np.array([[0, 0, 0, 0],[1.5, 1.5, 1.5, 1]])
-func_dict = {'ball_stick': (ball_stick_func, ball_stick_param_bounds),
-             'watson_noddi': (watson_noddi_func, watson_noddi_param_bounds),
-             'bingham_noddi': (bingham_noddi_func, bingham_noddi_param_bounds)
-             }
-
-
-def log_likelihood(params, x, y, sigma_n, func):
-    return change_model.log_mvnpdf(mean=np.squeeze(func(x, *params)), cov=sigma_n, x=np.squeeze(y))
+def log_likelihood(params, model, acq, sph_degree, y, sigma_n):
+    expected = np.squeeze(model(acq, sph_degree, 0, **params))
+    return change_model.log_mvnpdf(mean=expected, cov=sigma_n, x=np.squeeze(y))
 
 
 def log_prior(params, priors):
-    return np.sum([np.log(f.pdf(v))
-                   for v, f in zip(params, priors.values())])
+    return np.sum([np.log(priors[k].pdf(params[k]))
+                   for k in params.keys()])
 
 
-def log_posterior(params, x, y, sigma_n, func, priors):
-    return -(log_likelihood(params, x, y, sigma_n, func) + log_prior(params, priors))
+def log_posterior(params, priors, model, acq, sph_degree, y, sigma_n):
+    param_dict = {k: v for k, v in zip(priors.keys(), params)}
+    return -(log_likelihood(param_dict, model, acq, sph_degree, y, sigma_n)
+             + log_prior(param_dict, priors))
 
 
-def map_fit(forward_model: Callable, acq: acquisition.Acquisition,
+def map_fit(model: Callable, acq: acquisition.Acquisition, sph_degree: int,
             priors: dict, y: np.ndarray, sigma_n: Union[np.ndarray, List]):
-    p = optimize.minimize(log_posterior, args=(acq, y, sigma_n, forward_model, priors),
-                          x0=np.array([0, 0, 0]), options={'disp': True})
+    x0 = np.array([v.mean() for v in priors.values()])
+    bounds = [v.interval(1 - 1e-6) for v in priors.values()]
+    p = optimize.minimize(log_posterior,
+                          args=(priors, model, acq, sph_degree, y, sigma_n),
+                          x0=x0,  bounds=bounds, options={'disp': False})
 
     return p.x
+
+
+def fit_model(diffusion_sig, forward_model_name, bvals, bvecs, sph_degree):
+    forward_model_name = forward_model_name.lower()
+    available_models = list(dm.prior_distributions.keys())
+    funcdict = {name: f for (name, f) in dm.__dict__.items() if name in available_models}
+
+    if forward_model_name in available_models:
+        priors = dm.prior_distributions[forward_model_name]
+        func = dm.bench_decorator(funcdict[forward_model_name])
+    else:
+        raise ValueError('Forward model is not available in the library.')
+
+    idx_shells, shells = acquisition.ShellParameters.create_shells(bval=bvals)
+    acq = acquisition.Acquisition(shells, idx_shells, bvecs)
+    y, sigma_n = estimate_shms(diffusion_sig, acq, sph_degree)
+    pbar = ProgressBar()
+    for i in pbar(range(y.shape[0])):
+        pe = map_fit(func, acq, sph_degree, priors, y[i], sigma_n[i])
+
+    return pe
+
+
+def read_pes(pe_dir, mask_add):
+    mask_img = Image(mask_add)
+    n_subj = len(glob.glob(pe_dir + '/subj_*.nii.gz'))
+    pes = list()
+    for subj_idx in range(n_subj):
+        f = f'{pe_dir}/subj_{subj_idx}.nii.gz'
+        pes.append(Image(f).data[mask_img.data > 0, :])
+
+    print(f'loaded summaries from {n_subj} subjects')
+    pes = np.array(pes)
+    invalids = np.any(np.isnan(pes), axis=(0, 2))
+    pes = pes[:, invalids == 0, :]
+    if invalids.sum() > 0:
+        warn(f'{invalids.sum()} voxels are dropped because of lying outside of brain mask in some subjects.')
+    return pes, invalids
+
+
+def pipeline(argv=None):
+    args = user_interface.inference_parse_args(argv)
+    os.makedirs(args.output, exist_ok=True)
+    pe_dir = f'{args.output}/pes/{args.model}'
+    os.makedirs(pe_dir, exist_ok=True)
+
+    if len(glob.glob(pe_dir + '/subj_*.nii.gz')) < len(args.data):
+        py_file_path = os.path.realpath(__file__)
+        task_list = list()
+        for subj_idx, (x, d, bv) in enumerate(zip(args.xfm, args.data, args.bvecs)):
+            task_list.append(
+                f'python3 {py_file_path} {subj_idx} {d} {x} {bv} {args.bval} {args.mask} {args.model} {pe_dir}')
+        # uncomment to debug:
+        # parse_args_and_fit(f'{py_file_path} {subj_idx} {d} {x} {bv} {args.bval} {args.mask} {args.model}
+        # {pe_dir}'.split())
+
+        if 'SGE_ROOT' in os.environ.keys():
+            print('Submitting jobs to SGE ...')
+            with open(f'{args.output}/tasklist.txt', 'w') as f:
+                for t in task_list:
+                    f.write("%s\n" % t)
+                f.close()
+
+                job_id = run(f'fsl_sub -t {args.output}/tasklist.txt '
+                             f'-q short.q -N bench_inversion -l {pe_dir}/log -s openmp,2')
+                print('jobs submitted to SGE ...')
+                fslsub.hold(job_id)
+        else:
+            os.system('; '.join(task_list))
+
+        if len(glob.glob(pe_dir + '/subj_*.nii.gz')) == len(args.data):
+            print(f'model fitted to {len(args.data)} subjects.')
+        else:
+            n_fails = len(args.data) - len(glob.glob(pe_dir + '/subj_*.nii.gz'))
+            raise ValueError(f'model fitting failed for {n_fails} subjects.')
+    else:
+        print('parameter estimates already exist in the specified path')
+
+    # apply glm:
+    if args.design_mat is not None:
+        param_names = dm.prior_distributions[args.model].keys()
+        fit_results, invalids = read_pes(pe_dir, args.mask)
+        x = loadDesignMat(args.design_mat)
+        if not fit_results.shape[0] == x.shape[0]:
+            raise ValueError(f'Design matrix with {x.shape[0]} subjects does not match with '
+                             f'loaded parameters for {fit_results.shape[0]} subjects.')
+
+        pe1 = fit_results[x[:, 0] == 1, :, :len(param_names)].mean(axis=0)
+        pe2 = fit_results[x[:, 1] == 1, :, :len(param_names)].mean(axis=0)
+
+        varpe1 = fit_results[x[:, 0] == 1, :, :len(param_names)].var(axis=0)
+        varpe2 = fit_results[x[:, 1] == 1, :, :len(param_names)].var(axis=0)
+
+        z_values = (pe2 - pe1) / np.sqrt(varpe1/np.sqrt(x[:, 0].sum()) + varpe2 / np.sqrt(x[:, 1].sum()))
+        p_values = st.norm.sf(abs(z_values)) * 2  # two-sided
+
+        # _, delta, sigma = group_glm(pes, args.design_mat, args.design_con)
+        # zvals = delta / np.sqrt(np.diagonal(sigma, axis1=1, axis2=2))
+        for d, p in zip(p_values, param_names):
+            fname = f'{args.output}/zmaps/{p}'
+            user_interface.write_nifti(d, args.mask, fname=fname , invalids=invalids)
+        print(f'Analysis completed sucessfully, the z-maps are stored at {args.output}')
 
 
 def estimate_shms(signal, acq, sph_degree):
@@ -126,102 +181,6 @@ def estimate_shms(signal, acq, sph_degree):
     return sum_meas, sigma_n
 
 
-def invert(diffusion_sig, forward_model_name, bvals, bvecs, sph_degree):
-
-    if forward_model_name in list(func_dict.keys()):
-        func, priors = func_dict[forward_model_name]
-    else:
-        raise ValueError('Forward model is not available in the library.')
-
-    idx_shells, shells = acquisition.ShellParameters.create_shells(bval=bvals)
-    acq = acquisition.Acquisition(shells, idx_shells, bvecs)
-    y, sigma_n = estimate_shms(diffusion_sig, acq, sph_degree)
-    n_vox = diffusion_sig.shape[0]
-    for i in range(n_vox):
-        pe = map_fit(func, acq, priors, y[i], sigma_n[i])
-
-    return pe
-
-
-def read_pes(pe_dir, mask_add):
-    mask_img = Image(mask_add)
-    n_subj = len(glob.glob(pe_dir + '/subj_*.nii.gz'))
-    pes = list()
-    for subj_idx in range(n_subj):
-        f = f'{pe_dir}/subj_{subj_idx}.nii.gz'
-        pes.append(Image(f).data[mask_img.data > 0, :])
-
-    print(f'loaded summaries from {n_subj} subjects')
-    pes = np.array(pes)
-    invalids = np.any(np.isnan(pes), axis=(0, 2))
-    pes = pes[:, invalids == 0, :]
-    if invalids.sum() > 0:
-        warn(f'{invalids.sum()} voxels are dropped because of lying outside of brain mask in some subjects.')
-    return pes, invalids
-
-
-def pipeline(argv=None):
-    args = user_interface.inference_parse_args(argv)
-    os.makedirs(args.output, exist_ok=True)
-    pe_dir = f'{args.output}/pes'
-    os.makedirs(pe_dir, exist_ok=True)
-
-    if len(glob.glob(pe_dir + '/subj_*.nii.gz')) < len(args.data):
-        # make a bval file
-        py_file_path = os.path.realpath(__file__)
-        task_list = list()
-        for subj_idx, (x, d, bv) in enumerate(zip(args.xfm, args.data, args.bvecs)):
-            task_list.append(
-                f'python3 {py_file_path} {subj_idx} {d} {x} {bv} {args.bval} {args.mask} {args.model} {pe_dir}')
-            parse_args_and_fit(
-                f'{py_file_path} {subj_idx} {d} {x} {bv} {args.bval} {args.mask} {args.model} {pe_dir}'.split())
-        if 'SGE_ROOT' in os.environ.keys():
-            print('Submitting jobs to SGE ...')
-            with open(f'{args.output}/tasklist.txt', 'w') as f:
-                for t in task_list:
-                    f.write("%s\n" % t)
-                f.close()
-
-                job_id = run(f'fsl_sub -t {args.output}/tasklist.txt '
-                             f'-q short.q -N bench_inversion -l {pe_dir}/log -s openmp,2')
-                fslsub.hold(job_id)
-        else:
-            os.system('; '.join(task_list))
-
-        if len(glob.glob(pe_dir + '/subj_*.nii.gz')) == len(args.data):
-            print(f'model fitted to {len(args.data)} subjects.')
-        else:
-            n_fails = len(args.data) - len(glob.glob(pe_dir + '/subj_*.nii.gz'))
-            raise ValueError(f'model fitting failed for {n_fails} subjects.')
-    else:
-        print('parameter estimates already exist in the specified path')
-
-    # apply glm:
-    if args.design_mat is not None:
-        param_names = dm.prior_distributions[args.model].keys()
-        fit_results, invalids = read_pes(pe_dir, args.mask)
-        x = loadDesignMat(args.design_mat)
-        if not fit_results.shape[0] == x.shape[0]:
-            raise ValueError(f'Design matrix with {x.shape[0]} subjects does not match with '
-                             f'loaded parameters for {fit_results.shape[0]} subjects.')
-
-        pe1 = fit_results[x[:, 0] == 1, :, :len(param_names)].mean(axis=0)
-        pe2 = fit_results[x[:, 1] == 1, :, :len(param_names)].mean(axis=0)
-
-        varpe1 = fit_results[x[:, 0] == 1, :, :len(param_names)].var(axis=0)
-        varpe2 = fit_results[x[:, 1] == 1, :, :len(param_names)].var(axis=0)
-
-        z_values = (pe2 - pe1) / np.sqrt(varpe1/np.sqrt(x[:, 0].sum()) + varpe2 / np.sqrt(x[:, 1].sum()))
-        p_values = st.norm.sf(abs(z_values)) * 2  # two-sided
-
-        # _, delta, sigma = group_glm(pes, args.design_mat, args.design_con)
-        # zvals = delta / np.sqrt(np.diagonal(sigma, axis1=1, axis2=2))
-        for d, p in zip(p_values, param_names):
-            fname = f'{args.output}/zmaps/{p}'
-            user_interface.write_nifti(d, args.mask, fname=fname , invalids=invalids)
-        print(f'Analysis completed sucessfully, the z-maps are stored at {args.output}')
-
-
 def single_sub_fit(subj_idx, diff_add, xfm_add, bvec_add, bval_add, mask_add, mdl_name, output_add):
     print('diffusion data address:' + diff_add)
     print('xfm address:' + xfm_add)
@@ -237,21 +196,17 @@ def single_sub_fit(subj_idx, diff_add, xfm_add, bvec_add, bval_add, mask_add, md
     if bvecs.shape[1] > bvecs.shape[0]:
         bvecs = bvecs.T
 
-    def_field = f"{output_add}/def_field_{subj_idx}.nii.gz"
+    def_field_dir = f"{output_add}/def_fields/"
+    os.makedirs(def_field_dir, exist_ok=True)
+    def_field = f"{def_field_dir}/{subj_idx}.nii.gz"
     data, valid_vox = summary_measures.sample_from_native_space(diff_add, xfm_add, mask_add, def_field)
 
-    params, var_params = invert(data, mdl_name, bvals, bvecs, sph_degree=4)
+    params = fit_model(data, mdl_name, bvals, bvecs, sph_degree=4)
     print(f'subject {subj_idx} parameters estimated.')
 
     # write down [pes, vpes] to 4d files
-    mask_img = Image(mask_add)
-    mat = np.zeros((*mask_img.shape, params.shape[1] * 2)) + np.nan
-    std_indices = np.array(np.where(mask_img.data > 0)).T
-    std_indices_valid = std_indices[valid_vox]
-
-    mat[tuple(std_indices_valid.T)] = np.concatenate((params, var_params), axis=-1)
     fname = f"{output_add}/subj_{subj_idx}.nii.gz"
-    Nifti1Image(mat, mask_img.nibImage.affine).to_filename(fname)
+    user_interface.write_nifti(params, mask_add, fname, np.logical_not(valid_vox))
     print(' Model fitted to subject')
 
 

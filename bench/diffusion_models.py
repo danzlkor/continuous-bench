@@ -58,7 +58,20 @@ prior_distributions = dict(
                    'odi': stats.uniform(loc=.2, scale=.6),
                    'odi_ratio': stats.uniform(loc=.1, scale=.8),
                    # 'psi': stats.uniform(loc=np.pi/2, scale=np.pi/2)
-                   }
+                   },
+
+    watson_noddi_constrained={'s_iso': stats.gamma(a=1, scale=1 / 2),
+                              's_in': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
+                              's_ex': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
+                              'odi': stats.uniform(loc=.2, scale=.6),
+                              },
+
+    bingham_noddi_constrained={'s_iso': stats.gamma(a=1, scale=1 / 2),
+                               's_in': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
+                               's_ex': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
+                               'odi': stats.uniform(loc=.2, scale=.6),
+                               'odi_ratio': stats.uniform(loc=.1, scale=.8),
+                               },
 )
 
 
@@ -268,12 +281,12 @@ def watson_noddi(bval=0, bvec=np.array([0, 0, 1]),
     assert s0 >= 0, 's0 cant be negative'
     a_iso = ball(bval=bval, bvec=bvec, d_iso=d_iso, s0=s_iso)
     a_int = bingham_zeppelin(bval=bval, bvec=bvec, d_a=d_a_in, d_r=0,
-                             odi=odi, odi2=odi, 
+                             odi=odi, odi2=odi,
                              psi=0, theta=theta, phi=phi, s0=s_in)
-    
+
     a_ext = bingham_zeppelin(bval=bval, bvec=bvec, d_a=d_a_ex,
                              d_r=d_a_ex * tortuosity,
-                             odi=odi, odi2=odi, 
+                             odi=odi, odi2=odi,
                              psi=0, theta=theta, phi=phi, s0=s_ex)
 
     return (a_iso + a_int + a_ext) * s0
@@ -314,6 +327,34 @@ def bingham_noddi(bval=0, bvec=np.array([0, 0, 1]),
                              psi=psi, theta=theta, phi=phi, s0=s_ex)
 
     return (a_iso + a_int + a_ext) * s0
+
+
+def watson_noddi_constrained(bval, bvec, s_iso, s_int, s_ext, odi, s0=1.):
+    # fixed parameters:
+    d_iso = 3
+    dax_int = 1.7
+    dax_ext = 1.7
+    tortuosity = s_int / (s_int + s_ext)
+
+    signal = watson_noddi(bval=bval, bvec=bvec,
+                          s_iso=s_iso, s_in=s_int, s_ex=s_ext,
+                          d_iso=d_iso, d_a_in=dax_int, d_a_ex=dax_ext,
+                          tortuosity=tortuosity, odi=odi, s0=s0)
+    return signal
+
+
+def bingham_noddi_constrained(bval, bvec, s_iso, s_in, s_ex, odi, odi_ratio, s0=1.):
+    # fixed parameters:
+    d_iso = 3
+    d_a_in = 1.7
+    d_a_ex = 1.7
+    tortuosity = s_in / (s_in + s_ex)
+
+    signal = bingham_noddi(bval=bval, bvec=bvec,
+                           s_iso=s_iso, s_in=s_in, s_ex=s_ex,
+                           d_iso=d_iso, d_a_in=d_a_in, d_a_ex=d_a_ex,
+                           tortuosity=tortuosity, odi=odi, odi_ratio=odi_ratio, s0=s0)
+    return signal
 
 
 # helper functions:
@@ -532,5 +573,6 @@ def bench_decorator(model):
         sm = summary_measures.compute_summary(sig + noise, acq, sph_degree=sph_degree)
         sm = np.stack(sm)
         return sm
+
     func.__name__ = model.__name__
     return func
