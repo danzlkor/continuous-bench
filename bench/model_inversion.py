@@ -103,7 +103,7 @@ def pipeline(argv=None):
                 f.close()
 
                 job_id = run(f'fsl_sub -t {args.output}/tasklist.txt '
-                             f'-q short.q -N bench_inversion -l {pe_dir}/log -s openmp,2')
+                             f'-q long.q -N bench_inversion -l {pe_dir}/log -s openmp,2')
                 print('jobs submitted to SGE ...')
                 fslsub.hold(job_id)
         else:
