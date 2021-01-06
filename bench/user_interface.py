@@ -74,30 +74,72 @@ def inference_parse_args(argv):
     """
 
     parser = argparse.ArgumentParser("BENCH: Bayesian EstimatioN of CHange")
-    parser.add_argument("--mask", help="Mask in standard space indicating which voxels to analyse", required=True)
-    parser.add_argument("--output", help="Path to the output directory", required=True)
+    subparsers = parser.add_subparsers(dest='commandname')
 
-    inference = parser.add_argument_group("Inference arguments")
-    inference.add_argument("--design-mat", help="Design matrix for the group glm", required=False)
-    inference.add_argument("--design-con", help="Design contrast for the group glm", required=False)
-    inference.add_argument("--model", help="Forward model, either name of a standard model or full path to"
-                                           "a trained model json file", default=None, required=False)
+    diff_train_parser = subparsers.add_parser('train')
+    diff_summary_parser = subparsers.add_parser('summary')
+    diff_normalize_parse = subparsers.add_parser('normalize')
+    glm_parser = subparsers.add_parser('glm')
+    inference_parser = subparsers.add_parser('inference')
 
-    # pre-processing arguments:
-    preproc = parser.add_argument_group("Summary fit arguments")
-    preproc.add_argument('--summary-dir', default=None,
-                         help='Path to the pre-computed summary measurements', required=False)
-    preproc.add_argument("--data", nargs='+', help="List of dMRI data in subject native space", required=False)
-    preproc.add_argument("--xfm", help="Non-linear warp fields mapping subject diffusion space to the mask space",
-                         nargs='+', metavar='xfm.nii', required=False)
-    preproc.add_argument("--bvecs", nargs='+', metavar='bvec', required=False,
-                         help="Gradient orientations for each subject")
-    preproc.add_argument("--bval", metavar='bval', required=False,
-                         help="b_values (should be the same for all subjects")
-    preproc.add_argument("--sph_degree", default=4, help=" Degree for spherical harmonics summary measurements",
-                         required=False, type=int)
+    # train arguments:
+    train_required = diff_train_parser.add_argument_group("required arguments")
+    train_required.add_argument("--model", help="Forward model name", required=True)
+    train_required.add_argument("--output", help="name of the trained model", required=True)
+    train_required.add_argument("--bval", required=True)
+
+    train_optional = diff_train_parser.add_argument_group("optional arguments")
+    train_optional.add_argument("-k", default=100, type=int, help="number of nearest neighbours", required=False)
+    train_optional.add_argument("-n", default=1000, type=int, help="number of training samples", required=False)
+    train_optional.add_argument("-p", default=2, type=int, help="polynomial degree for design matrix", required=False)
+    train_optional.add_argument("-d", default=4, type=int, help="spherical harmonics degree", required=False)
+    train_optional.add_argument("--alpha", default=0.5, type=float, help="regularization weight", required=False)
+    train_optional.add_argument("--change-vecs", help="vectors of change", default=None, required=False)
+
+    # fit summary arguments:
+    diff_summary_parser.add_argument("--mask",
+                                     help="Mask in standard space indicating which voxels to analyse", required=True)
+    diff_summary_parser.add_argument("--data", nargs='+', help="List of dMRI data in subject native space",
+                                     required=True)
+    diff_summary_parser.add_argument("--xfm",
+                                     help="Non-linear warp fields from diffusion space to the standard",
+                                     nargs='+', metavar='xfm.nii', required=True)
+    diff_summary_parser.add_argument("--bvecs", nargs='+', metavar='bvec', required=True,
+                                     help="Gradient orientations for each subject")
+    diff_summary_parser.add_argument("--bval", metavar='bval', required=True,
+                                     help="b_values (should be the same for all subjects")
+    diff_summary_parser.add_argument("--sph_degree", default=4,
+                                     help=" Degree for spherical harmonics summary measurements",
+                                     required=False, type=int)
+    diff_summary_parser.add_argument("--output", help="Path to the output directory", required=True)
+
+    # normalization args
+    diff_normalize_parse.add_argument('--summary-dir', default=None,
+                                      help='Path to the un-normalized summary measurements', required=True)
+    diff_normalize_parse.add_argument('--output-dir', default=None,
+                                      help='Path to save normalized summary measurements', required=True)
+
+    # glm arguments:
+    glm_parser.add_argument("--data-dir", help="Path to the normalized summary measurements", required=True)
+    glm_parser.add_argument("--design-mat", help="Design matrix for the group glm", required=True)
+    glm_parser.add_argument("--design-con", help="Design contrast for the group glm", required=True)
+    glm_parser.add_argument("--output", help='Path to save the outputs')
+
+    # inference arguments:
+    inference_parser.add_argument('--glm-dir', help='path to the output of glm')
+    inference_parser.add_argument("--model", help="Forward model, either name of a standard model or full path to"
+                                                  "a trained change model file", default=None, required=False)
+    inference_parser.add_argument('--output', help="Path to save posterior probability maps")
 
     args = parser.parse_args(argv)
+
+    if args.model in diffusion_models.prior_distributions.keys():
+        print('Parameters of the forward model are:')
+        print(list(diffusion_models.prior_distributions[args.model].keys()))
+    else:
+        model_names = ', '.join(list(diffusion_models.prior_distributions.keys()))
+        raise ValueError(f'The forward model is not defined in the library. '
+                         f'Defined models are:\n {model_names}')
 
     if not os.path.exists(args.mask):
         raise FileNotFoundError('Mask file was not found.')
