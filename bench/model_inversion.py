@@ -154,6 +154,7 @@ def estimate_shms(signal, acq, sph_degree):
         shell_signal = signal[..., dir_idx]
         _, phi, theta = summary_measures.cart2spherical(*bvecs.T)
         y, m, l = summary_measures.real_sym_sh_basis(this_shell.lmax, theta, phi)
+        y = y / y[0, 0]
         coeffs = shell_signal.dot(np.linalg.pinv(y.T))
         residuals.append(shell_signal - coeffs @ y.T)
 
@@ -168,7 +169,7 @@ def estimate_shms(signal, acq, sph_degree):
     s_idx = 0
     for shell_idx, this_shell in enumerate(acq.shells):
         ng = np.sum(acq.idx_shells == shell_idx)
-        variances.append(sum_meas[s_idx].T.dot(sum_meas[s_idx]) * (noise_level ** 2))
+        variances.append(1/ng * (noise_level ** 2))
         s_idx += 1
         if this_shell.lmax > 0:
             for l in np.arange(2, sph_degree + 1, 2):

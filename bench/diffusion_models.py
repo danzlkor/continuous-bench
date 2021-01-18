@@ -55,7 +55,7 @@ prior_distributions = dict(
                    'd_a_in': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
                    'd_a_ex': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
                    'tortuosity': stats.uniform(loc=0.1, scale=.8),
-                   'odi': stats.uniform(loc=.2, scale=.6),
+                   'odi': stats.uniform(loc=.05, scale=.9),
                    'odi_ratio': stats.uniform(loc=.1, scale=.8),
                    # 'psi': stats.uniform(loc=np.pi/2, scale=np.pi/2)
                    },
