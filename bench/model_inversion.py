@@ -12,6 +12,7 @@ from warnings import warn
 import scipy.stats as st
 from typing import Union, Callable, List
 from progressbar import ProgressBar
+import argparse
 
 
 def log_likelihood(params, model, acq, sph_degree, y, sigma_n):
@@ -56,8 +57,9 @@ def fit_model(diffusion_sig, forward_model_name, bvals, bvecs, sph_degree):
     acq = acquisition.Acquisition(shells, idx_shells, bvecs)
     y, sigma_n = summary_measures.fit_shm(diffusion_sig, acq, sph_degree)
     pbar = ProgressBar()
+    pe = np.zeros((y.shape[0], len(priors)))
     for i in pbar(range(y.shape[0])):
-        pe = map_fit(func, acq, sph_degree, priors, y[i], sigma_n[i])
+        pe[i] = map_fit(func, acq, sph_degree, priors, y[i], sigma_n[i])
 
     return pe
 
@@ -80,7 +82,7 @@ def read_pes(pe_dir, mask_add):
 
 
 def pipeline(argv=None):
-    args = user_interface.inference_parse_args(argv)
+    args = inference_parse_args(argv)
     os.makedirs(args.output, exist_ok=True)
     pe_dir = f'{args.output}/pes/{args.model}'
     os.makedirs(pe_dir, exist_ok=True)
@@ -92,8 +94,7 @@ def pipeline(argv=None):
             task_list.append(
                 f'python3 {py_file_path} {subj_idx} {d} {x} {bv} {args.bval} {args.mask} {args.model} {pe_dir}')
         # uncomment to debug:
-        # parse_args_and_fit(f'{py_file_path} {subj_idx} {d} {x} {bv} {args.bval} {args.mask} {args.model}
-        # {pe_dir}'.split())
+        parse_args_and_fit(f'{py_file_path} {subj_idx} {d} {x} {bv} {args.bval} {args.mask} {args.model} {pe_dir}'.split())
 
         if 'SGE_ROOT' in os.environ.keys():
             print('Submitting jobs to SGE ...')
@@ -163,7 +164,7 @@ def single_sub_fit(subj_idx, diff_add, xfm_add, bvec_add, bval_add, mask_add, md
     os.makedirs(def_field_dir, exist_ok=True)
     def_field = f"{def_field_dir}/{subj_idx}.nii.gz"
     data, valid_vox = summary_measures.sample_from_native_space(diff_add, xfm_add, mask_add, def_field)
-
+    data = data / 1000
     params = fit_model(data, mdl_name, bvals, bvecs, sph_degree=4)
     print(f'subject {subj_idx} parameters estimated.')
 
@@ -175,16 +176,84 @@ def single_sub_fit(subj_idx, diff_add, xfm_add, bvec_add, bval_add, mask_add, md
 
 def parse_args_and_fit(args):
     args.pop(0)  # python file name
-    subj_idx_ = args[0]
-    diff_add_ = args[1]
-    xfm_add_ = args[2]
-    bvec_add_ = args[3]
-    bval_add_ = args[4]
-    mask_add_ = args[5]
-    mdl_add_ = args[6]
-    output_add_ = args[7]
-    single_sub_fit(subj_idx_, diff_add_, xfm_add_, bvec_add_, bval_add_, mask_add_, mdl_add_, output_add_)
+    single_sub_fit(*args)
 
 
 if __name__ == '__main__':
     parse_args_and_fit(sys.argv)
+
+
+def inference_parse_args(argv):
+    """
+    Parses the commandline input anc checks for the consistency of inputs
+    :param argv: input string from commandline
+    :return: arg namespce from argparse
+    :raises: if the number of provided files do not match with other arguments
+    """
+
+    parser = argparse.ArgumentParser("BENCH: Bayesian EstimatioN of CHange")
+    parser.add_argument("--mask", help="Mask in standard space indicating which voxels to analyse", required=True)
+    parser.add_argument("--output", help="Path to the output directory", required=True)
+
+    inference = parser.add_argument_group("Inference arguments")
+    inference.add_argument("--design-mat", help="Design matrix for the group glm", required=False)
+    inference.add_argument("--design-con", help="Design contrast for the group glm", required=False)
+    inference.add_argument("--model", help="Forward model, either name of a standard model or full path to"
+                                           "a trained model json file", default=None, required=False)
+
+    # pre-processing arguments:
+    preproc = parser.add_argument_group("Summary fit arguments")
+    preproc.add_argument('--summary-dir', default=None,
+                         help='Path to the pre-computed summary measurements', required=False)
+    preproc.add_argument("--data", nargs='+', help="List of dMRI data in subject native space", required=False)
+    preproc.add_argument("--xfm", help="Non-linear warp fields mapping subject diffusion space to the mask space",
+                         nargs='+', metavar='xfm.nii', required=False)
+    preproc.add_argument("--bvecs", nargs='+', metavar='bvec', required=False,
+                         help="Gradient orientations for each subject")
+    preproc.add_argument("--bval", metavar='bval', required=False,
+                         help="b_values (should be the same for all subjects")
+    preproc.add_argument("--sph_degree", default=4, help=" Degree for spherical harmonics summary measurements",
+                         required=False, type=int)
+
+    args = parser.parse_args(argv)
+
+    if not os.path.exists(args.mask):
+        raise FileNotFoundError('Mask file was not found.')
+
+    if os.path.isdir(args.output):
+        warn('Output directory already exists, contents might be overwritten.')
+        if not os.access(args.output, os.W_OK):
+            raise PermissionError('user does not have permission to write in the output location.')
+    else:
+        os.makedirs(args.output, exist_ok=True)
+
+    if args.summary_dir is None:
+        n_subjects = min(len(args.xfm), len(args.data), len(args.bvecs))
+        if len(args.data) > n_subjects:
+            raise ValueError(f"Got more diffusion MRI dataset than transformations/bvecs: {args.data[n_subjects:]}")
+        if len(args.xfm) > n_subjects:
+            raise ValueError(f"Got more transformations than diffusion MRI data/bvecs: {args.xfm[n_subjects:]}")
+        if len(args.bvecs) > n_subjects:
+            raise ValueError(f"Got more bvecs than diffusion MRI data/transformations: {args.bvecs[n_subjects:]}")
+
+        for subj_idx, (nl, d, bv) in enumerate(zip(args.xfm, args.data, args.bvecs), 1):
+            print(f'Scan {subj_idx}: dMRI ({d} with {bv}); transform ({nl})')
+            for f in [nl, d, bv]:
+                if not os.path.exists(f):
+                    raise FileNotFoundError(f'{f} not found. Please check the input files.')
+
+        if not os.path.exists(args.bval):
+            raise FileNotFoundError(f'{args.bval} not found. Please check the paths for input files.')
+
+    if args.model is not None:
+        if args.design_mat is None:
+            raise RuntimeError('For inference you have to provide a design matrix file.')
+        elif not os.path.exists(args.design_mat):
+            raise FileNotFoundError(f'{args.design_mat} file not found.')
+
+        if args.design_con is None:
+            raise RuntimeError('For inference you need to provide a design contrast file.')
+        elif not os.path.exists(args.design_con):
+            raise FileNotFoundError(f'{args.design_con} file not found.')
+
+    return args
