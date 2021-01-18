@@ -55,7 +55,7 @@ def fit_model(diffusion_sig, forward_model_name, bvals, bvecs, sph_degree):
 
     idx_shells, shells = acquisition.ShellParameters.create_shells(bval=bvals)
     acq = acquisition.Acquisition(shells, idx_shells, bvecs)
-    y, sigma_n = summary_measures.fit_shm(diffusion_sig, acq, sph_degree)
+    y, sigma_n = summary_measures.fit_shm(diffusion_sig, acq, sph_degree, esitmate_cov=True)
     pbar = ProgressBar()
     pe = np.zeros((y.shape[0], len(priors)))
     for i in pbar(range(y.shape[0])):
@@ -142,7 +142,6 @@ def pipeline(argv=None):
             fname = f'{args.output}/zmaps/{p}'
             user_interface.write_nifti(d, args.mask, fname=fname , invalids=invalids)
         print(f'Analysis completed sucessfully, the z-maps are stored at {args.output}')
-
 
 
 def single_sub_fit(subj_idx, diff_add, xfm_add, bvec_add, bval_add, mask_add, mdl_name, output_add):

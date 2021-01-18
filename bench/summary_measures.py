@@ -29,7 +29,7 @@ def normalized_shms(bvecs, lmax):
     return y, l
 
 
-def fit_shm(signal, acq, sph_degree):
+def fit_shm(signal, acq, sph_degree, esitmate_cov=False):
     """
     Cumputes summary measurements from spherical harmonics fit.
 
@@ -38,6 +38,8 @@ def fit_shm(signal, acq, sph_degree):
     :param sph_degree: maximum degree for summary measurements
     :return: summary measurements, residual covariance
     """
+    if signal.ndim == 1:
+        signal = signal[np.newaxis, :]
 
     sum_meas = list()
     residuals = list()
@@ -54,24 +56,29 @@ def fit_shm(signal, acq, sph_degree):
             for degree in np.arange(2, sph_degree + 1, 2):
                 sum_meas.append(np.power(coeffs[..., l == degree], 2).mean(axis=-1))
 
-        residuals.append(shell_signal - coeffs @ y.T)
+        if esitmate_cov:
+            residuals.append(shell_signal - coeffs @ y.T)
 
     sum_meas = np.array(sum_meas).T
 
-    noise_level = np.concatenate(residuals, axis=-1).std(axis=-1)
-    variances = []
-    s_idx = 0
-    for shell_idx, this_shell in enumerate(acq.shells):
-        ng = np.sum(acq.idx_shells == shell_idx)
-        variances.append(1/ng * (noise_level ** 2))
-        s_idx += 1
-        if this_shell.lmax > 0:
-            for l in np.arange(2, sph_degree + 1, 2):
-                f = 4 * np.pi * (noise_level ** 2) / ng
-                variances.append(sum_meas[:, s_idx] * 4 * f / (2 * l + 1) + 2 * (f ** 2) / (2 * l + 1))
-                s_idx += 1
+    if esitmate_cov:
+        noise_level = np.concatenate(residuals, axis=-1).std(axis=-1)
+        variances = []
+        s_idx = 0
+        for shell_idx, this_shell in enumerate(acq.shells):
+            ng = np.sum(acq.idx_shells == shell_idx)
+            variances.append(1/ng * (noise_level ** 2))
+            s_idx += 1
+            if this_shell.lmax > 0:
+                for l in np.arange(2, sph_degree + 1, 2):
+                    f = 4 * np.pi * (noise_level ** 2) / ng
+                    variances.append(sum_meas[:, s_idx] * 4 * f / (2 * l + 1) + 2 * (f ** 2) / (2 * l + 1))
+                    s_idx += 1
 
-    sigma_n = np.array([np.diag(v) for v in np.array(variances).T])
+        sigma_n = np.array([np.diag(v) for v in np.array(variances).T])
+    else:
+        sigma_n = None
+
     return sum_meas, sigma_n
 
 
