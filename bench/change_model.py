@@ -389,6 +389,7 @@ class Trainer:
         :param n_repeats:
         :return:
         """
+
         tmp_mdl = self.train(n_samples=2, k=1, dv0=1e-6)
 
         y_1 = np.zeros((n_samples, self.n_dim))
@@ -421,8 +422,11 @@ class Trainer:
                 else:
                     raise ValueError('Limits are not recognized')
 
-                params_2 = {k: np.abs(v + tmp_mdl.models[tc - 1].vec.get(k, 0) * effect_size * sign)
+                valid = False
+                while not valid:
+                    params_2 = {k: np.abs(v + tmp_mdl.models[tc - 1].vec.get(k, 0) * effect_size * sign)
                             for k, v in params_1.items()}
+                    valid = np.all([self.param_prior_dists[k].pdf(params_2[k]) > 0 for k in params_2.keys()])
 
             if has_noise_model:
                 for r in range(n_repeats):

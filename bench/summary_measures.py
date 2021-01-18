@@ -9,8 +9,6 @@ import os
 import sys
 import glob
 from fsl.wrappers import convertwarp
-import fsl.utils.fslsub as fslsub
-from fsl.utils.run import run
 from warnings import warn
 import numpy as np
 from dipy.reconst.shm import real_sym_sh_basis
@@ -176,56 +174,6 @@ def fit_summary_single_subject(subj_idx: str, diff_add: str, xfm_add: str, bvec_
         np.save(f'{output_add}/summary_names', summary_names(acq, sph_degree))
 
     print(f'Summary measurements for subject {subj_idx} computed')
-
-
-def fit_summary_to_dataset(data: list, bvecs: list, bvals: str, xfms: list, roi_mask: str, sph_degree: int,
-                           output: str):
-    """
-    Resamples diffusion data to std space, fits spherical harmonics to the input images and stores the outputs per
-    seubject in a separate image.
-
-    :param data: list of filenames for diffusion images.
-    :param bvecs: list of filenames for bvecs
-    :param bvals: bval filename, this must be the same for all subjects.
-    :param xfms: transformation from diffusion space to standard space
-    :param roi_mask: region of interest mask filename, must be in standard space
-    :param output: path of the output directory
-    :param sph_degree: degree for spherical harmonics.
-    :return: saves images to the specified path and returns true flag if the process done completely.
-    """
-    os.makedirs(output, exist_ok=True)
-    if len(glob.glob(output + '/subj_*.nii.gz')) < len(data):
-        py_file_path = os.path.realpath(__file__)
-        task_list = list()
-        for subj_idx, (x, d, bv) in enumerate(zip(xfms, data, bvecs)):
-            cmd = f'python3 {py_file_path} {subj_idx} {d} {x} {bv} {bvals} {roi_mask} {sph_degree} {output}'
-            task_list.append(cmd)
-            # from_cmd(cmd.split()[1:])
-
-        if 'SGE_ROOT' in os.environ.keys():
-            with open(f'{output}/tasklist.txt', 'w') as f:
-                for t in task_list:
-                    f.write("%s\n" % t)
-                f.close()
-
-                job_id = run(f'fsl_sub -t {output}/tasklist.txt '
-                             f'-q short.q -N bench_summary -l {output}/log -s openmp,2')
-                print(f'Jobs were submitted to SGE. waiting ...')
-                fslsub.hold(job_id)
-        else:
-            os.system('; '.join(task_list))
-
-        fails = len(data) - len(glob.glob(output + '/subj_*.nii.gz'))
-        if fails > 0:
-            raise RuntimeError(f'Summary measures were not computed for {fails} subjects.')
-        else:
-            print(f'Summary measures computed for {len(data)} subjects.')
-    else:
-        print('Summary measurements already exist in the specified path.'
-              'If you want to re-compute them, delete the current files.')
-        fails = 0
-
-    return fails == 0
 
 
 def read_summary_images(summary_dir: str, mask: str, normalize=True):
