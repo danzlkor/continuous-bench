@@ -54,7 +54,7 @@ def fit_model(diffusion_sig, forward_model_name, bvals, bvecs, sph_degree):
 
     idx_shells, shells = acquisition.ShellParameters.create_shells(bval=bvals)
     acq = acquisition.Acquisition(shells, idx_shells, bvecs)
-    y, sigma_n = estimate_shms(diffusion_sig, acq, sph_degree)
+    y, sigma_n = summary_measures.fit_shm(diffusion_sig, acq, sph_degree)
     pbar = ProgressBar()
     for i in pbar(range(y.shape[0])):
         pe = map_fit(func, acq, sph_degree, priors, y[i], sigma_n[i])
@@ -142,44 +142,6 @@ def pipeline(argv=None):
             user_interface.write_nifti(d, args.mask, fname=fname , invalids=invalids)
         print(f'Analysis completed sucessfully, the z-maps are stored at {args.output}')
 
-
-def estimate_shms(signal, acq, sph_degree):
-
-    sum_meas = list()
-    residuals = list()
-
-    for shell_idx, this_shell in enumerate(acq.shells):
-        dir_idx = acq.idx_shells == shell_idx
-        bvecs = acq.bvecs[dir_idx]
-        shell_signal = signal[..., dir_idx]
-        _, phi, theta = summary_measures.cart2spherical(*bvecs.T)
-        y, m, l = summary_measures.real_sym_sh_basis(this_shell.lmax, theta, phi)
-        y = y / y[0, 0]
-        coeffs = shell_signal.dot(np.linalg.pinv(y.T))
-        residuals.append(shell_signal - coeffs @ y.T)
-
-        sum_meas.append(coeffs[..., l == 0].mean(axis=-1))
-        if this_shell.lmax > 0:
-            for degree in np.arange(2, sph_degree + 1, 2):
-                sum_meas.append(np.power(coeffs[..., l == degree], 2).mean(axis=-1))
-
-    noise_level = np.concatenate(residuals, axis=-1).std(axis=-1)
-    variances = []
-
-    s_idx = 0
-    for shell_idx, this_shell in enumerate(acq.shells):
-        ng = np.sum(acq.idx_shells == shell_idx)
-        variances.append(1/ng * (noise_level ** 2))
-        s_idx += 1
-        if this_shell.lmax > 0:
-            for l in np.arange(2, sph_degree + 1, 2):
-                f = 4 * np.pi * (noise_level ** 2) / ng
-                variances.append(sum_meas[s_idx] * 4 * f / (2 * l + 1) + 2 * (f ** 2) / (2 * l + 1))
-                s_idx += 1
-
-    sigma_n = np.array([np.diag(v) for v in np.array(variances).T])
-    sum_meas = np.array(sum_meas).T
-    return sum_meas, sigma_n
 
 
 def single_sub_fit(subj_idx, diff_add, xfm_add, bvec_add, bval_add, mask_add, mdl_name, output_add):

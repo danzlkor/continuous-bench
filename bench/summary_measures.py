@@ -15,7 +15,6 @@ from warnings import warn
 import numpy as np
 from dipy.reconst.shm import real_sym_sh_basis
 from bench.acquisition import Acquisition, ShellParameters
-from scipy.linalg import block_diag
 
 
 def summary_names(acq, sph_degree):
@@ -25,136 +24,75 @@ def summary_names(acq, sph_degree):
             if degree <= sh.lmax]
 
 
-def fit_shm(bvecs, signal, lmax=6):
-    """
-    Fit spherical harmonics up to given degree to the data
-
-    :param bvecs: (M, 3) array with gradient orientations
-    :param signal: (n_voxels, M) array of diffusion MRI data for the `M` gradients
-    :param lmax: maximum degree of the spherical harmonics in the fit
-    :return: Tuple with:
-
-        - (..., K) array with spherical harmonic components
-        - (K, ) array with the degree of the harmonics
-        - (K, ) array with the order of the harmonics
-    """
+def normalized_shms(bvecs, lmax):
     _, phi, theta = cart2spherical(*bvecs.T)
     y, m, l = real_sym_sh_basis(lmax, theta, phi)
-    return signal.dot(np.linalg.pinv(y.T)), m, l
+    y = y / y[0, 0]  # normalization is required to make the first summary measure represent mean signal
+    return y, l
 
 
-def fit_summary_shell(signal, bvecs, sph_degree=4, lmax=6):
+def fit_shm(signal, acq, sph_degree):
     """
-    Creates summary data based on diffusion MRI data
+    Cumputes summary measurements from spherical harmonics fit.
 
-    :param bvecs: (M, 3) array with gradient orientations
-    :param signal: (..., M) array of diffusion MRI data for the `M` gradients
-    :param lmax: maximum degree of the spherical harmonics in the fit
-    :param sph_degree: maximum degree for calculation of measurements
-    :return: Dict mapping 'mean' and 'anisotropy' to (..., )-shaped arrays (anisotropy set to None if lmax is 0)
+    :param signal: diffusion signal
+    :param acq: acquistion protocol
+    :param sph_degree: maximum degree for summary measurements
+    :return: summary measurements, residual covariance
     """
-    assert lmax == 0 or lmax >= sph_degree
-    coeffs, m, l = fit_shm(signal, bvecs, lmax)
 
-    if lmax == 0:
-        sph_degree = 0
+    sum_meas = list()
+    residuals = list()
 
-    def sm(degree):
-        if lmax == 0 and degree > 0:
-            return nan_mat(signal.shape[:-1])
-        else:
-            if degree == 0:
-                return coeffs[..., l == 0].mean(axis=-1)
-            else:
-                return np.power(coeffs[..., l == degree], 2).mean(axis=-1)
-
-    smm = [sm(degree) for degree in np.arange(0, sph_degree + 1, 2)]
-
-    return smm
-
-
-def compute_summary(signal, acq: Acquisition, sph_degree):
-    """
-    Computes summary measurements from simulated diffusion MRI signal
-    :param signal: array of simulated diffusion signal (..., n_bvecs)
-    :param acq: Acquisition object containing acquisition parameters
-    :param sph_degree: degree of sh coefficients
-    :return: summary_measures (..., n_shells x n_smm - invalids)
-    """
-    assert signal.shape[-1] == len(acq.idx_shells)
-
-    summaries = list()
     for shell_idx, this_shell in enumerate(acq.shells):
         dir_idx = acq.idx_shells == shell_idx
-        shell_summaries = fit_summary_shell(acq.bvecs[dir_idx], signal[..., dir_idx], sph_degree, this_shell.lmax)
-        summaries += shell_summaries
+        bvecs = acq.bvecs[dir_idx]
+        shell_signal = signal[..., dir_idx]
+        y, l = normalized_shms(bvecs, this_shell.lmax)
+        coeffs = shell_signal.dot(np.linalg.pinv(y.T))
 
-    return summaries
+        sum_meas.append(coeffs[..., l == 0].mean(axis=-1))
+        if this_shell.lmax > 0:
+            for degree in np.arange(2, sph_degree + 1, 2):
+                sum_meas.append(np.power(coeffs[..., l == degree], 2).mean(axis=-1))
 
+        residuals.append(shell_signal - coeffs @ y.T)
 
-def noise_propagation(summaries, acq, sph_degree, noise_level):
-    """
-    Computes noise covariance matrix of measurements for a given signal
-        :param summaries: (n_samples, dim) array of data
-        :param acq: acquisition parameters
-        :param noise_level: noise std
-        :param sph_degree: degree for spherical harmonics
-        :return: mu, cov(n_sample, dim, dim)
-    """
-    variances = list()
+    sum_meas = np.array(sum_meas).T
+
+    noise_level = np.concatenate(residuals, axis=-1).std(axis=-1)
+    variances = []
+    s_idx = 0
     for shell_idx, this_shell in enumerate(acq.shells):
-        dirs = acq.idx_shells == shell_idx
-        bval = this_shell.bval
-        if bval == 0:
-            variances.append(
-                noise_variance(acq.bvecs[dirs], summaries[..., 0], 0, noise_level, this_shell.lmax))
+        ng = np.sum(acq.idx_shells == shell_idx)
+        variances.append(1/ng * (noise_level ** 2))
+        s_idx += 1
+        if this_shell.lmax > 0:
+            for l in np.arange(2, sph_degree + 1, 2):
+                f = 4 * np.pi * (noise_level ** 2) / ng
+                variances.append(sum_meas[:, s_idx] * 4 * f / (2 * l + 1) + 2 * (f ** 2) / (2 * l + 1))
+                s_idx += 1
 
-        else:
-            for l in np.arange(0, sph_degree + 1, 2):
-                idx = (shell_idx - 1) * (sph_degree // 2 + 1) + l // 2 + 1
-                variances.append(noise_variance(acq.bvecs[dirs], summaries[idx], l, noise_level, this_shell.lmax))
-
-    cov = block_diag(*variances)
-    return cov
+    sigma_n = np.array([np.diag(v) for v in np.array(variances).T])
+    return sum_meas, sigma_n
 
 
-def noise_variance(gradients, smm, l, sigma_n, l_max):
-    """
-    :param gradients:
-    :param smm:
-    :param l:
-    :param sigma_n:
-    :param l_max:
-    :return:
-    """
-    if l == 0:
-        _, phi, theta = cart2spherical(*gradients.T)
-        sh_mat, m, l = real_sym_sh_basis(l_max, theta, phi)
-        c = np.linalg.pinv(sh_mat).T
-        j = c[..., l == 0].mean(axis=-1)
-        return j.T.dot(j) * (sigma_n ** 2)
-    else:
-        ng = gradients.shape[0]
-        f = 4 * np.pi * (sigma_n ** 2) / ng
-        return smm * 4 * f / (2 * l + 1) + 2 * (f ** 2) / (2 * l + 1)
-
-
-def compute_summary_jacobian(signal, gradients, lmax=6, max_degree=4):
+def shm_jacobian(signal, bvecs, lmax=6, max_degree=4):
     assert lmax == 0 or lmax >= max_degree
-    _, phi, theta = cart2spherical(*gradients.T)
-    y, m, l = real_sym_sh_basis(lmax, theta, phi)
-    yp = np.linalg.pinv(y.T)
 
-    def compute_smm_derivative(degree):
+    y, l = normalized_shms(bvecs, lmax)
+    y_inv = np.linalg.pinv(y.T)
+
+    def derivatives(degree):
         if lmax == 0 and degree > 0:
             return None
         else:
             if degree == 0:
-                return yp[..., l == 0]
+                return y_inv[..., l == 0]
             else:
-                return 2 * (signal.dot(yp[..., l == degree])).dot((yp[..., l == degree]).T) / np.sum(l == degree)
+                return 2 * (signal.dot(y_inv[..., l == degree])).dot((y_inv[..., l == degree]).T) / np.sum(l == degree)
 
-    der = {f"l{deg}": compute_smm_derivative(deg) for deg in np.arange(0, max_degree + 1, 2)}
+    der = np.array([derivatives(deg) for deg in np.arange(0, max_degree + 1, 2)])
     return der
 
 
@@ -191,6 +129,54 @@ def nan_mat(shape):
 
 
 #  image functions:
+def fit_summary_single_subject(subj_idx: str, diff_add: str, xfm_add: str, bvec_add: str,
+                               bval_add: str, mask_add: str, sph_degree: int, output_add: str):
+    """
+        the main function that fits summary measurements for a single subject
+        :param subj_idx: used to name the summary files.
+        :param diff_add: path to diffusion data
+        :param xfm_add: path to transformation from native space to standard space.
+        :param bvec_add: path to bvec file
+        :param bval_add: path to bvec file
+        :param mask_add: path to mask
+        :param sph_degree: path to the trained model of change file
+        :param output_add: path to output directory
+        :return:
+        """
+    print('diffusion data address:' + diff_add)
+    print('xfm address:' + xfm_add)
+    print('bvec address: ' + bvec_add)
+    print('mask address: ' + mask_add)
+    print('bval address: ' + bval_add)
+    print('sph_degree: ' + str(sph_degree))
+    print('output path: ' + output_add)
+
+    def_field = f"{output_add}/def_field_{subj_idx}.nii.gz"
+    data, valid_vox = sample_from_native_space(diff_add, xfm_add, mask_add, def_field)
+    bvecs = np.genfromtxt(bvec_add)
+    if bvecs.shape[1] > bvecs.shape[0]:
+        bvecs = bvecs.T
+    bvals = np.genfromtxt(bval_add)
+    idx_shells, shells = ShellParameters.create_shells(bval=bvals)
+    acq = Acquisition(shells, idx_shells, bvecs)
+
+    summaries, _ = fit_shm(data, acq, sph_degree=sph_degree)
+
+    # write to nifti:
+    mask_img = Image(mask_add)
+    mat = np.zeros((*mask_img.shape, len(summaries))) + np.nan
+    std_indices = np.array(np.where(mask_img.data > 0)).T
+    std_indices_valid = std_indices[valid_vox]
+
+    mat[tuple(std_indices_valid.T)] = np.array(summaries).T
+
+    fname = f"{output_add}/subj_{subj_idx}.nii.gz"
+    nib.Nifti1Image(mat, mask_img.nibImage.affine).to_filename(fname)
+    if subj_idx == '0':
+        np.save(f'{output_add}/summary_names', summary_names(acq, sph_degree))
+
+    print(f'Summary measurements for subject {subj_idx} computed')
+
 
 def fit_summary_to_dataset(data: list, bvecs: list, bvals: str, xfms: list, roi_mask: str, sph_degree: int,
                            output: str):
@@ -359,55 +345,6 @@ def sample_from_native_space(image, xfm, mask, def_field):
     subj_indices, valid_vox = transform_indices(data_img, mask_img, def_field)
     data_vox = data_img.data[tuple(subj_indices[valid_vox, :].T)].astype(float)
     return data_vox, valid_vox
-
-
-def fit_summary_single_subject(subj_idx: str, diff_add: str, xfm_add: str, bvec_add: str,
-                               bval_add: str, mask_add: str, sph_degree: int, output_add: str):
-    """
-        the main function that fits summary measurements for a single subject
-        :param subj_idx: used to name the summary files.
-        :param diff_add: path to diffusion data
-        :param xfm_add: path to transformation from native space to standard space.
-        :param bvec_add: path to bvec file
-        :param bval_add: path to bvec file
-        :param mask_add: path to mask
-        :param sph_degree: path to the trained model of change file
-        :param output_add: path to output directory
-        :return:
-        """
-    print('diffusion data address:' + diff_add)
-    print('xfm address:' + xfm_add)
-    print('bvec address: ' + bvec_add)
-    print('mask address: ' + mask_add)
-    print('bval address: ' + bval_add)
-    print('sph_degree: ' + str(sph_degree))
-    print('output path: ' + output_add)
-
-    def_field = f"{output_add}/def_field_{subj_idx}.nii.gz"
-    data, valid_vox = sample_from_native_space(diff_add, xfm_add, mask_add, def_field)
-    bvecs = np.genfromtxt(bvec_add)
-    if bvecs.shape[1] > bvecs.shape[0]:
-        bvecs = bvecs.T
-    bvals = np.genfromtxt(bval_add)
-    idx_shells, shells = ShellParameters.create_shells(bval=bvals)
-    acq = Acquisition(shells, idx_shells, bvecs)
-
-    summaries = compute_summary(data, acq, sph_degree=sph_degree)
-
-    # write to nifti:
-    mask_img = Image(mask_add)
-    mat = np.zeros((*mask_img.shape, len(summaries))) + np.nan
-    std_indices = np.array(np.where(mask_img.data > 0)).T
-    std_indices_valid = std_indices[valid_vox]
-
-    mat[tuple(std_indices_valid.T)] = np.array(summaries).T
-
-    fname = f"{output_add}/subj_{subj_idx}.nii.gz"
-    nib.Nifti1Image(mat, mask_img.nibImage.affine).to_filename(fname)
-    if subj_idx == '0':
-        np.save(f'{output_add}/summary_names', summary_names(acq, sph_degree))
-
-    print(f'Summary measurements for subject {subj_idx} computed')
 
 
 def from_cmd(args):
