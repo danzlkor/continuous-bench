@@ -94,7 +94,7 @@ def pipeline(argv=None):
             task_list.append(
                 f'python3 {py_file_path} {subj_idx} {d} {x} {bv} {args.bval} {args.mask} {args.model} {pe_dir}')
         # uncomment to debug:
-        # parse_args_and_fit(f'{py_file_path} {subj_idx} {d} {x} {bv} {args.bval} {args.mask} {args.model} {pe_dir}'.split())
+        parse_args_and_fit(f'{py_file_path} {subj_idx} {d} {x} {bv} {args.bval} {args.mask} {args.model} {pe_dir}'.split())
 
         if 'SGE_ROOT' in os.environ.keys():
             print('Submitting jobs to SGE ...')
@@ -104,7 +104,7 @@ def pipeline(argv=None):
                 f.close()
 
                 job_id = run(f'fsl_sub -t {args.output}/tasklist.txt '
-                             f'-q long.q -N bench_inversion -l {pe_dir}/log -s openmp,2')
+                             f'-q short.q -N bench_inversion -l {pe_dir}/log -s openmp,2')
                 print('jobs submitted to SGE ...')
                 fslsub.hold(job_id)
         else:
@@ -201,7 +201,7 @@ def single_sub_fit(subj_idx, diff_add, xfm_add, bvec_add, bval_add, mask_add, md
     os.makedirs(def_field_dir, exist_ok=True)
     def_field = f"{def_field_dir}/{subj_idx}.nii.gz"
     data, valid_vox = summary_measures.sample_from_native_space(diff_add, xfm_add, mask_add, def_field)
-
+    data = data / 1000
     params = fit_model(data, mdl_name, bvals, bvecs, sph_degree=4)
     print(f'subject {subj_idx} parameters estimated.')
 
@@ -213,15 +213,7 @@ def single_sub_fit(subj_idx, diff_add, xfm_add, bvec_add, bval_add, mask_add, md
 
 def parse_args_and_fit(args):
     args.pop(0)  # python file name
-    subj_idx_ = args[0]
-    diff_add_ = args[1]
-    xfm_add_ = args[2]
-    bvec_add_ = args[3]
-    bval_add_ = args[4]
-    mask_add_ = args[5]
-    mdl_add_ = args[6]
-    output_add_ = args[7]
-    single_sub_fit(subj_idx_, diff_add_, xfm_add_, bvec_add_, bval_add_, mask_add_, mdl_add_, output_add_)
+    single_sub_fit(*args)
 
 
 if __name__ == '__main__':
