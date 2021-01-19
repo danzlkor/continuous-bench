@@ -22,11 +22,11 @@ def main(argv=None):
     """
     args = parse_args(argv)
 
-    if args.commandname == 'train':
+    if args.commandname == 'diff-train':
         submit_train(args)
-    elif args.commandname == 'summary':
+    elif args.commandname == 'diff-summary':
         submit_summary(args)
-    elif args.commandname == 'normalize':
+    elif args.commandname == 'diff-normalize':
         submit_normalize(args)
     elif args.commandname == 'glm':
         submit_glm(args)
@@ -101,7 +101,8 @@ def parse_args(argv):
 
 
 def submit_train(args):
-    if args.model in diffusion_models.prior_distributions.keys():
+    available_models = list(diffusion_models.prior_distributions.keys())
+    if args.model in available_models:
         print('Parameters of the forward model are:')
         print(list(diffusion_models.prior_distributions[args.model].keys()))
     else:
@@ -109,7 +110,6 @@ def submit_train(args):
         raise ValueError(f'The forward model is not defined in the library. '
                          f'Defined models are:\n {model_names}')
 
-    available_models = list(diffusion_models.prior_distributions.keys())
     funcdict = {name: f for (name, f) in diffusion_models.__dict__.items() if name in available_models}
     forward_model = funcdict[args.model]
     param_dist = diffusion_models.prior_distributions[args.model]
