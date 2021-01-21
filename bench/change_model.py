@@ -301,7 +301,6 @@ class Trainer:
             scale = np.linalg.norm(list(self.change_vecs[idx].values()))
             self.change_vecs[idx] = {k: v / scale for k, v in self.change_vecs[idx].items()}
 
-
         if np.isscalar(self.priors):
             self.priors = [self.priors] * self.n_vecs
         elif len(self.priors) != self.n_vecs:
@@ -408,25 +407,24 @@ class Trainer:
         pbar = ProgressBar()
         for s_idx in pbar(range(n_samples)):
             tc = true_change[s_idx]
-            params_1 = {p: v.rvs() for p, v in self.param_prior_dists.items()}
-            if tc == 0:
-                params_2 = params_1
-            else:
-                lim = tmp_mdl.models[tc-1].lim
-                if lim == 'positive':
-                    sign = 1
-                elif lim == 'negative':
-                    sign = -1
-                elif lim == 'twosided':
-                    sign = np.sign(np.random.randn())
+            valid = False
+            while not valid:
+                params_1 = {p: v.rvs() for p, v in self.param_prior_dists.items()}
+                if tc == 0:
+                    params_2 = params_1
                 else:
-                    raise ValueError('Limits are not recognized')
+                    lim = tmp_mdl.models[tc-1].lim
+                    if lim == 'positive':
+                        sign = 1
+                    elif lim == 'negative':
+                        sign = -1
+                    elif lim == 'twosided':
+                        sign = np.sign(np.random.randn())
 
-                valid = False
-                while not valid:
                     params_2 = {k: np.abs(v + tmp_mdl.models[tc - 1].vec.get(k, 0) * effect_size * sign)
                             for k, v in params_1.items()}
-                    valid = np.all([self.param_prior_dists[k].pdf(params_2[k]) > 0 for k in params_2.keys()])
+
+                valid = np.all([self.param_prior_dists[k].pdf(params_2[k]) > 0 for k in params_2.keys()])
 
             if has_noise_model:
                 for r in range(n_repeats):
