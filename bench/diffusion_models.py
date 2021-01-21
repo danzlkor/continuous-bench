@@ -44,8 +44,8 @@ prior_distributions = dict(
                   'd_iso': stats.truncnorm(loc=3, scale=.1, a=-3 / .1, b=np.Inf),
                   'd_a_in': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
                   'd_a_ex': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
-                  'tortuosity': stats.uniform(loc=0.1, scale=.8),
-                  'odi': stats.uniform(loc=.1, scale=.8),
+                  'tortuosity': stats.uniform(loc=0.01, scale=.98),
+                  'odi': stats.uniform(loc=.01, scale=.98),
                   },
 
     bingham_noddi={'s_iso': stats.gamma(a=1, scale=1 / 2),
@@ -54,23 +54,22 @@ prior_distributions = dict(
                    'd_iso': stats.truncnorm(loc=3, scale=.1, a=-3 / .1, b=np.Inf),
                    'd_a_in': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
                    'd_a_ex': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
-                   'tortuosity': stats.uniform(loc=0.1, scale=.8),
-                   'odi': stats.uniform(loc=.05, scale=.9),
-                   'odi_ratio': stats.uniform(loc=.1, scale=.8),
-                   # 'psi': stats.uniform(loc=np.pi/2, scale=np.pi/2)
+                   'tortuosity': stats.uniform(loc=0.01, scale=.98),
+                   'odi': stats.uniform(loc=.01, scale=.98),
+                   'odi_ratio': stats.uniform(loc=.01, scale=.98),
                    },
 
     watson_noddi_constrained={'s_iso': stats.gamma(a=1, scale=1 / 2),
                               's_in': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
                               's_ex': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
-                              'odi': stats.uniform(loc=.2, scale=.6),
+                              'odi': stats.uniform(loc=.01, scale=.98),
                               },
 
     bingham_noddi_constrained={'s_iso': stats.gamma(a=1, scale=1 / 2),
                                's_in': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
                                's_ex': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
-                               'odi': stats.uniform(loc=.2, scale=.6),
-                               'odi_ratio': stats.uniform(loc=.1, scale=.8),
+                               'odi': stats.uniform(loc=.01, scale=.98),
+                               'odi_ratio': stats.uniform(loc=.01, scale=.98),
                                },
 )
 
