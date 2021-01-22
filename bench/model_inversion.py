@@ -15,8 +15,9 @@ from progressbar import ProgressBar
 import argparse
 
 
-def log_likelihood(params, model, acq, sph_degree, y, sigma_n):
+def log_likelihood(params, model, acq, sph_degree, y, noise_level):
     expected = np.squeeze(model(acq, sph_degree, 0, **params))
+    sigma_n = summary_measures.shm_cov(expected, acq, sph_degree, noise_level)
     return change_model.log_mvnpdf(mean=expected, cov=sigma_n, x=np.squeeze(y))
 
 
@@ -32,11 +33,11 @@ def log_posterior(params, priors, model, acq, sph_degree, y, sigma_n):
 
 
 def map_fit(model: Callable, acq: acquisition.Acquisition, sph_degree: int,
-            priors: dict, y: np.ndarray, sigma_n: Union[np.ndarray, List]):
+            priors: dict, y: np.ndarray, noise_level):
     x0 = np.array([v.mean() for v in priors.values()])
     bounds = [v.interval(1 - 1e-6) for v in priors.values()]
     p = optimize.minimize(log_posterior,
-                          args=(priors, model, acq, sph_degree, y, sigma_n),
+                          args=(priors, model, acq, sph_degree, y, noise_level),
                           x0=x0,  bounds=bounds, options={'disp': False})
 
     return p.x

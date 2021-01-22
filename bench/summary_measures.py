@@ -58,6 +58,9 @@ def fit_shm(signal, acq, sph_degree):
 
 
 def shm_cov(sum_meas, acq, sph_degree, noise_level):
+    if sum_meas.ndim == 1:
+        sum_meas = sum_meas[np.newaxis, :]
+
     variances = np.zeros_like(sum_meas)
     s_idx = 0
     for shell_idx, this_shell in enumerate(acq.shells):
