@@ -40,7 +40,7 @@ def log_prior(dv, mu, sigma_n, lim):
     if p == 0:
         return -1e6
     if lim == 'twosided':
-        return np.log(p/2)
+        return np.log(p / 2)
     else:
         return np.log(p)
 
@@ -251,7 +251,7 @@ def parse_change_vecs(vec_texts: List[str]):
                 if l not in INTEGRAL_LIMITS:
                     raise ValueError(f'limits should be any of {INTEGRAL_LIMITS} but got {l}.')
         else:
-            this_lims=['twosided']
+            this_lims = ['twosided']
 
         vecs.append(this_vec)
         lims.append(this_lims)
@@ -322,7 +322,7 @@ class Trainer:
     def dict_to_vec(self, dict_: Mapping):
         return np.array([dict_.get(p, 0) for p in self.param_names])
 
-    def train(self, n_samples=1000, poly_degree=2, regularization=1, k=100, dv0=1e-6, model_name=None):
+    def train(self, n_samples=1000, poly_degree=2, regularization=1, k=100, dv0=1e-6, model_name=None, verbose=True):
         """
           Train change models (estimates w_mu and w_l) using forward model simulation
             :param n_samples: number simulated samples to estimate forward model
@@ -337,7 +337,8 @@ class Trainer:
         sample_mu, sample_l = knn_estimation(y_1, dy, k=k)
 
         models = []
-        print('Trained models are:')
+        if verbose:
+            print('Trained models are:')
         for idx, (vec, name, prior, lims) \
                 in enumerate(zip(self.change_vecs, self.vec_names, self.priors, self.lims)):
 
@@ -354,7 +355,8 @@ class Trainer:
                                  lim=l,
                                  name=str(name) + ', ' + l)
                 )
-                print(models[-1].name)
+                if verbose:
+                    print(models[-1].name)
 
         if model_name is None:
             model_name = getattr(self.forward_model, '__name__', None)
@@ -389,7 +391,7 @@ class Trainer:
         :return:
         """
 
-        tmp_mdl = self.train(n_samples=2, k=1, dv0=1e-6)
+        tmp_mdl = self.train(n_samples=2, k=1, dv0=1e-6, verbose=False)
 
         y_1 = np.zeros((n_samples, self.n_dim))
         y_2 = np.zeros((n_samples, self.n_dim))
@@ -413,7 +415,7 @@ class Trainer:
                 if tc == 0:
                     params_2 = params_1
                 else:
-                    lim = tmp_mdl.models[tc-1].lim
+                    lim = tmp_mdl.models[tc - 1].lim
                     if lim == 'positive':
                         sign = 1
                     elif lim == 'negative':
@@ -422,7 +424,7 @@ class Trainer:
                         sign = np.sign(np.random.randn())
 
                     params_2 = {k: np.abs(v + tmp_mdl.models[tc - 1].vec.get(k, 0) * effect_size * sign)
-                            for k, v in params_1.items()}
+                                for k, v in params_1.items()}
 
                 valid = np.all([self.param_prior_dists[k].pdf(params_2[k]) > 0 for k in params_2.keys()])
 

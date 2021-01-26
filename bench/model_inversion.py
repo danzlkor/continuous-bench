@@ -40,7 +40,9 @@ def map_fit_sig(model: Callable, priors: dict, y: np.ndarray, noise_level):
     p = optimize.minimize(log_posterior_sig,
                           args=(priors, model, y, noise_level),
                           x0=x0,  bounds=bounds, options={'disp': False})
-    return p.x
+    h = p.hess_inv.todense()
+    e = np.sqrt(np.diag(h))
+    return p.x, e
 
 
 def log_likelihood_smm(params, model, acq, sph_degree, y, noise_level):
@@ -66,7 +68,7 @@ def map_fit_smm(model: Callable, acq: acquisition.Acquisition, sph_degree: int,
     return p.x
 
 
-def fit_model(diffusion_sig, forward_model_name, bvals, bvecs, sph_degree):
+def fit_model_smm(diffusion_sig, forward_model_name, bvals, bvecs, sph_degree):
     forward_model_name = forward_model_name.lower()
     available_models = list(dm.prior_distributions.keys())
     funcdict = {name: f for (name, f) in dm.__dict__.items() if name in available_models}
@@ -83,8 +85,32 @@ def fit_model(diffusion_sig, forward_model_name, bvals, bvecs, sph_degree):
     pbar = ProgressBar()
     pe = np.zeros((y.shape[0], len(priors)))
     for i in pbar(range(y.shape[0])):
-        pe[i] = map_fit(func, acq, sph_degree, priors, y[i], sigma_n[i])
+        pe[i] = map_fit_smm(func, acq, sph_degree, priors, y[i], sigma_n[i])
 
+    return pe
+
+
+def fit_model_sig(diffusion_sig, noise_level, forward_model_name, bvals, bvecs):
+    forward_model_name = forward_model_name.lower()
+    available_models = list(dm.prior_distributions.keys())
+    funcdict = {name: f for (name, f) in dm.__dict__.items() if name in available_models}
+
+    if forward_model_name in available_models:
+        priors = dm.prior_distributions[forward_model_name]
+
+        def func(acq, **params):
+            return dm.simulate_signal(funcdict[forward_model_name], acq, params)
+
+    else:
+        raise ValueError('Forward model is not available in the library.')
+
+    idx_shells, shells = acquisition.ShellParameters.create_shells(bval=bvals)
+    acq = acquisition.Acquisition(shells, idx_shells, bvecs)
+    pbar = ProgressBar()
+    pe = np.zeros((diffusion_sig.shape[0], len(priors)))
+    std_e = np.zeros((diffusion_sig.shape[0], len(priors)))
+    for i in pbar(range(diffusion_sig.shape[0])):
+        pe[i], std_e[i] = map_fit_sig(func, acq, priors, diffusion_sig[i], noise_level)
     return pe
 
 
@@ -188,7 +214,7 @@ def single_sub_fit(subj_idx, diff_add, xfm_add, bvec_add, bval_add, mask_add, md
     def_field = f"{def_field_dir}/{subj_idx}.nii.gz"
     data, valid_vox = summary_measures.sample_from_native_space(diff_add, xfm_add, mask_add, def_field)
     data = data / 1000
-    params = fit_model(data, mdl_name, bvals, bvecs, sph_degree=4)
+    params = fit_model_smm(data, mdl_name, bvals, bvecs, sph_degree=4)
     print(f'subject {subj_idx} parameters estimated.')
 
     # write down [pes, vpes] to 4d files
