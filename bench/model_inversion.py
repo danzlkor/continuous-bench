@@ -15,28 +15,51 @@ from progressbar import ProgressBar
 import argparse
 
 
-def log_likelihood(params, model, acq, sph_degree, y, noise_level):
-    expected = np.squeeze(model(acq, sph_degree, 0, **params))
-    sigma_n = summary_measures.shm_cov(expected, acq, sph_degree, noise_level)
-    return change_model.log_mvnpdf(mean=expected, cov=sigma_n, x=np.squeeze(y))
-
-
 def log_prior(params, priors):
     return np.sum([np.log(priors[k].pdf(params[k]))
                    for k in params.keys()])
 
 
-def log_posterior(params, priors, model, acq, sph_degree, y, sigma_n):
+def log_likelihood_sig(params, model, y, noise_level):
+    expected = np.squeeze(model(params))
+    d = expected.shape[0]
+    expo = -0.5 * np.linalg.norm((y - expected)/noise_level) ** 2
+    nc = -0.5 * d * np.log((2 * np.pi * noise_level ** 2))
+    return expo + nc
+
+
+def log_posterior_sig(params, priors, model, y, noise_level):
     param_dict = {k: v for k, v in zip(priors.keys(), params)}
-    return -(log_likelihood(param_dict, model, acq, sph_degree, y, sigma_n)
+    return -(log_likelihood_sig(param_dict, model, y, noise_level)
              + log_prior(param_dict, priors))
 
 
-def map_fit(model: Callable, acq: acquisition.Acquisition, sph_degree: int,
+def map_fit_sig(model: Callable, priors: dict, y: np.ndarray, noise_level):
+    x0 = np.array([v.mean() for v in priors.values()])
+    bounds = [v.interval(1 - 1e-6) for v in priors.values()]
+    p = optimize.minimize(log_posterior_sig,
+                          args=(priors, model, y, noise_level),
+                          x0=x0,  bounds=bounds, options={'disp': False})
+    return p.x
+
+
+def log_likelihood_smm(params, model, acq, sph_degree, y, noise_level):
+    expected = np.squeeze(model(acq, sph_degree, 0, **params))
+    sigma_n = summary_measures.shm_cov(expected, acq, sph_degree, noise_level)
+    return change_model.log_mvnpdf(mean=expected, cov=sigma_n, x=np.squeeze(y))
+
+
+def log_posterior_smm(params, priors, model, acq, sph_degree, y, sigma_n):
+    param_dict = {k: v for k, v in zip(priors.keys(), params)}
+    return -(log_likelihood_smm(param_dict, model, acq, sph_degree, y, sigma_n)
+             + log_prior(param_dict, priors))
+
+
+def map_fit_smm(model: Callable, acq: acquisition.Acquisition, sph_degree: int,
             priors: dict, y: np.ndarray, noise_level):
     x0 = np.array([v.mean() for v in priors.values()])
     bounds = [v.interval(1 - 1e-6) for v in priors.values()]
-    p = optimize.minimize(log_posterior,
+    p = optimize.minimize(log_posterior_smm,
                           args=(priors, model, acq, sph_degree, y, noise_level),
                           x0=x0,  bounds=bounds, options={'disp': False})
 

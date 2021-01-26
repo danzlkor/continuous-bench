@@ -310,8 +310,8 @@ def bingham_noddi(bval=0, bvec=np.array([0, 0, 1]),
     :param odi: dispersion parameter of bingham distribution
     :param odi_ratio: ratio for dispersion parameter of bingham distribution
     :param psi: fanning orientation
-    :param theta: orientation of stick from z axis
-    :param phi: orientation of stick from x axis
+    :param theta: orientation angle of stick from z axis
+    :param phi: orientation angle of stick from x axis
     :param s0: attenuation for b=0
     :return: (M,) diffusion signal
         """
@@ -328,7 +328,7 @@ def bingham_noddi(bval=0, bvec=np.array([0, 0, 1]),
     return (a_iso + a_int + a_ext) * s0
 
 
-def watson_noddi_constrained(bval, bvec, s_iso, s_int, s_ext, odi, s0=1.):
+def watson_noddi_constrained(bval, bvec, s_iso, s_int, s_ext, odi, theta=0., phi=0., psi=0., s0=1.):
     # fixed parameters:
     d_iso = 3
     dax_int = 1.7
@@ -338,11 +338,12 @@ def watson_noddi_constrained(bval, bvec, s_iso, s_int, s_ext, odi, s0=1.):
     signal = watson_noddi(bval=bval, bvec=bvec,
                           s_iso=s_iso, s_in=s_int, s_ex=s_ext,
                           d_iso=d_iso, d_a_in=dax_int, d_a_ex=dax_ext,
-                          tortuosity=tortuosity, odi=odi, s0=s0)
+                          tortuosity=tortuosity, odi=odi, s0=s0,
+                          theta=theta, phi=phi, psi=psi)
     return signal
 
 
-def bingham_noddi_constrained(bval, bvec, s_iso, s_in, s_ex, odi, odi_ratio, s0=1.):
+def bingham_noddi_constrained(bval, bvec, s_iso, s_in, s_ex, odi, odi_ratio, theta=0., phi=0., psi=0., s0=1.):
     # fixed parameters:
     d_iso = 3
     d_a_in = 1.7
@@ -352,7 +353,8 @@ def bingham_noddi_constrained(bval, bvec, s_iso, s_in, s_ex, odi, odi_ratio, s0=
     signal = bingham_noddi(bval=bval, bvec=bvec,
                            s_iso=s_iso, s_in=s_in, s_ex=s_ex,
                            d_iso=d_iso, d_a_in=d_a_in, d_a_ex=d_a_ex,
-                           tortuosity=tortuosity, odi=odi, odi_ratio=odi_ratio, s0=s0)
+                           tortuosity=tortuosity, odi=odi, odi_ratio=odi_ratio, s0=s0,
+                           theta=theta, phi=phi, psi=psi)
     return signal
 
 
