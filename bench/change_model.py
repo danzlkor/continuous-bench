@@ -391,7 +391,7 @@ class Trainer:
         :return:
         """
 
-        tmp_mdl = self.train(n_samples=2, k=1, dv0=1e-6, verbose=False)
+        tmp_mdl = self.train(n_samples=1, k=1, dv0=1e-6, verbose=False)
 
         y_1 = np.zeros((n_samples, self.n_dim))
         y_2 = np.zeros((n_samples, self.n_dim))
@@ -563,3 +563,20 @@ def performance_measures(posteriors, true_change, set_names):
     true_posteriors = np.nanmean(posteriors[np.arange(len(true_change_idx)), true_change_idx])
 
     return accuracy, true_posteriors
+
+
+def plot_conf_mat(conf_mat, param_names, f_name=None):
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
+    sets = ['[]'] + param_names
+    plt.figure(figsize=(8, 7))
+    ax = sns.heatmap(conf_mat.T, annot=True, fmt="2.2f")
+    plt.tight_layout()
+    ax.set_xticklabels(labels=sets, rotation=45, fontdict={'size': 12})
+    ax.set_yticklabels(labels=sets, rotation=45, fontdict={'size': 12})
+    ax.set_xlabel('Actual change', fontdict={'size': 16})
+    ax.set_ylabel('Predicted Change', fontdict={'size': 16})
+    if f_name is not None:
+        plt.savefig(f_name, bbox_inches='tight')
+    plt.show()
