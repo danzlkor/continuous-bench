@@ -40,9 +40,10 @@ def map_fit_sig(model: Callable, priors: dict, y: np.ndarray, noise_level):
     p = optimize.minimize(log_posterior_sig,
                           args=(priors, model, y, noise_level),
                           x0=x0,  bounds=bounds, options={'disp': False})
-    h1 = p.hess_inv.todense()
-    h = hessian(log_posterior_sig, p.x)
-    std = np.sqrt(np.diag(h))
+
+    f = lambda p: log_posterior_sig(p, priors, model, y, noise_level)
+    h = hessian(f, p.x)
+    std = 1/np.sqrt(np.diag(h))
     return p.x, std
 
 
