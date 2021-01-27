@@ -41,8 +41,8 @@ def map_fit_sig(model: Callable, priors: dict, y: np.ndarray, noise_level):
                           args=(priors, model, y, noise_level),
                           x0=x0,  bounds=bounds, options={'disp': False})
     h = p.hess_inv.todense()
-    e = np.sqrt(np.diag(h))
-    return p.x, e
+    std = np.sqrt(np.diag(h))
+    return p.x, std
 
 
 def log_likelihood_smm(params, model, acq, sph_degree, y, noise_level):
