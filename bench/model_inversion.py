@@ -86,7 +86,11 @@ def map_fit_smm(model: Callable, acq: acquisition.Acquisition, sph_degree: int,
                           args=(priors, model, acq, sph_degree, y, noise_level),
                           x0=x0,  bounds=bounds, options={'disp': False})
 
-    return p.x
+    f = lambda p: log_posterior_smm(p, priors, model, acq, sph_degree, y, noise_level)
+    h = hessian(f, p.x)
+    std = 1 / np.sqrt(np.diag(h))
+
+    return p.x, std
 
 
 def fit_model_smm(diffusion_sig, forward_model_name, bvals, bvecs, sph_degree):

@@ -571,7 +571,8 @@ def plot_conf_mat(conf_mat, param_names, f_name=None):
 
     sets = ['[]'] + param_names
     plt.figure(figsize=(8, 7))
-    ax = sns.heatmap(conf_mat.T, annot=True, fmt="2.2f")
+    ax = sns.heatmap(conf_mat.T, annot=True, fmt="2.2f", vmin=0, vmax=1)
+
     plt.tight_layout()
     ax.set_xticklabels(labels=sets, rotation=45, fontdict={'size': 12})
     ax.set_yticklabels(labels=sets, rotation=45, fontdict={'size': 12})
