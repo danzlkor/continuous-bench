@@ -49,9 +49,9 @@ def celeb_gord_summary(shm):
 def celeb_gord_grad(shm, y_inv):
     r = np.zeros((*shm.shape[:-1], y_inv.shape[0]))
     for idx, c in zip(celeb_gord_idx, celeb_gord_coef):
-        d1 = (shm[:, idx[1]] * shm[:, idx[2]] * c)[:, np.newaxis] @ y_inv[:, idx[0]].T[np.newaxis, :]
-        d2 = (shm[:, idx[0]] * shm[:, idx[2]] * c)[:, np.newaxis] @ y_inv[:, idx[1]].T[np.newaxis, :]
-        d3 = (shm[:, idx[0]] * shm[:, idx[1]] * c)[:, np.newaxis] @ y_inv[:, idx[2]].T[np.newaxis, :]
+        d1 = (shm[..., idx[1]] * shm[..., idx[2]] * c)[..., np.newaxis] @ y_inv[:, idx[0]].T[np.newaxis, :]
+        d2 = (shm[..., idx[0]] * shm[..., idx[2]] * c)[..., np.newaxis] @ y_inv[:, idx[1]].T[np.newaxis, :]
+        d3 = (shm[..., idx[0]] * shm[..., idx[1]] * c)[..., np.newaxis] @ y_inv[:, idx[2]].T[np.newaxis, :]
         r += d1 + d2 + d3
     return r
 
@@ -109,8 +109,8 @@ def shm_cov(sum_meas, signal, acq, sph_degree, noise_level):
 
             y_inv = np.linalg.pinv(y).T
             coeffs = signal[:, acq.idx_shells == shell_idx] @ y_inv
-            grad = celeb_gord_grad(coeffs[:, l == 2], y_inv[:, l == 2])
-            variances[:, s_idx] = (grad * grad).sum(axis=1) * (noise_level ** 2)
+            grad = celeb_gord_grad(coeffs[..., l == 2], y_inv[:, l == 2])
+            variances[:, s_idx] = (grad * grad).sum(axis=-1) * (noise_level ** 2)
             s_idx += 1
 
     sigma_n = np.array([np.diag(v) for v in variances])
