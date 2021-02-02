@@ -1,5 +1,5 @@
 """
-This module contains functions to fit spherical harmonics to diffusion data.
+This module contains functions for fitting spherical harmonics to diffusion data.
 """
 
 from fsl.transform import fnirt
@@ -16,10 +16,15 @@ from bench.acquisition import Acquisition, ShellParameters
 
 
 def summary_names(acq, sph_degree):
-    return [f"b{sh.bval:1.1f}_l{degree}"
-            for sh in acq.shells
-            for degree in np.arange(0, sph_degree+1 , 2)
-            if degree <= sh.lmax]
+    names = []
+    for sh in acq.shells:
+        for degree in np.arange(0, sph_degree + 1, 2):
+            if degree <= sh.lmax:
+                names.append(f"b{sh.bval:1.1f}_l{degree}")
+        if sh.lmax > 0:
+            names.append(f"b{sh.bval:1.1f}_l2_cg")
+
+    return names
 
 
 def normalized_shms(bvecs, lmax):
@@ -27,6 +32,28 @@ def normalized_shms(bvecs, lmax):
     y, m, l = real_sym_sh_basis(lmax, theta, phi)
     y = y / y[0, 0]  # normalization is required to make the first summary measure represent mean signal
     return y, l
+
+
+def celeb_gord_summary(shm):
+    """
+    computes celebch-gordon summary measures for 2nd degree spherical harmonics coefficients
+    :param shm: coefficients of spherical harmonics for degree 2
+    :return:
+    """
+    r = np.zeros(shm.shape[:-1])
+    for idx, c in zip(celeb_gord_idx, celeb_gord_coef):
+        r += shm[:, idx[0]] * shm[:, idx[1]] * shm[:, idx[2]] * c
+    return r
+
+
+def celeb_gord_grad(shm, y_inv):
+    r = np.zeros((*shm.shape[:-1], y_inv.shape[0]))
+    for idx, c in zip(celeb_gord_idx, celeb_gord_coef):
+        d1 = y_inv[:, idx[0]].T * shm[:, idx[1]] * shm[:, idx[2]] * c
+        d2 = shm[:, idx[0]] * y_inv[:, idx[1]].T * shm[:, idx[2]] * c
+        d3 = shm[:, idx[0]] * shm[:, idx[1]] * y_inv[:, idx[2]] * c
+        r += d1 + d2 + d3
+    return r
 
 
 def fit_shm(signal, acq, sph_degree):
@@ -46,18 +73,21 @@ def fit_shm(signal, acq, sph_degree):
         bvecs = acq.bvecs[dir_idx]
         shell_signal = signal[..., dir_idx]
         y, l = normalized_shms(bvecs, this_shell.lmax)
-        coeffs = shell_signal.dot(np.linalg.pinv(y.T))
+        y_inv = np.linalg.pinv(y.T)
+        coeffs = shell_signal @ y_inv
 
-        sum_meas.append(coeffs[..., l == 0].mean(axis=-1))
+        sum_meas.append(shell_signal.mean(axis=-1))
         if this_shell.lmax > 0:
             for degree in np.arange(2, sph_degree + 1, 2):
                 sum_meas.append(np.power(coeffs[..., l == degree], 2).mean(axis=-1))
+
+            #sum_meas.append(celeb_gord_summary(coeffs[..., l == 2]))
 
     sum_meas = np.array(sum_meas).T
     return sum_meas
 
 
-def shm_cov(sum_meas, acq, sph_degree, noise_level):
+def shm_cov(sum_meas, signal, acq, sph_degree, noise_level):
     if sum_meas.ndim == 1:
         sum_meas = sum_meas[np.newaxis, :]
 
@@ -65,15 +95,20 @@ def shm_cov(sum_meas, acq, sph_degree, noise_level):
     s_idx = 0
     for shell_idx, this_shell in enumerate(acq.shells):
         ng = np.sum(acq.idx_shells == shell_idx)
-        variances[:, s_idx] = 1/ng * (noise_level ** 2)
+        variances[:, s_idx] = 1 / ng * (noise_level ** 2)
         s_idx += 1
         if this_shell.lmax > 0:
-            y, _ = normalized_shms(acq.bvecs[acq.idx_shells == shell_idx], this_shell.lmax)
+            y, l = normalized_shms(acq.bvecs[acq.idx_shells == shell_idx], this_shell.lmax)
             c = y[0].T @ y[0]
-            for l in np.arange(2, sph_degree + 1, 2):
+            for degree in np.arange(2, sph_degree + 1, 2):
                 f = (noise_level ** 2) / c
-                variances[:, s_idx] = 2 * f * (2 * sum_meas[:, s_idx] + f) / (2 * l + 1)
+                variances[:, s_idx] = f * (2 * sum_meas[:, s_idx] + f) / (2 * degree + 1)
                 s_idx += 1
+            # y_inv = np.linalg.pinv(y).T
+            # coeffs = signal[acq.idx_shells == shell_idx] @ y_inv
+            # grad = celeb_gord_grad(coeffs[l == 2][np.newaxis, :], y_inv[:, l == 2])
+            # variances[:, s_idx] = grad @ grad.T * (noise_level ** 2)
+            # s_idx += 1
 
     sigma_n = np.array([np.diag(v) for v in variances])
     return sigma_n
@@ -210,28 +245,28 @@ def read_summary_images(summary_dir: str, mask: str, normalize=True):
     if invalid_voxs.sum() > 0:
         warn(f'{invalid_voxs.sum()} voxels are excluded since they were '
              f'outside of the image in at least one subject.')
-    summary_names = np.load(f'{summary_dir}/summary_names.npy')
+    names = np.load(f'{summary_dir}/summary_names.npy')
     if normalize:
-        all_summaries = normalize_summaries(all_summaries, summary_names)
+        all_summaries = normalize_summaries(all_summaries, names)
 
     return all_summaries, invalid_voxs
 
 
-def normalize_summaries(summaries, summary_names):
+def normalize_summaries(summaries, names):
     """
     Normalises summary measures for all subjects. (divide by average attenuation)
-    :param summary_names: name of summaries, needed for knowing how to normalize
+    :param names: name of summaries, needed for knowing how to normalize
     :param summaries: array of summaries for all subjects
     :return: normalised summaries
     """
-    if not len(summary_names) == summaries.shape[2]:
+    if not len(names) == summaries.shape[2]:
         raise ValueError(f'Number of summary measurements doesnt match with the trained model.'
-                         f'\n Expected {len(summary_names)} measures but got {summaries.shape[2]}.')
+                         f'\n Expected {len(names)} measures but got {summaries.shape[2]}.')
 
-    b0_idx = [i for i, (b, _) in enumerate(summary_names) if b == 0]
+    b0_idx = [i for i, (b, _) in enumerate(names) if b == 0]
     mean_b0 = np.nanmean(summaries[:, :, b0_idx], axis=0)
     summaries_norm = np.zeros_like(summaries)
-    for smm_idx, (_, l) in enumerate(summary_names):
+    for smm_idx, (_, l) in enumerate(names):
         data = summaries[:, :, smm_idx]
         if l == 'l0':
             data = data / mean_b0.T
@@ -318,3 +353,29 @@ def from_cmd(args):
 
 if __name__ == '__main__':
     from_cmd(sys.argv)
+
+sqrt = np.sqrt
+celeb_gord_mat = np.array([(-2, 0, -2, sqrt(14) / 7),
+                           (-2, 1, -1, sqrt(21) / 7),
+                           (-2, 2, 0, sqrt(14) / 7),
+                           (-1, -1, -2, -sqrt(21) / 7),
+                           (-1, 0, -1, -sqrt(14) / 14),
+                           (-1, 1, 0, sqrt(14) / 14),
+                           (-1, 2, 1, sqrt(21) / 7),
+                           (0, -2, -2, sqrt(14) / 7),
+                           (0, -1, -1, -sqrt(14) / 14),
+                           (0, 0, 0, -sqrt(14) / 7),
+                           (0, 1, 1, -sqrt(14) / 14),
+                           (0, 2, 2, sqrt(14) / 7),
+                           (1, -2, -1, sqrt(21) / 7),
+                           (1, -1, 0, sqrt(14) / 14),
+                           (1, 0, 1, -sqrt(14) / 14),
+                           (1, 1, 2, -sqrt(21) / 7),
+                           (2, -2, 0, sqrt(14) / 7),
+                           (2, -1, 1, sqrt(21) / 7),
+                           (2, 0, 2, sqrt(14) / 7)])
+
+celeb_gord_idx = celeb_gord_mat[:, :-1].astype(int) + 2
+celeb_gord_coef = celeb_gord_mat[:, -1]
+
+

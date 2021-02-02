@@ -38,7 +38,7 @@ prior_distributions = dict(
                 'd_a': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
                 },
 
-    watson_noddi={'s_iso': stats.gamma(a=1, scale=1 / 2),
+    watson_noddi={'s_iso': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
                   's_in': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
                   's_ex': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
                   'd_iso': stats.truncnorm(loc=3, scale=.1, a=-3 / .1, b=np.Inf),
@@ -48,7 +48,7 @@ prior_distributions = dict(
                   'odi': stats.uniform(loc=.01, scale=.98),
                   },
 
-    bingham_noddi={'s_iso': stats.gamma(a=1, scale=1 / 2),
+    bingham_noddi={'s_iso': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
                    's_in': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
                    's_ex': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
                    'd_iso': stats.truncnorm(loc=3, scale=.1, a=-3 / .1, b=np.Inf),
@@ -59,13 +59,13 @@ prior_distributions = dict(
                    'odi_ratio': stats.uniform(loc=.01, scale=.98),
                    },
 
-    watson_noddi_constrained={'s_iso': stats.gamma(a=1, scale=1 / 2),
+    watson_noddi_constrained={'s_iso': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
                               's_in': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
                               's_ex': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
                               'odi': stats.uniform(loc=.01, scale=.98),
                               },
 
-    bingham_noddi_constrained={'s_iso': stats.gamma(a=1, scale=1 / 2),
+    bingham_noddi_constrained={'s_iso': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
                                's_in': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
                                's_ex': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
                                'odi': stats.uniform(loc=.01, scale=.98),
@@ -328,18 +328,18 @@ def bingham_noddi(bval=0, bvec=np.array([0, 0, 1]),
     return (a_iso + a_int + a_ext) * s0
 
 
-def watson_noddi_constrained(bval, bvec, s_iso, s_int, s_ext, odi, theta=0., phi=0., psi=0., s0=1.):
+def watson_noddi_constrained(bval, bvec, s_iso, s_in, s_ex, odi, theta=0., phi=0., psi=0., s0=1.):
     # fixed parameters:
     d_iso = 3
     dax_int = 1.7
     dax_ext = 1.7
-    tortuosity = s_int / (s_int + s_ext)
+    tortuosity = s_in / (s_in + s_ex)
 
     signal = watson_noddi(bval=bval, bvec=bvec,
-                          s_iso=s_iso, s_in=s_int, s_ex=s_ext,
+                          s_iso=s_iso, s_in=s_in, s_ex=s_ex,
                           d_iso=d_iso, d_a_in=dax_int, d_a_ex=dax_ext,
                           tortuosity=tortuosity, odi=odi, s0=s0,
-                          theta=theta, phi=phi, psi=psi)
+                          theta=theta, phi=phi)
     return signal
 
 

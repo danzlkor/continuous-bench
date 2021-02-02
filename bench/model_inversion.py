@@ -67,9 +67,8 @@ def hessian(f, p, dp=1e-6):
 
 
 def log_likelihood_smm(params, model, acq, sph_degree, y, noise_level):
-    expected = np.squeeze(model(acq, sph_degree, 0, **params))
-    sigma_n = summary_measures.shm_cov(expected, acq, sph_degree, noise_level)
-    return change_model.log_mvnpdf(mean=expected, cov=sigma_n, x=np.squeeze(y))
+    expected, sigma_n = model(acq, sph_degree, noise_level, **params)
+    return change_model.log_mvnpdf(mean=np.squeeze(expected), cov=np.squeeze(sigma_n), x=np.squeeze(y))
 
 
 def log_posterior_smm(params, priors, model, acq, sph_degree, y, sigma_n):
@@ -106,7 +105,7 @@ def fit_model_smm(diffusion_sig, forward_model_name, bvals, bvecs, sph_degree):
 
     idx_shells, shells = acquisition.ShellParameters.create_shells(bval=bvals)
     acq = acquisition.Acquisition(shells, idx_shells, bvecs)
-    y, sigma_n = summary_measures.fit_shm(diffusion_sig, acq, sph_degree, esitmate_cov=True)
+    y, sigma_n = summary_measures.fit_shm(diffusion_sig, acq, sph_degree)
     pbar = ProgressBar()
     pe = np.zeros((y.shape[0], len(priors)))
     for i in pbar(range(y.shape[0])):
