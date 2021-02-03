@@ -64,6 +64,9 @@ def parse_args(argv):
     train_optional.add_argument("-d", default=4, type=int, help="spherical harmonics degree", required=False)
     train_optional.add_argument("--alpha", default=0.5, type=float, help="regularization weight", required=False)
     train_optional.add_argument("--change-vecs", help="vectors of change", default=None, required=False)
+    train_optional.add_argument("--summary", default='shm', type=str,
+                                help='type of summary measurements. Either shm (spherical harmonic model)'
+                                     ' or dtm (diffusion tensor model)', required=False)
 
     # fit summary arguments:
     diff_summary_parser.add_argument("--mask",
@@ -121,13 +124,16 @@ def submit_train(args):
         *diffusion_models.uniform_sampling_sphere(len(idx_shells)))).T
 
     acq = acquisition.Acquisition(shells, idx_shells, bvecs)
-    func_args = {'acq': acq, 'sph_degree': args.d, 'noise_level': 0}
+    func_args = {'acq': acq, 'noise_level': 0}
+    if args.summary == 'shm':
+        func_args['sph_degree'] = args.d
+
     if args.change_vecs is not None:
         with open(args.change_vecs, 'r') as reader:
             args.change_vecs = [line.rstrip() for line in reader]
 
     trainer = change_model.Trainer(
-        forward_model=diffusion_models.bench_decorator(forward_model),
+        forward_model=diffusion_models.bench_decorator(forward_model, summary_type=args.summary),
         args=func_args,
         change_vecs=args.change_vecs,
         param_prior_dists=param_dist)

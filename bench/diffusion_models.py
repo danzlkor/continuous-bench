@@ -5,7 +5,7 @@ This module contains definition of some microstructural diffusion models and a p
 import numpy as np
 from scipy import stats
 import numba
-from bench import summary_measures
+from bench import summary_measures, dtm
 
 # prior distributions:
 
@@ -567,12 +567,20 @@ def simulate_signal(model, acq, params):
     return signal
 
 
-def bench_decorator(model):
-    def func(acq, sph_degree, noise_level, **params):
-        sig = simulate_signal(model, acq, params)
-        noise = np.random.randn(*sig.shape) * noise_level
-        sm = summary_measures.fit_shm(sig + noise, acq, sph_degree=sph_degree)
-        return sm
+def bench_decorator(model, summary_type='shm'):
+    if summary_type == 'shm':
+        def func(acq, sph_degree, noise_level, **params):
+            sig = simulate_signal(model, acq, params)
+            noise = np.random.randn(*sig.shape) * noise_level
+            sm = summary_measures.fit_shm(sig + noise, acq, sph_degree=sph_degree)
+            return sm
+
+    elif summary_type == 'dtm':
+        def func(acq, noise_level, **params):
+            sig = simulate_signal(model, acq, params)
+            noise = np.random.randn(*sig.shape) * noise_level
+            sm = dtm.fit_dtm(sig + noise, acq)
+            return sm
 
     func.__name__ = model.__name__
     return func
