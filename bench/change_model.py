@@ -565,7 +565,7 @@ def performance_measures(posteriors, true_change, set_names):
     return accuracy, true_posteriors
 
 
-def plot_conf_mat(conf_mat, param_names, f_name=None):
+def plot_conf_mat(conf_mat, param_names, f_name=None, title=None):
     import matplotlib.pyplot as plt
     import seaborn as sns
 
@@ -578,6 +578,8 @@ def plot_conf_mat(conf_mat, param_names, f_name=None):
     ax.set_yticklabels(labels=sets, rotation=45, fontdict={'size': 12})
     ax.set_xlabel('Actual change', fontdict={'size': 16})
     ax.set_ylabel('Predicted Change', fontdict={'size': 16})
+    if title is not None:
+        plt.title(title)
     if f_name is not None:
         plt.savefig(f_name, bbox_inches='tight')
     plt.show()
