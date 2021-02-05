@@ -17,6 +17,7 @@ from scipy.optimize import minimize_scalar, root_scalar
 import warnings
 import inspect
 import pickle
+from joblib import Parallel, delayed
 
 BOUNDS = {'negative': (-np.inf, 0), 'positive': (0, np.inf), 'twosided': (-np.inf, np.inf)}
 INTEGRAL_LIMITS = list(BOUNDS.keys())
@@ -151,19 +152,20 @@ class ChangeModel:
 
         n_samples, n_dim = y.shape
         n_models = len(self.models) + 1
-        log_prob = np.zeros((n_samples, n_models))
-        peaks = np.zeros((n_samples, n_models))
-        pbar = ProgressBar()
 
-        for sam_idx in pbar(range(n_samples)):
+        def func(sam_idx):
+
+            log_prob = np.zeros(n_models)
+            peaks = np.zeros(n_models)
+
             y_s = y[sam_idx].T
             dy_s = delta_y[sam_idx]
             sigma_n_s = sigma_n[sam_idx]
 
             if np.isnan(y_s).any() or np.isnan(dy_s).any() or np.isnan(sigma_n_s).any():
-                log_prob[sam_idx, :] = np.zeros(n_models)
+                log_prob = np.zeros(n_models)
             else:
-                log_prob[sam_idx, 0] = log_mvnpdf(x=dy_s, mean=np.zeros(n_dim), cov=sigma_n_s)
+                log_prob[0] = log_mvnpdf(x=dy_s, mean=np.zeros(n_dim), cov=sigma_n_s)
 
                 for vec_idx, ch_mdl in enumerate(self.models, 1):
                     try:
@@ -172,15 +174,23 @@ class ChangeModel:
                         peak, low, high = find_range(log_post_pdf, ch_mdl.lim)
                         post_pdf = lambda dv: np.exp(log_post_pdf(dv))
                         integral = quad(post_pdf, low, high, epsrel=1e-3)[0]
-                        log_prob[sam_idx, vec_idx] = np.log(integral) if integral > 0 else -np.inf
-                        peaks[sam_idx, vec_idx] = peak
+                        log_prob[vec_idx] = np.log(integral) if integral > 0 else -np.inf
+                        peaks[vec_idx] = peak
                     except np.linalg.LinAlgError as err:
                         if 'Singular matrix' in str(err):
-                            log_prob[sam_idx, vec_idx] = -1e3
+                            log_prob[vec_idx] = -1e3
                             warnings.warn(f'noise covariance is singular for sample {sam_idx}'
                                           f'with variances {np.diag(sigma_n_s)}')
                         else:
                             raise
+
+            return log_prob, peaks
+
+        res = Parallel(n_jobs=-1, verbose=True)(delayed(func)(i) for i in range(n_samples))
+        # res = [func(i) for i in range(n_samples)]
+
+        log_prob = np.array([d[0] for d in res])
+        peaks = np.array([d[1] for d in res])
 
         return log_prob, peaks
 
@@ -391,23 +401,22 @@ class Trainer:
         :return:
         """
 
-        tmp_mdl = self.train(n_samples=1, k=1, dv0=1e-6, verbose=False)
+        models = []
+        for idx, (vec, name, prior, lims) \
+                in enumerate(zip(self.change_vecs, self.vec_names, self.priors, self.lims)):
+            for l in lims:
+                models.append(ChangeVector(vec=vec, mu_mdl=None, l_mdl=None,
+                                           prior=prior, lim=l, name=str(name) + ', ' + l))
 
-        y_1 = np.zeros((n_samples, self.n_dim))
-        y_2 = np.zeros((n_samples, self.n_dim))
-        sigma_n = np.zeros((n_samples, self.n_dim, self.n_dim))
-        true_change = np.random.randint(0, len(tmp_mdl.models) + 1, n_samples)
-
+        true_change = np.random.randint(0, len(models) + 1, n_samples)
         args = self.args.copy()
         has_noise_model = 'noise_level' in inspect.getfullargspec(self.forward_model).args
         if has_noise_model:
             args['noise_level'] = noise_level
-            y_1_r = np.zeros((n_repeats, self.n_dim))
-            y_2_r = np.zeros_like(y_1_r)
 
         print(f'Generating {n_samples} test samples:')
-        pbar = ProgressBar()
-        for s_idx in pbar(range(n_samples)):
+
+        def generator_func(s_idx):
             tc = true_change[s_idx]
             valid = False
             while not valid:
@@ -415,31 +424,33 @@ class Trainer:
                 if tc == 0:
                     params_2 = params_1
                 else:
-                    lim = tmp_mdl.models[tc - 1].lim
-                    if lim == 'positive':
-                        sign = 1
-                    elif lim == 'negative':
-                        sign = -1
-                    elif lim == 'twosided':
-                        sign = np.sign(np.random.randn())
-
-                    params_2 = {k: np.abs(v + tmp_mdl.models[tc - 1].vec.get(k, 0) * effect_size * sign)
+                    lim = models[tc - 1].lim
+                    sign = {'positive': 1, 'negative':-1, 'twosided':np.sign(np.random.randn())}[lim]
+                    params_2 = {k: np.abs(v + models[tc - 1].vec.get(k, 0) * effect_size * sign)
                                 for k, v in params_1.items()}
 
                 valid = np.all([self.param_prior_dists[k].pdf(params_2[k]) > 0 for k in params_2.keys()])
 
             if has_noise_model:
+                y_1_r = np.zeros((n_repeats, self.n_dim))
+                y_2_r = np.zeros_like(y_1_r)
                 for r in range(n_repeats):
                     y_1_r[r] = self.forward_model(**args, **params_1)
                     y_2_r[r] = self.forward_model(**args, **params_2)
-                y_1[s_idx] = y_1_r[0]  # a random sample.
-                y_2[s_idx] = y_2_r[0]
-                sigma_n[s_idx] = np.cov((y_2_r - y_1_r).T)
+                y_1_ = y_1_r[0]  # a random sample.
+                y_2_ = y_2_r[0]
+                sigma_n_ = np.cov((y_2_r - y_1_r).T)
             else:
-                y_1[s_idx] = self.forward_model(**args, **params_1) + np.random.randn(self.n_dim) * noise_level
-                y_2[s_idx] = self.forward_model(**args, **params_2) + np.random.randn(self.n_dim) * noise_level
-                sigma_n[s_idx] = np.eye(self.n_dim) * noise_level ** 2
+                y_1_ = self.forward_model(**args, **params_1) + np.random.randn(self.n_dim) * noise_level
+                y_2_ = self.forward_model(**args, **params_2) + np.random.randn(self.n_dim) * noise_level
+                sigma_n_ = noise_level ** 2
+            return y_1_, y_2_, sigma_n_
 
+        data = Parallel(n_jobs=-1, verbose=True)(delayed(generator_func)(i) for i in range(n_samples))
+
+        y_1 = np.array([d[0] for d in data])
+        y_2 = np.array([d[1] for d in data])
+        sigma_n = np.array([d[2] for d in data])
         return true_change, y_1, y_2, sigma_n
 
 
