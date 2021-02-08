@@ -4,7 +4,7 @@ This module contains classes and functions to train a change model and make infe
 
 import numpy as np
 from scipy.spatial import KDTree
-from scipy.stats import rv_continuous, gamma
+from scipy.stats import rv_continuous, gamma, norm
 from typing import Callable, List, Any, Union, Sequence, Mapping
 from progressbar import ProgressBar
 from dataclasses import dataclass
@@ -36,10 +36,10 @@ def log_prior(dv, mu, sigma_n, lim):
         dv = np.abs(dv)
 
     scale = 3 * np.sqrt(mu @ sigma_n @ mu.T) / (np.linalg.norm(mu) ** 2)
-    p = gamma(a=1, scale=scale).pdf(x=dv)
+    p = gamma(a=1, scale=scale).pdf(x=dv)  # norm(scale=0.1, loc=0).pdf(x=dv)  #
 
     if p == 0:
-        return -1e6
+        return -1e14
     if lim == 'twosided':
         return np.log(p / 2)
     else:
@@ -154,7 +154,6 @@ class ChangeModel:
         n_models = len(self.models) + 1
 
         def func(sam_idx):
-
             log_prob = np.zeros(n_models)
             peaks = np.zeros(n_models)
 
@@ -187,7 +186,10 @@ class ChangeModel:
             return log_prob, peaks
 
         res = Parallel(n_jobs=-1, verbose=True)(delayed(func)(i) for i in range(n_samples))
-        # res = [func(i) for i in range(n_samples)]
+        # pbar = ProgressBar()
+        # res = []
+        # for i in pbar(range(n_samples)):
+        #     res.append(func(i))
 
         log_prob = np.array([d[0] for d in res])
         peaks = np.array([d[1] for d in res])
@@ -374,21 +376,29 @@ class Trainer:
         return ChangeModel(models=models, model_name=model_name)
 
     def generate_train_samples(self, n_samples: int, dv0: float) -> tuple:
-        y_1 = np.zeros((n_samples, self.n_dim))
-        y_2 = np.zeros((self.n_vecs, n_samples, self.n_dim))
-
         print(f'Generating {n_samples} training samples:')
-        pbar = ProgressBar()
-        for s_idx in pbar(range(n_samples)):
-            params_1 = {p: v.rvs() for p, v in self.param_prior_dists.items()}
-            y_1[s_idx] = self.forward_model(**self.args, **params_1)
+        all_params = {p: v.rvs(n_samples) for p, v in self.param_prior_dists.items()}
+
+        def generator_func(s_idx):
+            params_1 = {k: v[s_idx] for (k, v) in all_params.items()}
+            y_1 = self.forward_model(**self.args, **params_1)
+            y_2 = np.zeros((self.n_vecs, self.n_dim))
             for v_idx, vec in enumerate(self.change_vecs):
                 params_2 = {k: np.abs(v + vec.get(k, 0) * dv0) for k, v in params_1.items()}
-                y_2[v_idx, s_idx] = self.forward_model(**self.args, **params_2)
-                if np.any(np.abs(y_2[v_idx, s_idx] - y_1[s_idx]) > 1e3 * dv0):
+                y_2[v_idx] = self.forward_model(**self.args, **params_2)
+                if np.any(np.abs(y_2[v_idx] - y_1) > 1e3 * dv0):
                     warnings.warn('Derivatives are too large, something might be wrong!')
+            return y_1, y_2
 
-        return y_1, y_2
+        res = Parallel(n_jobs=-1, verbose=True)(delayed(generator_func)(i) for i in range(n_samples))
+        # res = []
+        # pbar = ProgressBar()
+        # for i in pbar(range(n_samples)):
+        #     res.append(generator_func(i))
+
+        y1 = np.squeeze(np.array([d[0] for d in res]))
+        y2 = np.transpose(np.array([d[1] for d in res]), axes=[1, 0, 2])
+        return y1, y2
 
     def generate_test_samples(self, n_samples=1000, effect_size=0.1, noise_level=0.0, n_repeats=100):
         """
@@ -413,23 +423,32 @@ class Trainer:
         has_noise_model = 'noise_level' in inspect.getfullargspec(self.forward_model).args
         if has_noise_model:
             args['noise_level'] = noise_level
+            sigma_n = np.zeros((n_samples, self.n_dim, self.n_dim))
+        else:
+            sigma_n = None  # it is identity matrix times noise_level ** 2, we dont return it for memory concerns.
 
         print(f'Generating {n_samples} test samples:')
+        all_params = {p: v.rvs(n_samples) for p, v in self.param_prior_dists.items()}
 
-        def generator_func(s_idx):
+        y_1 = np.zeros((n_samples, self.n_dim))
+        y_2 = np.zeros_like(y_1)
+        pbar = ProgressBar()
+        for s_idx in pbar(range(n_samples)):
+            params_1 = {k: v[s_idx] for (k, v) in all_params.items()}
             tc = true_change[s_idx]
-            valid = False
-            while not valid:
-                params_1 = {p: v.rvs() for p, v in self.param_prior_dists.items()}
-                if tc == 0:
-                    params_2 = params_1
-                else:
-                    lim = models[tc - 1].lim
-                    sign = {'positive': 1, 'negative':-1, 'twosided':np.sign(np.random.randn())}[lim]
-                    params_2 = {k: np.abs(v + models[tc - 1].vec.get(k, 0) * effect_size * sign)
-                                for k, v in params_1.items()}
+            if tc == 0:
+                params_2 = params_1
+            else:
+                lim = models[tc - 1].lim
+                sign = {'positive': 1, 'negative': -1, 'twosided': np.sign(np.random.randn())}[lim]
+                params_2 = {k: np.abs(v + models[tc - 1].vec.get(k, 0) * effect_size * sign)
+                            for k, v in params_1.items()}
 
                 valid = np.all([self.param_prior_dists[k].pdf(params_2[k]) > 0 for k in params_2.keys()])
+                if not valid: # then swap param 1 and param 2
+                    params_2 = params_1.copy()
+                    params_1 = {k: np.abs(v - models[tc - 1].vec.get(k, 0) * effect_size * sign)
+                                for k, v in params_1.items()}
 
             if has_noise_model:
                 y_1_r = np.zeros((n_repeats, self.n_dim))
@@ -437,20 +456,16 @@ class Trainer:
                 for r in range(n_repeats):
                     y_1_r[r] = self.forward_model(**args, **params_1)
                     y_2_r[r] = self.forward_model(**args, **params_2)
-                y_1_ = y_1_r[0]  # a random sample.
-                y_2_ = y_2_r[0]
-                sigma_n_ = np.cov((y_2_r - y_1_r).T)
+                y_1[s_idx] = y_1_r[0]  # a random sample.
+                y_2[s_idx] = y_2_r[0]
+                sigma_n[s_idx] = np.cov((y_2_r - y_1_r).T)
             else:
-                y_1_ = self.forward_model(**args, **params_1) + np.random.randn(self.n_dim) * noise_level
-                y_2_ = self.forward_model(**args, **params_2) + np.random.randn(self.n_dim) * noise_level
-                sigma_n_ = noise_level ** 2
-            return y_1_, y_2_, sigma_n_
+                y_1[s_idx] = self.forward_model(**args, **params_1) + np.random.randn(self.n_dim) * noise_level
+                y_2[s_idx] = self.forward_model(**args, **params_2) + np.random.randn(self.n_dim) * noise_level
 
-        data = Parallel(n_jobs=-1, verbose=True)(delayed(generator_func)(i) for i in range(n_samples))
 
-        y_1 = np.array([d[0] for d in data])
-        y_2 = np.array([d[1] for d in data])
-        sigma_n = np.array([d[2] for d in data])
+        # data = Parallel(n_jobs=-1, verbose=True)(delayed(generator_func)(i) for i in range(n_samples))
+
         return true_change, y_1, y_2, sigma_n
 
 
