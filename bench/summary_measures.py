@@ -34,7 +34,7 @@ def normalized_shms(bvecs, lmax):
     return y, l
 
 
-def celeb_gord_summary(shm):
+def cleb_gord_summary(shm):
     """
     computes celebch-gordon summary measures for 2nd degree spherical harmonics coefficients
     :param shm: coefficients of spherical harmonics for degree 2
@@ -46,7 +46,7 @@ def celeb_gord_summary(shm):
     return r
 
 
-def celeb_gord_grad(shm, y_inv):
+def cleb_gord_grad(shm, y_inv):
     r = np.zeros((*shm.shape[:-1], y_inv.shape[0]))
     for idx, c in zip(cleb_gord_idx, cleb_gord_coef):
         d1 = (shm[..., idx[1]] * shm[..., idx[2]] * c)[..., np.newaxis] @ y_inv[:, idx[0]].T[np.newaxis, :]
@@ -81,7 +81,7 @@ def fit_shm(signal, acq, sph_degree):
             for degree in np.arange(2, sph_degree + 1, 2):
                 sum_meas.append(np.power(coeffs[..., l == degree], 2).mean(axis=-1))
 
-            #sum_meas.append(celeb_gord_summary(coeffs[..., l == 2]))
+            sum_meas.append(cleb_gord_summary(coeffs[..., l == 2]))
 
     sum_meas = np.array(sum_meas).T
     return sum_meas
@@ -109,9 +109,9 @@ def shm_cov(sum_meas, signal, acq, sph_degree, noise_level):
 
             y_inv = np.linalg.pinv(y).T
             coeffs = signal[:, acq.idx_shells == shell_idx] @ y_inv
-            #grad = celeb_gord_grad(coeffs[..., l == 2], y_inv[:, l == 2])
-            #variances[:, s_idx] = (grad * grad).sum(axis=-1) * (noise_level ** 2)
-            #s_idx += 1
+            grad = cleb_gord_grad(coeffs[..., l == 2], y_inv[:, l == 2])
+            variances[:, s_idx] = (grad * grad).sum(axis=-1) * (noise_level ** 2)
+            s_idx += 1
 
     sigma_n = np.array([np.diag(v) for v in variances])
     return sigma_n
