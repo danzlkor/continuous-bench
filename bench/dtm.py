@@ -23,9 +23,10 @@ def fit_dtm(signal, acq):
         dir_idx = acq.idx_shells == shell_idx
         bvecs = acq.bvecs[dir_idx]
         shell_signal = signal[..., dir_idx]
-        sm = summary(shell_signal, bvecs, this_shell.bval, 1)
+        sm = summary_np(shell_signal, bvecs, this_shell.bval, 1)
         if this_shell.lmax == 0:
-            del sm['FA']
+            sm = {'MD': sm['MD']}
+
         sum_meas.extend(list(sm.values()))
 
     sum_meas = np.array(sum_meas).T
@@ -71,7 +72,8 @@ def summary_np(signal, gradients, bval, s0):
     eigs = np.linalg.eigvalsh(dt)
 
     smm = {'MD': np.mean(eigs, axis=-1),
-           'FA': 3 * np.sqrt(1 / 2) * np.std(eigs, axis=-1) / np.linalg.norm(eigs, axis=-1)}
+           'FA': 3 * np.sqrt(1 / 2) * np.std(eigs, axis=-1) / np.linalg.norm(eigs, axis=-1)
+           'Vol': volume_summary(eigs)}
 
     return smm
 
@@ -221,3 +223,11 @@ def fa_jacobian(signal, gradients, bval, s0):
         fa.backward()
         j_fa = signal.grad.detach().numpy()
     return j_fa
+
+
+def volume_summary(eigs):
+    return (32 * np.pi / 945) * (2 * (eigs ** 3).sum(axis=-1) -
+                                  3 * (eigs[:, 0] ** 2 * (eigs[:, 1] + eigs[:, 2]) +
+                                       eigs[:, 1] ** 2 * (eigs[:, 0] + eigs[:, 2]) +
+                                       eigs[:, 2] ** 2 * (eigs[:, 0] + eigs[:, 1])) +
+                                  12 * eigs[:, 0] * eigs[:, 1] * eigs[:, 2])
