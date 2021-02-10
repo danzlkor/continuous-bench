@@ -208,7 +208,7 @@ class ChangeModel:
 
 def make_pipeline(degree: int, alpha: float) -> Pipeline:
     steps = [('features', PolynomialFeatures(degree=degree)),
-             ('reg', linear_model.Ridge(alpha=alpha, fit_intercept=False))]
+             ('reg', linear_model.Ridge(alpha=alpha, fit_intercept=True))]
     return Pipeline(steps=steps)
 
 
@@ -470,7 +470,7 @@ class Trainer:
 
 
 # helper functions:
-def knn_estimation(y, dy, k=50, lam=1e-6):
+def knn_estimation(y, dy, k=100, lam=1e-6):
     """
     Computes mean and covariance of change per sample using its K nearest neighbours.
 

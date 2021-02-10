@@ -83,7 +83,7 @@ def fit_shm(signal, acq, sph_degree):
 
             sum_meas.append(cleb_gord_summary(coeffs[..., l == 2]))
 
-    sum_meas = np.array(sum_meas).T
+    sum_meas = np.array(sum_meas).T * 0.1
     return sum_meas
 
 
