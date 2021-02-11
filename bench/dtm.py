@@ -72,8 +72,8 @@ def summary_np(signal, gradients, bval, s0):
     eigs = np.linalg.eigvalsh(dt)
 
     smm = {'MD': np.mean(eigs, axis=-1),
-           'FA': 3 * np.sqrt(1 / 2) * np.std(eigs, axis=-1) / np.linalg.norm(eigs, axis=-1),
-           'Vol': volume_summary(eigs)}
+           'FA': 3 * np.sqrt(1 / 2) * np.std(eigs, axis=-1) / np.linalg.norm(eigs, axis=-1)}
+           # 'Vol': volume_summary(eigs)}
 
     return smm
 
