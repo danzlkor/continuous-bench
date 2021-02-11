@@ -5,12 +5,14 @@ import numpy as np
 import torch
 from scipy.linalg import block_diag
 
+
 def summary_names(acq):
     names = list()
     for sh in acq.shells:
         names.append(f'b{sh.bval}_MD')
         if sh.lmax > 0:
             names.append(f'b{sh.bval}_FA')
+            names.append(f'b{sh.bval}_Vol')
     return names
 
 
