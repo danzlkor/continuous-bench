@@ -13,17 +13,17 @@ from warnings import warn
 import numpy as np
 from dipy.reconst.shm import real_sym_sh_basis
 from bench.acquisition import Acquisition, ShellParameters
+from sympy.physics.quantum.cg import CG
 
 
 def summary_names(acq, sph_degree):
     names = []
     for sh in acq.shells:
-        for degree in np.arange(0, sph_degree + 1, 2):
-            if degree <= sh.lmax:
-                names.append(f"b{sh.bval:1.1f}_l{degree}")
+        names.append(f"b{sh.bval:1.0f}_mean")
         if sh.lmax > 0:
-            names.append(f"b{sh.bval:1.1f}_l2_cg")
-
+            for degree in np.arange(2, sph_degree + 1, 2):
+                names.append(f"b{sh.bval:1.0f}_l{degree}")
+            names.append(f"b{sh.bval:1.0f}_l2_cg")
     return names
 
 
@@ -34,6 +34,12 @@ def normalized_shms(bvecs, lmax):
     return y, l
 
 
+mv = np.arange(-2, 3)
+cleb_gord_idx = np.array([[m1, m2, m3] for m1 in mv for m2 in mv for m3 in mv]).astype(int)
+cleb_gord_coef = np.array([CG(2, m[0], 2, m[1], 2, m[2]).doit().evalf() for m in cleb_gord_idx]).astype(float)
+cleb_gord_idx = cleb_gord_idx + 2
+
+
 def cleb_gord_summary(shm):
     """
     computes celebch-gordon summary measures for 2nd degree spherical harmonics coefficients
@@ -41,8 +47,8 @@ def cleb_gord_summary(shm):
     :return:
     """
     r = np.zeros(shm.shape[:-1])
-    for idx, c in zip(cleb_gord_idx, cleb_gord_coef):
-        r += shm[:, idx[0]] * shm[:, idx[1]] * shm[:, idx[2]] * c
+    for m, c in zip(cleb_gord_idx, cleb_gord_coef):
+        r += shm[:, m[0]] * shm[:, m[1]] * shm[:, m[2]] * c
     return r
 
 
@@ -83,7 +89,7 @@ def fit_shm(signal, acq, sph_degree):
 
             sum_meas.append(cleb_gord_summary(coeffs[..., l == 2]))
 
-    sum_meas = np.array(sum_meas).T * 0.1
+    sum_meas = np.array(sum_meas).T 
     return sum_meas
 
 
@@ -356,153 +362,3 @@ def from_cmd(args):
 
 if __name__ == '__main__':
     from_cmd(sys.argv)
-
-sqrt = np.sqrt
-cleb_gord_mat = np.array([(-2, 0, -2, sqrt(14) / 7),
-                           (-2, 1, -1, sqrt(21) / 7),
-                           (-2, 2, 0, sqrt(14) / 7),
-                           (-1, -1, -2, -sqrt(21) / 7),
-                           (-1, 0, -1, -sqrt(14) / 14),
-                           (-1, 1, 0, sqrt(14) / 14),
-                           (-1, 2, 1, sqrt(21) / 7),
-                           (0, -2, -2, sqrt(14) / 7),
-                           (0, -1, -1, -sqrt(14) / 14),
-                           (0, 0, 0, -sqrt(14) / 7),
-                           (0, 1, 1, -sqrt(14) / 14),
-                           (0, 2, 2, sqrt(14) / 7),
-                           (1, -2, -1, sqrt(21) / 7),
-                           (1, -1, 0, sqrt(14) / 14),
-                           (1, 0, 1, -sqrt(14) / 14),
-                           (1, 1, 2, -sqrt(21) / 7),
-                           (2, -2, 0, sqrt(14) / 7),
-                           (2, -1, 1, sqrt(21) / 7),
-                           (2, 0, 2, sqrt(14) / 7)])
-
-cleb_gord_mat = np.array([(-2, -2, -2, 0),
-                           (-2, -2, -1, 0),
-                           (-2, -2, 0, 0),
-                           (-2, -2, 1, 0),
-                           (-2, -2, 2, 0),
-                           (-2, -1, -2, 0),
-                           (-2, -1, -1, 0),
-                           (-2, -1, 0, 0),
-                           (-2, -1, 1, 0),
-                           (-2, -1, 2, 0),
-                           (-2, 0, -2, sqrt(14) / 7),
-                           (-2, 0, -1, 0),
-                           (-2, 0, 0, 0),
-                           (-2, 0, 1, 0),
-                           (-2, 0, 2, 0),
-                           (-2, 1, -2, 0),
-                           (-2, 1, -1, sqrt(21) / 7),
-                           (-2, 1, 0, 0),
-                           (-2, 1, 1, 0),
-                           (-2, 1, 2, 0),
-                           (-2, 2, -2, 0),
-                           (-2, 2, -1, 0),
-                           (-2, 2, 0, sqrt(14) / 7),
-                           (-2, 2, 1, 0),
-                           (-2, 2, 2, 0),
-                           (-1, -2, -2, 0),
-                           (-1, -2, -1, 0),
-                           (-1, -2, 0, 0),
-                           (-1, -2, 1, 0),
-                           (-1, -2, 2, 0),
-                           (-1, -1, -2, -sqrt(21) / 7),
-                           (-1, -1, -1, 0),
-                           (-1, -1, 0, 0),
-                           (-1, -1, 1, 0),
-                           (-1, -1, 2, 0),
-                           (-1, 0, -2, 0),
-                           (-1, 0, -1, -sqrt(14) / 14),
-                           (-1, 0, 0, 0),
-                           (-1, 0, 1, 0),
-                           (-1, 0, 2, 0),
-                           (-1, 1, -2, 0),
-                           (-1, 1, -1, 0),
-                           (-1, 1, 0, sqrt(14) / 14),
-                           (-1, 1, 1, 0),
-                           (-1, 1, 2, 0),
-                           (-1, 2, -2, 0),
-                           (-1, 2, -1, 0),
-                           (-1, 2, 0, 0),
-                           (-1, 2, 1, sqrt(21) / 7),
-                           (-1, 2, 2, 0),
-                           (0, -2, -2, sqrt(14) / 7),
-                           (0, -2, -1, 0),
-                           (0, -2, 0, 0),
-                           (0, -2, 1, 0),
-                           (0, -2, 2, 0),
-                           (0, -1, -2, 0),
-                           (0, -1, -1, -sqrt(14) / 14),
-                           (0, -1, 0, 0),
-                           (0, -1, 1, 0),
-                           (0, -1, 2, 0),
-                           (0, 0, -2, 0),
-                           (0, 0, -1, 0),
-                           (0, 0, 0, -sqrt(14) / 7),
-                           (0, 0, 1, 0),
-                           (0, 0, 2, 0),
-                           (0, 1, -2, 0),
-                           (0, 1, -1, 0),
-                           (0, 1, 0, 0),
-                           (0, 1, 1, -sqrt(14) / 14),
-                           (0, 1, 2, 0),
-                           (0, 2, -2, 0),
-                           (0, 2, -1, 0),
-                           (0, 2, 0, 0),
-                           (0, 2, 1, 0),
-                           (0, 2, 2, sqrt(14) / 7),
-                           (1, -2, -2, 0),
-                           (1, -2, -1, sqrt(21) / 7),
-                           (1, -2, 0, 0),
-                           (1, -2, 1, 0),
-                           (1, -2, 2, 0),
-                           (1, -1, -2, 0),
-                           (1, -1, -1, 0),
-                           (1, -1, 0, sqrt(14) / 14),
-                           (1, -1, 1, 0),
-                           (1, -1, 2, 0),
-                           (1, 0, -2, 0),
-                           (1, 0, -1, 0),
-                           (1, 0, 0, 0),
-                           (1, 0, 1, -sqrt(14) / 14),
-                           (1, 0, 2, 0),
-                           (1, 1, -2, 0),
-                           (1, 1, -1, 0),
-                           (1, 1, 0, 0),
-                           (1, 1, 1, 0),
-                           (1, 1, 2, -sqrt(21) / 7),
-                           (1, 2, -2, 0),
-                           (1, 2, -1, 0),
-                           (1, 2, 0, 0),
-                           (1, 2, 1, 0),
-                           (1, 2, 2, 0),
-                           (2, -2, -2, 0),
-                           (2, -2, -1, 0),
-                           (2, -2, 0, sqrt(14) / 7),
-                           (2, -2, 1, 0),
-                           (2, -2, 2, 0),
-                           (2, -1, -2, 0),
-                           (2, -1, -1, 0),
-                           (2, -1, 0, 0),
-                           (2, -1, 1, sqrt(21) / 7),
-                           (2, -1, 2, 0),
-                           (2, 0, -2, 0),
-                           (2, 0, -1, 0),
-                           (2, 0, 0, 0),
-                           (2, 0, 1, 0),
-                           (2, 0, 2, sqrt(14) / 7),
-                           (2, 1, -2, 0),
-                           (2, 1, -1, 0),
-                           (2, 1, 0, 0),
-                           (2, 1, 1, 0),
-                           (2, 1, 2, 0),
-                           (2, 2, -2, 0),
-                           (2, 2, -1, 0),
-                           (2, 2, 0, 0),
-                           (2, 2, 1, 0),
-                           (2, 2, 2, 0)])
-
-cleb_gord_idx = cleb_gord_mat[:, :-1].astype(int) + 2
-cleb_gord_coef = cleb_gord_mat[:, -1]
