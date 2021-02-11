@@ -91,8 +91,9 @@ def ball(bval=0, bvec=np.array([0, 0, 1]), d_iso=1., s0=1.0):
     :param s0: attenuation for b=0
     :return: simulated signal (M,)
     """
-    assert s0 >= 0, 's0 cant be negative'
-    assert d_iso >= 0, 'diso cant be negative'
+    s0, d_iso = [np.asanyarray(v)[..., np.newaxis] for v in (s0, d_iso)]
+    assert np.all(s0 >= 0), 's0 cant be negative'
+    assert np.all(d_iso >= 0), 'diso cant be negative'
     if np.isscalar(bval):
         bval = bval * np.ones(bvec.shape[0])
 
@@ -115,8 +116,9 @@ def stick(bval=0, bvec=np.array([0, 0, 1]), d_a=1., theta=0., phi=0.0, s0=1.0):
     :param s0: attenuation for b=0
     :return: simulated signal (M,)
     """
-    assert d_a >= 0, 'd_a can\'t be negative'
-    assert s0 >= 0, 's0 cant be negative'
+    s0, d_a = [np.asanyarray(v)[..., np.newaxis] for v in (s0, d_a)]
+    assert np.all(d_a >= 0), "d_a can't be negative"
+    assert np.all(s0 >= 0), 's0 cant be negative'
 
     orientation = spherical2cart(theta, phi)
     return s0 * np.exp(-bval * (d_a * bvec.dot(orientation) ** 2))
@@ -136,9 +138,10 @@ def cigar(bval=0, bvec=np.array([0, 0, 1]), theta=0., phi=0,
     :param s0: attenuation for b=0
     :return: simulated signal (M,)
     """
-    assert d_a >= 0, 'd_a cant be negative'
-    assert d_r >= 0, 'd_r cant be negative'
-    assert s0 >= 0, 's0 cant be negative'
+    s0, d_a, d_r = [np.asanyarray(v)[..., np.newaxis] for v in (s0, d_a, d_r)]
+    assert np.all(d_r >= 0), "d_r can't be negative"
+    assert np.all(d_a >= 0), "d_a can't be negative"
+    assert np.all(s0 >= 0), 's0 cant be negative'
 
     orientation = spherical2cart(theta, phi)
     return s0 * np.exp(-bval * (d_r + (d_a - d_r) * bvec.dot(orientation) ** 2))
@@ -161,10 +164,11 @@ def bingham_zeppelin(bval=0, bvec=np.array([[0, 0, 1]]), d_a=1., d_r=0.,
     :param s0: attenuation for b=0
     :return: simulated signal (M,)
     """
-    assert s0 >= 0, 's0 cannot be negative'
+    s0, d_a, d_r, odi, odi2 = [np.asanyarray(v)[..., np.newaxis] for v in (s0, d_a, d_r, odi, odi2)]
+    assert np.all(s0 >= 0), 's0 cannot be negative'
     if odi2 is None:
         odi2 = odi  # make it watson distribution.
-    assert odi >= odi2 > 0, 'odis must be positive and in order'
+    assert np.all((odi >= odi2) & (odi2  > 0)), 'odis must be positive and in order'
 
     if bvec.ndim == 1:
         bvec = bvec[np.newaxis, :]
@@ -178,17 +182,20 @@ def bingham_zeppelin(bval=0, bvec=np.array([[0, 0, 1]]), d_a=1., d_r=0.,
     r_psi = np.array([[np.cos(psi), np.sin(psi), 0], [-np.sin(psi), np.cos(psi), 0], [0, 0, 1]])
     r_theta = np.array([[np.cos(theta), 0, -np.sin(theta)], [0, 1, 0], [np.sin(theta), 0, np.cos(theta)]])
     r_phi = np.array([[np.cos(phi), np.sin(phi), 0], [-np.sin(phi), np.cos(phi), 0], [0, 0, 1]])
-    b_diag = -np.diag([k1, k2, 0])
+    b_diag = np.zeros(k1.shape + (3, 3))
+    b_diag[..., 0, 0] = k1
+    b_diag[..., 1, 1] = k2
     r = r_psi @ r_theta @ r_phi
     bing_mat = r.T @ b_diag @ r
-    s = []
 
-    denom = hyp_sapprox(np.linalg.eigvalsh(bing_mat)[::-1])
-    for bval_, g in zip(bval, bvec):
-        q = bing_mat - bval_ * (d_a - d_r) * g[:, np.newaxis].dot(g[np.newaxis, :])
-        num = hyp_sapprox(np.linalg.eigvalsh(q)[::-1]) * np.exp(-d_r * bval_)
-        s.append(num)
-    return s0 * np.array(s) / denom
+    denom = hyp_sapprox(np.linalg.eigvalsh(bing_mat)[..., ::-1])
+    q = bing_mat - (bval * (d_a - d_r))[..., np.newaxis, np.newaxis] * bvec[:, np.newaxis, :] * bvec[:, :, np.newaxis]
+    num = hyp_sapprox(np.linalg.eigvalsh(q)[..., ::-1]) * np.exp(-d_r * bval)
+    #for bval_, g in zip(bval, bvec):
+    #    q = bing_mat - bval_ * (d_a - d_r) * g[:, np.newaxis].dot(g[np.newaxis, :])
+    #    num = hyp_sapprox(np.linalg.eigvalsh(q)[::-1]) * np.exp(-d_r * bval_)
+    #    s.append(num)
+    return s0 * num / denom
 
 
 def watson_zeppelin_numerical(bval=0, bvec=np.array([[0, 0, 1]]), d_a=1., d_r=0.,
@@ -276,7 +283,7 @@ def watson_noddi(bval=0, bvec=np.array([0, 0, 1]),
     :param phi: orientation of stick from x axis
     :param s0: attenuation for b=0
     :return: (M,) diffusion signal
-        """
+    """
     assert s0 >= 0, 's0 cant be negative'
     a_iso = ball(bval=bval, bvec=bvec, d_iso=d_iso, s0=s_iso)
     a_int = bingham_zeppelin(bval=bval, bvec=bvec, d_a=d_a_in, d_r=0,
@@ -324,7 +331,6 @@ def bingham_noddi(bval=0, bvec=np.array([0, 0, 1]),
     a_ext = bingham_zeppelin(bval=bval, bvec=bvec, d_a=d_a_ex, d_r=d_a_ex * tortuosity,
                              odi=odi, odi2=odi * odi_ratio,
                              psi=psi, theta=theta, phi=phi, s0=s_ex)
-
     return (a_iso + a_int + a_ext) * s0
 
 
@@ -514,8 +520,8 @@ def find_t(l1, l2, l3):
         return z3
 
 
-@numba.jit(nopython=True)
-def hyp_sapprox(x):
+@numba.guvectorize([(numba.float64[:], numba.float64[:])], "(n)->()")
+def hyp_sapprox(x, res):
     """
     Computes 1F1(1/2; 3/2; M) where ``x`` are the eigenvalues from M
 
@@ -530,7 +536,7 @@ def hyp_sapprox(x):
 
     """
     if x[0] == 0 and x[1] == 0 and x[2] == 0:
-        return 1
+        res[0] = 1.
     else:
         t = find_t(-x[0], -x[1], -x[2])
         r = 1.
@@ -546,23 +552,25 @@ def hyp_sapprox(x):
 
         tau = k4 / (8 * k2 * k2) - 5 * k3 * k3 / (24 * k2 ** 3)
         c1 = (np.sqrt(2 / k2) * np.pi * r * np.exp(-t)) * np.exp(tau) / (4 * np.pi)
-        return c1
+        res[0] = c1
 
 
 def simulate_signal(model, acq, params):
     """
     simulates diffusion MRI signals for test from the specified model
-        :param model: function object from diffusion models
-        :param acq: Acquisition object containing acquisition parameters
-        :param params: dictionary of model parameter
-        :return: diffusion signal (ndirs, 1)
+
+    :param model: function object from diffusion models
+    :param acq: Acquisition object containing acquisition parameters
+    :param params: dictionary of model parameter with shape S
+    :return: diffusion signal (S..., ndirs)
     """
+    param_shape = np.broadcast_shapes(*[p.shape for p in params.values()])
     n_directions = acq.bvecs.shape[0]
-    signal = np.zeros(n_directions)
+    signal = np.zeros(param_shape + (n_directions, ))
     for shell_idx, single_shell in enumerate(acq.shells):
         dir_idx = acq.idx_shells == shell_idx
         acquisition_params = {'bval': single_shell.bval, 'bvec': acq.bvecs[dir_idx, :], 's0': 1}
-        signal[dir_idx] = model(**acquisition_params, **params)
+        signal[..., dir_idx] = model(**acquisition_params, **params)
 
     return signal
 

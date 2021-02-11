@@ -336,14 +336,15 @@ class Trainer:
 
     def train(self, n_samples=1000, poly_degree=2, regularization=1, k=100, dv0=1e-6, model_name=None, verbose=True):
         """
-          Train change models (estimates w_mu and w_l) using forward model simulation
-            :param n_samples: number simulated samples to estimate forward model
-            :param k: nearest neighbours parameter
-            :param dv0: the amount perturbation in parameter to estimate derivatives
-            :param poly_degree: polynomial degree for regression
-            :param regularization: ridge regression alpha
-            :param model_name: name of the model.
-          """
+        Train change models (estimates w_mu and w_l) using forward model simulation
+
+        :param n_samples: number simulated samples to estimate forward model
+        :param k: nearest neighbours parameter
+        :param dv0: the amount perturbation in parameter to estimate derivatives
+        :param poly_degree: polynomial degree for regression
+        :param regularization: ridge regression alpha
+        :param model_name: name of the model.
+        """
         y_1, y_2 = self.generate_train_samples(n_samples, dv0)
         dy = (y_2 - y_1) / dv0
 
@@ -376,29 +377,38 @@ class Trainer:
 
         return ChangeModel(models=models, model_name=model_name)
 
-    def generate_train_samples(self, n_samples: int, dv0: float) -> tuple:
-        print(f'Generating {n_samples} training samples:')
+    def generate_train_samples(self, n_samples: int, dv0: float, parallel=True, old=False) -> tuple:
         all_params = {p: v.rvs(n_samples) for p, v in self.param_prior_dists.items()}
 
-        def generator_func(s_idx):
-            params_1 = {k: v[s_idx] for (k, v) in all_params.items()}
-            y_1 = self.forward_model(**self.args, **params_1)
-            y_2 = np.zeros((self.n_vecs, self.n_dim))
-            for v_idx, vec in enumerate(self.change_vecs):
-                params_2 = {k: np.abs(v + vec.get(k, 0) * dv0) for k, v in params_1.items()}
-                y_2[v_idx] = self.forward_model(**self.args, **params_2)
-                if np.any(np.abs(y_2[v_idx] - y_1) > 1e3 * dv0):
-                    warnings.warn('Derivatives are too large, something might be wrong!')
-            return y_1, y_2
+        if old:
+            def generator_func(s_idx):
+                params_1 = {k: v[s_idx] for (k, v) in all_params.items()}
+                y_1 = self.forward_model(**self.args, **params_1)
+                y_2 = np.zeros((self.n_vecs, self.n_dim))
+                for v_idx, vec in enumerate(self.change_vecs):
+                    params_2 = {k: np.abs(v + vec.get(k, 0) * dv0) for k, v in params_1.items()}
+                    y_2[v_idx] = self.forward_model(**self.args, **params_2)
+                    if np.any(np.abs(y_2[v_idx] - y_1) > 1e3 * dv0):
+                        warnings.warn('Derivatives are too large, something might be wrong!')
+                return y_1, y_2
 
-        res = Parallel(n_jobs=-1, verbose=True)(delayed(generator_func)(i) for i in range(n_samples))
-        # res = []
-        # pbar = ProgressBar()
-        # for i in pbar(range(n_samples)):
-        #     res.append(generator_func(i))
+            if parallel:
+                res = Parallel(n_jobs=-1, verbose=True)(delayed(generator_func)(i) for i in range(n_samples))
+            else:
+                res = []
+                pbar = ProgressBar()
+                for i in pbar(range(n_samples)):
+                    res.append(generator_func(i))
 
-        y1 = np.squeeze(np.array([d[0] for d in res]))
-        y2 = np.transpose(np.array([d[1] for d in res]), axes=[1, 0, 2])
+            y1 = np.squeeze(np.array([d[0] for d in res]))
+            y2 = np.transpose(np.array([d[1] for d in res]), axes=[1, 0, 2])
+        else:
+            y1 = self.forward_model(**self.args, **all_params)
+            y2 = []
+            for vec in self.change_vecs:
+                params_2 = {k: np.abs(v + vec.get(k, 0) * dv0) for k, v in all_params.items()}
+                y2.append(self.forward_model(**self.args, **params_2))
+            y2 = np.stack(y2, 0)
         return y1, y2
 
     def generate_test_samples(self, n_samples=1000, effect_size=0.1, noise_level=0.0, n_repeats=100):
