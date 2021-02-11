@@ -4,7 +4,7 @@ This module contains classes and functions to train a change model and make infe
 
 import numpy as np
 from scipy.spatial import KDTree
-from scipy.stats import rv_continuous, gamma, norm
+from scipy.stats import rv_continuous, gamma
 from typing import Callable, List, Any, Union, Sequence, Mapping
 from progressbar import ProgressBar
 from dataclasses import dataclass
@@ -346,6 +346,7 @@ class Trainer:
           """
         y_1, y_2 = self.generate_train_samples(n_samples, dv0)
         dy = (y_2 - y_1) / dv0
+
         sample_mu, sample_l = knn_estimation(y_1, dy, k=k)
 
         models = []
