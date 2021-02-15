@@ -564,9 +564,10 @@ def simulate_signal(model, acq, params):
     :param params: dictionary of model parameter with shape S
     :return: diffusion signal (S..., ndirs)
     """
-    param_shape = np.broadcast_shapes(*[p.shape for p in params.values()])
+    n_samples = np.max([np.atleast_1d(p).shape for p in params.values()]) # assumes all parameters have the same length or only one of them is more than one.
+    #  np.broadcast_shapes(*[np.asarray(p).shape for p in params.values()])
     n_directions = acq.bvecs.shape[0]
-    signal = np.zeros(param_shape + (n_directions, ))
+    signal = np.zeros((n_samples, n_directions))
     for shell_idx, single_shell in enumerate(acq.shells):
         dir_idx = acq.idx_shells == shell_idx
         acquisition_params = {'bval': single_shell.bval, 'bvec': acq.bvecs[dir_idx, :], 's0': 1}

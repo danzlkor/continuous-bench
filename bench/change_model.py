@@ -388,7 +388,7 @@ class Trainer:
                 for v_idx, vec in enumerate(self.change_vecs):
                     params_2 = {k: np.abs(v + vec.get(k, 0) * dv0) for k, v in params_1.items()}
                     y_2[v_idx] = self.forward_model(**self.args, **params_2)
-                    if np.any(np.abs(y_2[v_idx] - y_1) > 1e3 * dv0):
+                    if np.any(np.abs(y_2[v_idx] - y_1) > 1e6 * dv0):
                         warnings.warn('Derivatives are too large, something might be wrong!')
                 return y_1, y_2
 
@@ -409,6 +409,12 @@ class Trainer:
                 params_2 = {k: np.abs(v + vec.get(k, 0) * dv0) for k, v in all_params.items()}
                 y2.append(self.forward_model(**self.args, **params_2))
             y2 = np.stack(y2, 0)
+
+            nans = np.isnan(y2).any(axis=(0, 2)) | np.isnan(y1).any(axis=1)
+            y1 = y1[~nans]
+            y2 = y2[:, ~nans, :]
+            if np.sum(nans) > 0:
+                warnings.warn(f'{np.sum(nans)} nan samples generated.')
         return y1, y2
 
     def generate_test_samples(self, n_samples=1000, effect_size=0.1, noise_level=0.0, n_repeats=100):
@@ -491,12 +497,14 @@ def knn_estimation(y, dy, k=100, lam=1e-6):
     :param lam: shrinkage value to avoid degenerate covariance matrices
     :return: mu and l per data point
     """
+
     n_vecs, n_samples, dim = dy.shape
     mu = np.zeros_like(dy)
     tril = np.zeros((n_vecs, n_samples, dim * (dim + 1) // 2))
 
     idx = np.tril_indices(dim)
     diag_idx = np.argwhere(idx[0] == idx[1])
+
 
     tree = KDTree(y)
     _, neigbs = tree.query(y, k)
