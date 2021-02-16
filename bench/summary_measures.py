@@ -62,7 +62,7 @@ def cleb_gord_grad(shm, y_inv):
     return r
 
 
-def fit_shm(signal, acq, sph_degree):
+def fit_shm(signal, acq, sph_degree, cg=True):
     """
     Cumputes summary measurements from spherical harmonics fit.
     :param signal: diffusion signal
@@ -86,10 +86,10 @@ def fit_shm(signal, acq, sph_degree):
         if this_shell.lmax > 0:
             for degree in np.arange(2, sph_degree + 1, 2):
                 sum_meas.append(np.power(coeffs[..., l == degree], 2).mean(axis=-1))
+            if cg:
+                sum_meas.append(cleb_gord_summary(coeffs[..., l == 2]))
 
-            sum_meas.append(cleb_gord_summary(coeffs[..., l == 2]))
-
-    sum_meas = np.array(sum_meas).T * 1000
+    sum_meas = np.array(sum_meas).T
     return sum_meas
 
 
