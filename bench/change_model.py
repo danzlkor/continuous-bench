@@ -462,7 +462,7 @@ class Trainer:
                             for k, v in params_1.items()}
 
                 valid = np.all([self.param_prior_dists[k].pdf(params_2[k]) > 0 for k in params_2.keys()])
-                if not valid: # then swap param 1 and param 2
+                if not valid:# then swap param 1 and param 2
                     params_2 = params_1.copy()
                     params_1 = {k: np.abs(v - models[tc - 1].vec.get(k, 0) * effect_size * sign)
                                 for k, v in params_1.items()}

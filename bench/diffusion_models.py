@@ -164,38 +164,53 @@ def bingham_zeppelin(bval=0, bvec=np.array([[0, 0, 1]]), d_a=1., d_r=0.,
     :param s0: attenuation for b=0
     :return: simulated signal (M,)
     """
-    s0, d_a, d_r, odi, odi2 = [np.asanyarray(v)[..., np.newaxis] for v in (s0, d_a, d_r, odi, odi2)]
+    s0, d_a, d_r, odi, odi2, theta, phi, psi = [np.atleast_1d(v) for v in
+                                                (s0, d_a, d_r, odi, odi2, theta, phi, psi)]
+    n_samples = s0.shape[0]
+
     assert np.all(s0 >= 0), 's0 cannot be negative'
     if odi2 is None:
         odi2 = odi  # make it watson distribution.
-    assert np.all((odi >= odi2) & (odi2  > 0)), 'odis must be positive and in order'
+    assert np.all((odi >= odi2) & (odi2 > 0)), 'odis must be positive and in order'
 
     if bvec.ndim == 1:
         bvec = bvec[np.newaxis, :]
 
-    if np.isscalar(bval):
-        bval = bval * np.ones(bvec.shape[0])
+    r_psi = np.array([[np.cos(psi), np.sin(psi), np.zeros_like(psi)],
+                      [-np.sin(psi), np.cos(psi), np.zeros_like(psi)],
+                      [np.zeros_like(psi), np.zeros_like(psi), np.ones_like(psi)]]).transpose()
+
+    r_theta = np.array([[np.cos(theta), np.zeros_like(theta), -np.sin(theta)],
+                        [np.zeros_like(theta), np.ones_like(theta), np.zeros_like(theta)],
+                        [np.sin(theta), np.zeros_like(theta), np.cos(theta)]]).transpose()
+
+    r_phi = np.array([[np.cos(phi), np.sin(phi), np.zeros_like(phi)],
+                      [-np.sin(phi), np.cos(phi), np.zeros_like(phi)],
+                      [np.zeros_like(phi), np.zeros_like(phi), np.ones_like(phi)]]).transpose()
+
+    r = np.array([r_psi[i] @ r_theta[i] @ r_phi[i] for i in range(phi.shape[0])])
 
     k1 = 1 / np.tan(odi * np.pi / 2)
     k2 = 1 / np.tan(odi2 * np.pi / 2)
-
-    r_psi = np.array([[np.cos(psi), np.sin(psi), 0], [-np.sin(psi), np.cos(psi), 0], [0, 0, 1]])
-    r_theta = np.array([[np.cos(theta), 0, -np.sin(theta)], [0, 1, 0], [np.sin(theta), 0, np.cos(theta)]])
-    r_phi = np.array([[np.cos(phi), np.sin(phi), 0], [-np.sin(phi), np.cos(phi), 0], [0, 0, 1]])
     b_diag = np.zeros(k1.shape + (3, 3))
     b_diag[..., 0, 0] = k1
     b_diag[..., 1, 1] = k2
-    r = r_psi @ r_theta @ r_phi
-    bing_mat = r.T @ b_diag @ r
+
+    if r.shape[0] == 1:
+        bing_mat = np.array([r[0].T @ b_diag[i] @ r[0] for i in range(b_diag.shape[0])])
+    elif r.shape[0] == n_samples:
+        bing_mat = np.array([r[i].T @ b_diag[i] @ r[i] for i in range(b_diag.shape[0])])
 
     denom = hyp_sapprox(np.linalg.eigvalsh(bing_mat)[..., ::-1])
-    q = bing_mat - (bval * (d_a - d_r))[..., np.newaxis, np.newaxis] * bvec[:, np.newaxis, :] * bvec[:, :, np.newaxis]
-    num = hyp_sapprox(np.linalg.eigvalsh(q)[..., ::-1]) * np.exp(-d_r * bval)
+    q = bing_mat[:, np.newaxis, :, :] - (bval * (d_a - d_r))[..., np.newaxis, np.newaxis, np.newaxis] * \
+        ((bvec[:, np.newaxis, :] * bvec[:, :, np.newaxis])[np.newaxis, ...])
+    num = hyp_sapprox(np.linalg.eigvalsh(q)[..., ::-1]) * np.exp(-d_r * bval)[:, np.newaxis]
+
     #for bval_, g in zip(bval, bvec):
     #    q = bing_mat - bval_ * (d_a - d_r) * g[:, np.newaxis].dot(g[np.newaxis, :])
     #    num = hyp_sapprox(np.linalg.eigvalsh(q)[::-1]) * np.exp(-d_r * bval_)
     #    s.append(num)
-    return s0 * num / denom
+    return s0[:, np.newaxis] * num / denom[:, np.newaxis]
 
 
 def watson_zeppelin_numerical(bval=0, bvec=np.array([[0, 0, 1]]), d_a=1., d_r=0.,
@@ -555,7 +570,7 @@ def hyp_sapprox(x, res):
         res[0] = c1
 
 
-def simulate_signal(model, acq, params):
+def simulate_signal(model, acq, model_params):
     """
     simulates diffusion MRI signals for test from the specified model
 
@@ -564,14 +579,14 @@ def simulate_signal(model, acq, params):
     :param params: dictionary of model parameter with shape S
     :return: diffusion signal (S..., ndirs)
     """
-    n_samples = np.max([np.atleast_1d(p).shape for p in params.values()]) # assumes all parameters have the same length or only one of them is more than one.
+    n_samples = np.max([np.atleast_1d(p).shape for p in model_params.values()]) # assumes all parameters have the same length or only one of them is more than one.
     #  np.broadcast_shapes(*[np.asarray(p).shape for p in params.values()])
     n_directions = acq.bvecs.shape[0]
     signal = np.zeros((n_samples, n_directions))
     for shell_idx, single_shell in enumerate(acq.shells):
         dir_idx = acq.idx_shells == shell_idx
         acquisition_params = {'bval': single_shell.bval, 'bvec': acq.bvecs[dir_idx, :], 's0': 1}
-        signal[..., dir_idx] = model(**acquisition_params, **params)
+        signal[..., dir_idx] = model(**acquisition_params, **model_params)
 
     return signal
 
