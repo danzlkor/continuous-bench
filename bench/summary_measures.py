@@ -23,7 +23,7 @@ def summary_names(acq, sph_degree):
         if sh.lmax > 0:
             for degree in np.arange(2, sph_degree + 1, 2):
                 names.append(f"b{sh.bval:1.0f}_l{degree}")
-            names.append(f"b{sh.bval:1.0f}_l2_cg")
+            # names.append(f"b{sh.bval:1.0f}_l2_cg")
     return names
 
 
@@ -78,16 +78,17 @@ def fit_shm(signal, acq, sph_degree):
         dir_idx = acq.idx_shells == shell_idx
         bvecs = acq.bvecs[dir_idx]
         shell_signal = signal[..., dir_idx]
-        y, l = normalized_shms(bvecs, this_shell.lmax)
-        y_inv = np.linalg.pinv(y.T)
-        coeffs = shell_signal @ y_inv
 
         sum_meas.append(shell_signal.mean(axis=-1))
+
         if this_shell.lmax > 0:
+            y, l = normalized_shms(bvecs, this_shell.lmax)
+            y_inv = np.linalg.pinv(y.T)
+            coeffs = shell_signal @ y_inv
             for degree in np.arange(2, sph_degree + 1, 2):
                 sum_meas.append(np.power(coeffs[..., l == degree], 2).mean(axis=-1))
 
-            sum_meas.append(cleb_gord_summary(coeffs[..., l == 2]))
+            # sum_meas.append(cleb_gord_summary(coeffs[..., l == 2]))
 
     sum_meas = np.array(sum_meas).T * 1
     return sum_meas
