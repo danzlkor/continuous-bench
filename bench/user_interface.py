@@ -61,7 +61,8 @@ def parse_args(argv):
     train_optional.add_argument("-k", default=100, type=int, help="number of nearest neighbours", required=False)
     train_optional.add_argument("-n", default=1000, type=int, help="number of training samples", required=False)
     train_optional.add_argument("-p", default=2, type=int, help="polynomial degree for design matrix", required=False)
-    train_optional.add_argument("-d", default=4, type=int, help="spherical harmonics degree", required=False)
+    train_optional.add_argument("-d", default=4, type=int,
+                                help=" maximum degree for summary measures (only even numbers)", required=False)
     train_optional.add_argument("--alpha", default=0.5, type=float, help="regularization weight", required=False)
     train_optional.add_argument("--change-vecs", help="vectors of change", default=None, required=False)
     train_optional.add_argument("--summary", default='shm', type=str,
@@ -142,7 +143,7 @@ def submit_train(args):
                              model_name=forward_model.__name__,
                              poly_degree=int(args.p),
                              regularization=float(args.alpha))
-
+    ch_model.meausrement_names = summary_measures.summary_names(acq, args.d)
     ch_model.save(path='', file_name=args.output)
     print('All change models were trained successfully')
 
