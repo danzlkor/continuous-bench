@@ -116,12 +116,12 @@ def stick(bval=0, bvec=np.array([0, 0, 1]), d_a=1., theta=0., phi=0.0, s0=1.0):
     :param s0: attenuation for b=0
     :return: simulated signal (M,)
     """
-    s0, d_a = [np.asanyarray(v)[..., np.newaxis] for v in (s0, d_a)]
+    s0, d_a, theta, phi = [np.asarray(v)[..., np.newaxis] for v in (s0, d_a, theta, phi)]
     assert np.all(d_a >= 0), "d_a can't be negative"
     assert np.all(s0 >= 0), 's0 cant be negative'
 
-    orientation = spherical2cart(theta, phi)
-    return s0 * np.exp(-bval * (d_a * bvec.dot(orientation) ** 2))
+    orientation = np.array(spherical2cart(theta, phi)).T
+    return s0 * np.exp(-bval * (d_a * orientation.dot(bvec.T) ** 2))
 
 
 def cigar(bval=0, bvec=np.array([0, 0, 1]), theta=0., phi=0,
@@ -405,7 +405,7 @@ def cart2spherical(n):
     phi = np.arctan2(n[:, 1], n[:, 0])
     phi[r == 0] = 0
     theta[r == 0] = 0
-    return phi, theta, r
+    return r, phi, theta
 
 
 def uniform_grid_sphere(n_theta, n_phi=None):
