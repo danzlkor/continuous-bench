@@ -90,7 +90,7 @@ def fit_shm(signal, acq, sph_degree):
 
             # sum_meas.append(cleb_gord_summary(coeffs[..., l == 2]))
 
-    sum_meas = np.array(sum_meas).T * 1
+    sum_meas = np.array(sum_meas).T * 10
     return sum_meas
 
 
@@ -117,8 +117,8 @@ def shm_cov(sum_meas, signal, acq, sph_degree, noise_level):
             y_inv = np.linalg.pinv(y).T
             coeffs = signal[:, acq.idx_shells == shell_idx] @ y_inv
             grad = cleb_gord_grad(coeffs[..., l == 2], y_inv[:, l == 2])
-            variances[:, s_idx] = (grad * grad).sum(axis=-1) * (noise_level ** 2)
-            s_idx += 1
+            # variances[:, s_idx] = (grad * grad).sum(axis=-1) * (noise_level ** 2)
+            # s_idx += 1
 
     sigma_n = np.array([np.diag(v) for v in variances])
     return sigma_n

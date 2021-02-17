@@ -71,6 +71,14 @@ prior_distributions = dict(
                                'odi': stats.uniform(loc=.01, scale=.98),
                                'odi_ratio': stats.uniform(loc=.01, scale=.98),
                                },
+
+    watson_noddi_diffusivities={
+                  'd_iso': stats.truncnorm(loc=3, scale=.1, a=-3 / .1, b=np.Inf),
+                  'd_a_in': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
+                  'd_a_ex': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
+                  'tortuosity': stats.uniform(loc=0.01, scale=.98),
+                  'odi': stats.uniform(loc=.01, scale=.98),
+                  },
 )
 
 
@@ -377,6 +385,47 @@ def bingham_noddi_constrained(bval, bvec, s_iso, s_in, s_ex, odi, odi_ratio, the
                            tortuosity=tortuosity, odi=odi, odi_ratio=odi_ratio, s0=s0,
                            theta=theta, phi=phi, psi=psi)
     return signal
+
+
+def watson_noddi_diffusivities(bval=0, bvec=np.array([0, 0, 1]),
+                 d_iso=1., d_a_in=1., d_a_ex=1.,
+                 tortuosity=.5, odi=.5,
+                 theta=0., phi=0., s0=1.):
+    """
+    Simulates diffusion signal with Watson dispressed NODDI model
+
+    :param bval: b-values
+    :param bvec: (,3) gradient directions(x, y, z)
+    :param s_iso: signal fraction of isotropic diffusion
+    :param s_in: signal fraction of intra-axonal diffusion
+    :param s_ex: signal fraction of extra-axonal water
+    :param d_iso: isotropic diffusion coefficient
+    :param d_a_in: axial diffusion coefficient
+    :param d_a_ex: axial diffusion coefficient for extra-axonal compartment
+    :param tortuosity: ratio of radial to axial diffusivity
+    :param odi: dispersion parameter of watson distribution
+    :param theta: orientation of stick from z axis
+    :param phi: orientation of stick from x axis
+    :param s0: attenuation for b=0
+    :return: (M,) diffusion signal
+    """
+    assert s0 >= 0, 's0 cant be negative'
+    s_iso = 0.5
+    s_in = 0.5
+    s_ex = 0.5
+
+    a_iso = ball(bval=bval, bvec=bvec, d_iso=d_iso, s0=s_iso)
+
+    a_int = bingham_zeppelin(bval=bval, bvec=bvec, d_a=d_a_in, d_r=0,
+                             odi=odi, odi2=odi,
+                             psi=0, theta=theta, phi=phi, s0=s_in)
+
+    a_ext = bingham_zeppelin(bval=bval, bvec=bvec, d_a=d_a_ex,
+                             d_r=d_a_ex * tortuosity,
+                             odi=odi, odi2=odi,
+                             psi=0, theta=theta, phi=phi, s0=s_ex)
+
+    return (a_iso + a_int + a_ext) * s0
 
 
 # helper functions:
