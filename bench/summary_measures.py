@@ -35,12 +35,12 @@ def normalized_shms(bvecs, lmax):
     return y, l
 
 
-def fit_shm(signal, acq, sph_degree):
+def fit_shm(signal, acq, shm_degree):
     """
     Cumputes summary measurements from spherical harmonics fit.
     :param signal: diffusion signal
     :param acq: acquistion protocol
-    :param sph_degree: maximum degree for summary measurements
+    :param shm_degree: maximum degree for summary measurements
     :return: summary measurements
     """
     if signal.ndim == 1:
@@ -58,7 +58,7 @@ def fit_shm(signal, acq, sph_degree):
             y, l = normalized_shms(bvecs, this_shell.lmax)
             y_inv = np.linalg.pinv(y.T)
             coeffs = shell_signal @ y_inv
-            for degree in np.arange(2, sph_degree + 1, 2):
+            for degree in np.arange(2, shm_degree + 1, 2):
                 sum_meas.append(np.power(coeffs[..., l == degree], 2).mean(axis=-1))
 
             sum_meas.append(cleb_gord_summary_complex(shell_signal, bvecs, this_shell.lmax))
@@ -180,7 +180,7 @@ def fit_summary_single_subject(subj_idx: str, diff_add: str, xfm_add: str, bvec_
     idx_shells, shells = ShellParameters.create_shells(bval=bvals)
     acq = Acquisition(shells, idx_shells, bvecs)
 
-    summaries, _ = fit_shm(data, acq, sph_degree=sph_degree)
+    summaries, _ = fit_shm(data, acq, shm_degree=sph_degree)
 
     # write to nifti:
     mask_img = Image(mask_add)
