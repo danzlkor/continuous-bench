@@ -127,7 +127,7 @@ class ChangeModel:
         """
 
         print(f'running inference for {data.shape[0]} samples ...')
-        lls, peaks = self.compute_log_likelihood(data, delta_data, sigma_n)
+        lls, peaks = self.compute_log_likelihood(data, delta_data, sigma_n, parallel=True)
         priors = np.array([1.] + [m.prior for m in self.models])  # the 1 is for empty set
         priors = priors / priors.sum()
         model_log_posteriors = lls + np.log(priors)
@@ -138,7 +138,7 @@ class ChangeModel:
 
     # warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-    def compute_log_likelihood(self, y, delta_y, sigma_n):
+    def compute_log_likelihood(self, y, delta_y, sigma_n, parallel=True):
         """
         Computes log_likelihood function for all models of change.
 
@@ -185,11 +185,13 @@ class ChangeModel:
 
             return log_prob, peaks
 
-        res = Parallel(n_jobs=-1, verbose=True)(delayed(func)(i) for i in range(n_samples))
-        # pbar = ProgressBar()
-        # res = []
-        # for i in pbar(range(n_samples)):
-        #     res.append(func(i))
+        if parallel:
+            res = Parallel(n_jobs=-1, verbose=True)(delayed(func)(i) for i in range(n_samples))
+        else:
+            pbar = ProgressBar()
+            res = []
+            for i in pbar(range(n_samples)):
+                res.append(func(i))
 
         log_prob = np.array([d[0] for d in res])
         peaks = np.array([d[1] for d in res])

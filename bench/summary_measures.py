@@ -17,14 +17,15 @@ from sympy.physics.quantum.cg import CG
 from scipy.special import lpmv, factorial
 
 
-def summary_names(acq, shm_degree):
+def summary_names(acq, shm_degree, cg=False):
     names = []
     for sh in acq.shells:
         names.append(f"b{sh.bval:1.0f}_mean")
         if sh.lmax > 0:
             for degree in np.arange(2, shm_degree + 1, 2):
                 names.append(f"b{sh.bval:1.0f}_l{degree}")
-            names.append(f"b{sh.bval:1.0f}_l2_cg")
+            if cg:
+                names.append(f"b{sh.bval:1.0f}_l2_cg")
     return names
 
 
@@ -35,7 +36,7 @@ def normalized_shms(bvecs, lmax):
     return y, l
 
 
-def fit_shm(signal, acq, shm_degree):
+def fit_shm(signal, acq, shm_degree, cg=False):
     """
     Cumputes summary measurements from spherical harmonics fit.
     :param signal: diffusion signal
@@ -61,13 +62,14 @@ def fit_shm(signal, acq, shm_degree):
             for degree in np.arange(2, shm_degree + 1, 2):
                 sum_meas.append(np.power(coeffs[..., l == degree], 2).mean(axis=-1))
 
-            sum_meas.append(cleb_gord_summary_complex(shell_signal, bvecs, this_shell.lmax))
+            if cg:
+                sum_meas.append(cleb_gord_summary_complex(shell_signal, bvecs, this_shell.lmax))
 
     sum_meas = np.array(sum_meas).T
     return sum_meas
 
 
-def shm_cov(sum_meas, signal, acq, sph_degree, noise_level):
+def shm_cov(sum_meas, signal, acq, sph_degree, noise_level, cg=False):
     if sum_meas.ndim == 1:
         sum_meas = sum_meas[np.newaxis, :]
     if signal.ndim == 1:
@@ -86,12 +88,12 @@ def shm_cov(sum_meas, signal, acq, sph_degree, noise_level):
                 f = (noise_level ** 2) / c
                 variances[:, s_idx] = f * (2 * sum_meas[:, s_idx] + f) / (2 * degree + 1)
                 s_idx += 1
-
-            y_inv = np.linalg.pinv(y).T
-            coeffs = signal[:, acq.idx_shells == shell_idx] @ y_inv
-            grad = cleb_gord_grad(coeffs[..., l == 2], y_inv[:, l == 2])
-            # variances[:, s_idx] = (grad * grad).sum(axis=-1) * (noise_level ** 2)
-            # s_idx += 1
+            if cg:
+                y_inv = np.linalg.pinv(y).T
+                coeffs = signal[:, acq.idx_shells == shell_idx] @ y_inv
+                grad = cleb_gord_grad(coeffs[..., l == 2], y_inv[:, l == 2])
+                variances[:, s_idx] = (grad * grad).sum(axis=-1) * (noise_level ** 2)
+                s_idx += 1
 
     sigma_n = np.array([np.diag(v) for v in variances])
     return sigma_n
