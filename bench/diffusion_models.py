@@ -644,10 +644,10 @@ def simulate_signal(model, acq, model_params):
 
 def bench_decorator(model, summary_type='shm'):
     if summary_type == 'shm':
-        def func(acq, sph_degree, noise_level, **params):
+        def func(acq, shm_degree, noise_level, **params):
             sig = simulate_signal(model, acq, params)
             noise = np.random.randn(*sig.shape) * noise_level
-            sm = summary_measures.fit_shm(sig + noise, acq, sph_degree=sph_degree)
+            sm = summary_measures.fit_shm(sig + noise, acq, sph_degree=shm_degree)
             return sm
 
     elif summary_type == 'dtm':
