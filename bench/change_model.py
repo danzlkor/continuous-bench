@@ -494,9 +494,11 @@ def knn_estimation(y, dy, k=100, lam=1e-6):
     :param y: (n_samples, n_dim) array of summary measurements
     :param dy: (n_vecs, n_samples, n_dim) array of derivatives per vector of change
     :param k: number of neighbourhood samples
-    :param lam: shrinkage value to avoid degenerate covariance matrices
+    :param lam: shrinkage value to avoid degenerate covariance matrices relative to minimum change
     :return: mu and l per data point
     """
+    # make lambda relative tominimum:
+    lam *= np.abs(dy[np.nonzero(dy)]).min()
 
     n_vecs, n_samples, dim = dy.shape
     mu = np.zeros_like(dy)
@@ -504,7 +506,6 @@ def knn_estimation(y, dy, k=100, lam=1e-6):
 
     idx = np.tril_indices(dim)
     diag_idx = np.argwhere(idx[0] == idx[1])
-
 
     tree = KDTree(y)
     _, neigbs = tree.query(y, k)

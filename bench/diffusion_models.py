@@ -156,7 +156,7 @@ def cigar(bval=0, bvec=np.array([0, 0, 1]), theta=0., phi=0,
 
 
 def bingham_zeppelin(bval=0, bvec=np.array([[0, 0, 1]]), d_a=1., d_r=0.,
-                     odi=1., odi2=None, theta=0., phi=0., psi=0., s0=1.):
+                     odi=.99, odi2=None, theta=0., phi=0., psi=0., s0=1.):
     """
     Simulates diffusion signal for a bingham-distributed ODF
 
@@ -172,13 +172,15 @@ def bingham_zeppelin(bval=0, bvec=np.array([[0, 0, 1]]), d_a=1., d_r=0.,
     :param s0: attenuation for b=0
     :return: simulated signal (M,)
     """
+    if odi2 is None:
+        odi2 = odi  # make it watson distribution.
+
     s0, d_a, d_r, odi, odi2, theta, phi, psi = [np.atleast_1d(v) for v in
                                                 (s0, d_a, d_r, odi, odi2, theta, phi, psi)]
     n_samples = s0.shape[0]
 
     assert np.all(s0 >= 0), 's0 cannot be negative'
-    if odi2 is None:
-        odi2 = odi  # make it watson distribution.
+
     assert np.all((odi >= odi2) & (odi2 > 0)), 'odis must be positive and in order'
 
     if bvec.ndim == 1:
@@ -196,7 +198,7 @@ def bingham_zeppelin(bval=0, bvec=np.array([[0, 0, 1]]), d_a=1., d_r=0.,
                       [-np.sin(phi), np.cos(phi), np.zeros_like(phi)],
                       [np.zeros_like(phi), np.zeros_like(phi), np.ones_like(phi)]]).transpose()
 
-    r = np.array([r_psi[i] @ r_theta[i] @ r_phi[i] for i in range(phi.shape[0])])
+    r = r_psi @ r_theta @ r_phi
 
     k1 = 1 / np.tan(odi * np.pi / 2)
     k2 = 1 / np.tan(odi2 * np.pi / 2)

@@ -81,7 +81,7 @@ def parse_args(argv):
                                      help="Gradient orientations for each subject")
     diff_summary_parser.add_argument("--bval", metavar='bval', required=True,
                                      help="b_values (should be the same for all subjects")
-    diff_summary_parser.add_argument("--sph_degree", default=4,
+    diff_summary_parser.add_argument("--shm_degree", default=4,
                                      help=" Degree for spherical harmonics summary measurements",
                                      required=False, type=int)
     diff_summary_parser.add_argument("--study-dir", help="Path to the output directory", required=True)
@@ -127,7 +127,7 @@ def submit_train(args):
     acq = acquisition.Acquisition(shells, idx_shells, bvecs)
     func_args = {'acq': acq, 'noise_level': 0}
     if args.summary == 'shm':
-        func_args['sph_degree'] = args.d
+        func_args['shm_degree'] = args.d
 
     if args.change_vecs is not None:
         with open(args.change_vecs, 'r') as reader:

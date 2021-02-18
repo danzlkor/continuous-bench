@@ -14,14 +14,15 @@ import numpy as np
 from dipy.reconst.shm import real_sym_sh_basis
 from bench.acquisition import Acquisition, ShellParameters
 from sympy.physics.quantum.cg import CG
+from scipy.special import lpmv, factorial
 
 
-def summary_names(acq, sph_degree):
+def summary_names(acq, shm_degree):
     names = []
     for sh in acq.shells:
         names.append(f"b{sh.bval:1.0f}_mean")
         if sh.lmax > 0:
-            for degree in np.arange(2, sph_degree + 1, 2):
+            for degree in np.arange(2, shm_degree + 1, 2):
                 names.append(f"b{sh.bval:1.0f}_l{degree}")
             # names.append(f"b{sh.bval:1.0f}_l2_cg")
     return names
@@ -30,36 +31,8 @@ def summary_names(acq, sph_degree):
 def normalized_shms(bvecs, lmax):
     _, phi, theta = cart2spherical(*bvecs.T)
     y, m, l = real_sym_sh_basis(lmax, theta, phi)
-    y = y  # / y[0, 0]  # normalization is required to make the first summary measure represent mean signal
+    y = y  # /y[0, 0]  # normalization is required to make the first summary measure represent mean signal
     return y, l
-
-
-mv = np.arange(-2, 3)
-cleb_gord_idx = np.array([[m1, m2, m3] for m1 in mv for m2 in mv for m3 in mv]).astype(int)
-cleb_gord_coef = np.array([CG(2, m[0], 2, m[1], 2, m[2]).doit().evalf() for m in cleb_gord_idx]).astype(float)
-cleb_gord_idx = cleb_gord_idx + 2
-
-
-def cleb_gord_summary(shm):
-    """
-    computes celebch-gordon summary measures for 2nd degree spherical harmonics coefficients
-    :param shm: coefficients of spherical harmonics for degree 2
-    :return:
-    """
-    r = np.zeros(shm.shape[:-1])
-    for m, c in zip(cleb_gord_idx, cleb_gord_coef):
-        r += shm[:, m[0]] * shm[:, m[1]] * shm[:, m[2]] * c
-    return r
-
-
-def cleb_gord_grad(shm, y_inv):
-    r = np.zeros((*shm.shape[:-1], y_inv.shape[0]))
-    for idx, c in zip(cleb_gord_idx, cleb_gord_coef):
-        d1 = (shm[..., idx[1]] * shm[..., idx[2]] * c)[..., np.newaxis] @ y_inv[:, idx[0]].T[np.newaxis, :]
-        d2 = (shm[..., idx[0]] * shm[..., idx[2]] * c)[..., np.newaxis] @ y_inv[:, idx[1]].T[np.newaxis, :]
-        d3 = (shm[..., idx[0]] * shm[..., idx[1]] * c)[..., np.newaxis] @ y_inv[:, idx[2]].T[np.newaxis, :]
-        r += d1 + d2 + d3
-    return r
 
 
 def fit_shm(signal, acq, sph_degree):
@@ -88,9 +61,9 @@ def fit_shm(signal, acq, sph_degree):
             for degree in np.arange(2, sph_degree + 1, 2):
                 sum_meas.append(np.power(coeffs[..., l == degree], 2).mean(axis=-1))
 
-            # sum_meas.append(cleb_gord_summary(coeffs[..., l == 2]))
+            #sum_meas.append(cleb_gord_summary_complex(shell_signal, bvecs, this_shell.lmax))
 
-    sum_meas = np.array(sum_meas).T * 10
+    sum_meas = np.array(sum_meas).T
     return sum_meas
 
 
@@ -195,7 +168,7 @@ def fit_summary_single_subject(subj_idx: str, diff_add: str, xfm_add: str, bvec_
     print('bvec address: ' + bvec_add)
     print('mask address: ' + mask_add)
     print('bval address: ' + bval_add)
-    print('sph_degree: ' + str(sph_degree))
+    print('shm_degree: ' + str(sph_degree))
     print('output path: ' + output_add)
 
     def_field = f"{output_add}/def_field_{subj_idx}.nii.gz"
@@ -359,6 +332,81 @@ def from_cmd(args):
     sph_degree = int(args[6])
     output_add_ = args[7]
     fit_summary_single_subject(subj_idx_, diff_add_, xfm_add_, bvec_add_, bval_add_, mask_add_, sph_degree, output_add_)
+
+
+mv = np.arange(-2, 3)
+cleb_gord_idx = np.array([[m1, m2, m3] for m1 in mv for m2 in mv for m3 in mv]).astype(int)
+cleb_gord_coef = np.array([CG(2, m[0], 2, m[1], 2, m[2]).doit().evalf() for m in cleb_gord_idx]).astype(float)
+cleb_gord_idx = cleb_gord_idx + 2
+
+
+def cleb_gord_summary_real(shm):
+    """
+    computes celebch-gordon summary measures for 2nd degree spherical harmonics coefficients
+    :param shm: coefficients of spherical harmonics for degree 2
+    :return:
+    """
+    r = np.zeros(shm.shape[:-1])
+    for m, c in zip(cleb_gord_idx, cleb_gord_coef):
+        r += shm[:, m[0]] * shm[:, m[1]] * shm[:, m[2]] * c
+    return r
+
+
+def cleb_gord_grad(shm, y_inv):
+    r = np.zeros((*shm.shape[:-1], y_inv.shape[0]))
+    for idx, c in zip(cleb_gord_idx, cleb_gord_coef):
+        d1 = (shm[..., idx[1]] * shm[..., idx[2]] * c)[..., np.newaxis] @ y_inv[:, idx[0]].T[np.newaxis, :]
+        d2 = (shm[..., idx[0]] * shm[..., idx[2]] * c)[..., np.newaxis] @ y_inv[:, idx[1]].T[np.newaxis, :]
+        d3 = (shm[..., idx[0]] * shm[..., idx[1]] * c)[..., np.newaxis] @ y_inv[:, idx[2]].T[np.newaxis, :]
+        r += d1 + d2 + d3
+    return r
+
+
+def _legendrep(m, l, x):
+    return (-1) ** m * lpmv(m, l, x)
+
+
+def gaunt_sph_harm(m, l, theta, phi):
+    x = np.cos(theta)
+    am = np.abs(m)
+    val = 1j ** (m + am)
+    if l + am == 0:
+        f = 1.0
+    else:
+        f = factorial(l - am) / factorial(l + am)
+
+    val *= np.sqrt((2 * l + 1) / (4 * np.pi) * f).astype(complex)
+    val *= _legendrep(am, l, x).astype(complex)
+    val *= np.exp(1j * m * phi)
+    return val
+
+
+def complex_sh_basis(lmax, theta, phi):
+    y, m, l = [], [], []
+    for l_ in np.arange(0, lmax + 1, 2):
+        for m_ in range(-l_, l_ + 1):
+            y.append(gaunt_sph_harm(m_, l_, theta, phi))
+            m.append(m_)
+            l.append(l_)
+    return np.array(y).T, np.array(m), np.array(l)
+
+
+def cleb_gord_summary_complex(signal, bvecs, lmax):
+    """
+    computes celebch-gordon summary measures for 2nd degree spherical harmonics coefficients
+    :param shm: coefficients of spherical harmonics for degree 2
+    :return: cg-summary measurements
+    """
+    _, phi, theta = cart2spherical(*bvecs.T)
+    y, m, l = complex_sh_basis(lmax, theta, phi)
+
+    y_inv = np.linalg.pinv(y.T)
+    coeffs = signal @ y_inv
+    shm = coeffs[..., l == 2]
+    r = np.zeros(shm.shape[:-1], dtype=shm.dtype)
+    for m, c in zip(cleb_gord_idx, cleb_gord_coef):
+        r += np.conj(shm[:, m[0]]) * np.conj(shm[:, m[1]]) * shm[:, m[2]] * c
+    return np.abs(r)
 
 
 if __name__ == '__main__':

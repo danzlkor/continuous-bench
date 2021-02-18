@@ -285,7 +285,7 @@ def inference_parse_args(argv):
                          help="Gradient orientations for each subject")
     preproc.add_argument("--bval", metavar='bval', required=False,
                          help="b_values (should be the same for all subjects")
-    preproc.add_argument("--sph_degree", default=4, help=" Degree for spherical harmonics summary measurements",
+    preproc.add_argument("--shm_degree", default=4, help=" Degree for spherical harmonics summary measurements",
                          required=False, type=int)
 
     args = parser.parse_args(argv)
