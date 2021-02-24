@@ -4,7 +4,7 @@ This module contains classes and functions to train a change model and make infe
 
 import numpy as np
 from scipy.spatial import KDTree
-from scipy.stats import rv_continuous, gamma
+from scipy.stats import rv_continuous, gamma, norm, lognorm
 from typing import Callable, List, Any, Union, Sequence, Mapping
 from progressbar import ProgressBar
 from dataclasses import dataclass
@@ -18,6 +18,11 @@ import warnings
 import inspect
 import pickle
 from joblib import Parallel, delayed
+from collections import defaultdict
+
+
+all_scale = defaultdict(list)
+
 
 BOUNDS = {'negative': (-np.inf, 0), 'positive': (0, np.inf), 'twosided': (-np.inf, np.inf)}
 INTEGRAL_LIMITS = list(BOUNDS.keys())
@@ -29,21 +34,20 @@ def log_lh(dv, dy, mu, sigma_p, sigma_n):
     return log_mvnpdf(x=dy, mean=mean, cov=cov)
 
 
-def log_prior(dv, mu, sigma_n, lim):
+def log_prior(dv, scale, lim):
     if lim == 'negative':
         dv = -dv
     elif lim == 'twosided':
         dv = np.abs(dv)
 
-    scale = 3 * np.sqrt(mu @ sigma_n @ mu.T) / (np.linalg.norm(mu) ** 2)
-    p = gamma(a=1, scale=scale).pdf(x=dv)  # norm(scale=0.1, loc=0).pdf(x=dv)  #
+    p = lognorm(s=np.log(10), scale=scale).logpdf(x=dv)  # norm(scale=scale, loc=0).pdf(x=dv)  #
 
-    if p == 0:
-        return -1e14
+    if np.isinf(p):
+        p = -1e20
     if lim == 'twosided':
-        return np.log(p / 2)
+        return p - np.log(2)
     else:
-        return np.log(p)
+        return p
 
 
 @dataclass
@@ -56,6 +60,7 @@ class ChangeVector:
     l_mdl: Pipeline
     lim: str
     prior: float = 1
+    scale: float = 0.01
     name: str = None
 
     def __post_init__(self):
@@ -85,11 +90,16 @@ class ChangeVector:
         return mu, sigma
 
     def log_posterior_pdf(self, y, dy, sigma_n):
+
         mu, sigma_p = self.estimate_change(y)
         lim = self.lim
+        scale = self.scale
+        # scale = 0.001  # 1 / np.sqrt(mu @ np.linalg.inv(sigma_n) @ mu.T)
+
+        all_scale[self.name].append(scale)
 
         def pdf(dv):
-            return log_prior(dv, mu, sigma_n, lim) + log_lh(dv, dy, mu, sigma_p, sigma_n)
+            return log_prior(dv, scale, lim) + log_lh(dv, dy, mu, sigma_p, sigma_n)
 
         return pdf
 
@@ -138,12 +148,13 @@ class ChangeModel:
 
     # warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-    def compute_log_likelihood(self, y, delta_y, sigma_n, parallel=True):
+    def compute_log_likelihood(self, y, delta_y, sigma_n, parallel=False):
         """
         Computes log_likelihood function for all models of change.
 
         Compares the observed data with the result from :func:`predict`.
 
+        :param parallel: flag to run inference in parallel
         :param y: (n_samples, n_dim) array of data
         :param delta_y: (n_samples, n_dim) array of delta data
         :param sigma_n: (n_samples, n_dim, n_dim) noise covariance per sample
@@ -489,7 +500,7 @@ class Trainer:
 
 
 # helper functions:
-def knn_estimation(y, dy, k=100, lam=1e-6):
+def knn_estimation(y, dy, k=100, lam=1e-12):
     """
     Computes mean and covariance of change per sample using its K nearest neighbours.
 

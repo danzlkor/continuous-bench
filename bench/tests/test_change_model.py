@@ -23,6 +23,7 @@ def stupid_trainer():
         param_prior_dists={name: distributions.norm(loc=idx, scale=0.) for idx, name in enumerate('abc')},
         )
 
+
 @pytest.fixture
 def multi_shell():
     single_bvecs = default_sphere.vertices
@@ -33,21 +34,24 @@ def multi_shell():
     idx_shell, shells = acquisition.ShellParameters.create_shells(bval=bvals)
     return acquisition.Acquisition(shells, idx_shell, bvecs)
 
+
 @pytest.fixture
 def trainer(multi_shell):
     model = diffusion_models.bench_decorator(diffusion_models.watson_noddi, summary_type='shm')
     return Trainer(
         model,
-        dict(acq=multi_shell, sph_degree=4, noise_level=0),
+        dict(acq=multi_shell, shm_degree=4, noise_level=0),
         param_prior_dists=diffusion_models.prior_distributions[model.__name__]
     )
 
 
 def test_multi_shell(trainer: Trainer):
     np.random.seed(123)
-    d1, d2 = trainer.generate_train_samples(8, 0.01, old=True, parallel=False)
+    d1, d2 = trainer.generate_train_samples(1000, 0.01, old=True, parallel=False)
     np.random.seed(123)
-    p1, p2 = trainer.generate_train_samples(8, 0.01)
+    p1, p2 = trainer.generate_train_samples(1000, 0.01)
+
+    assert np.all([(x == x).all() for x in (d1, d2, p1, p2)])
     testing.assert_array_almost_equal(d1, p1)
     testing.assert_array_almost_equal(d2, p2)
 
@@ -64,3 +68,10 @@ def test_generate_data(stupid_trainer):
     testing.assert_equal(y_2[1, :, 1], 4)
     testing.assert_equal(y_2[2, :, 0], 2)
     testing.assert_equal(y_2[2, :, 1], 4)
+
+
+def test_nan():
+    a = np.array([2, np.nan])
+    b = np.array([2, np.nan])
+    #assert np.all([(x == x).all() for x in (a, b)])
+    testing.assert_almost_equal(a, b)
