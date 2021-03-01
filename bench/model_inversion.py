@@ -13,41 +13,45 @@ import scipy.stats as st
 from typing import Union, Callable, List
 from progressbar import ProgressBar
 import argparse
+import numdifftools as nd
 
 
 def log_prior(params, priors):
-    return np.sum([np.log(priors[k].pdf(params[k]))
-                   for k in params.keys()])
+    return np.sum([priors[k].logpdf(params[k]) for k in params.keys()])
 
 
 def log_likelihood_sig(params, model, y, noise_level):
     expected = np.squeeze(model(params))
     d = expected.shape[0]
-    expo = -0.5 * np.linalg.norm((y - expected)/noise_level) ** 2
-    nc = -0.5 * d * np.log((2 * np.pi * noise_level ** 2))
-    return expo + nc
+    p = st.multivariate_normal(mean=expected, cov=np.eye(d) * noise_level ** 2).logpdf(y)
+    return p
 
 
 def log_posterior_sig(params, priors, model, y, noise_level):
     param_dict = {k: v for k, v in zip(priors.keys(), params)}
-    return -(log_likelihood_sig(param_dict, model, y, noise_level)
-             + log_prior(param_dict, priors))
+    prior = log_prior(param_dict, priors)
+    if not np.isneginf(prior):
+        posterior = log_likelihood_sig(param_dict, model, y, noise_level)
+    else:
+        posterior = 0
+
+    return prior + posterior
 
 
 def map_fit_sig(model: Callable, priors: dict, y: np.ndarray, noise_level):
     x0 = np.array([v.mean() for v in priors.values()])
     bounds = [v.interval(1 - 1e-6) for v in priors.values()]
-    p = optimize.minimize(log_posterior_sig,
-                          args=(priors, model, y, noise_level),
-                          x0=x0,  bounds=bounds, options={'disp': False})
 
-    f = lambda p: log_posterior_sig(p, priors, model, y, noise_level)
+    f = lambda x: -log_posterior_sig(x, priors, model, y, noise_level)
+    p = optimize.minimize(f, x0=x0,  bounds=bounds, options={'disp': False})
     h = hessian(f, p.x)
-    std = 1/np.sqrt(np.diag(h))
+    # h = nd.Hessian(f)(p.x)
+    std = 1/np.sqrt(abs(np.diag(h)))
     return p.x, std
 
 
 def grad(f, p, dp=1e-6):
+    dp *= np.abs(p[np.nonzero(p)]).min()
     fp = f(p)
     if np.isscalar(fp):
         l = 1

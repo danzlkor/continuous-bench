@@ -60,7 +60,7 @@ class ChangeVector:
     l_mdl: Pipeline
     lim: str
     prior: float = 1
-    scale: float = 0.01
+    scale: float = 0.1
     name: str = None
 
     def __post_init__(self):
@@ -173,7 +173,9 @@ class ChangeModel:
             sigma_n_s = sigma_n[sam_idx]
 
             if np.isnan(y_s).any() or np.isnan(dy_s).any() or np.isnan(sigma_n_s).any():
-                log_prob = np.zeros(n_models)
+                log_prob = np.ones(n_models) / n_models
+                warnings.warn("Recieved nan inputs at inference.")
+
             else:
                 log_prob[0] = log_mvnpdf(x=dy_s, mean=np.zeros(n_dim), cov=sigma_n_s)
 
@@ -188,7 +190,7 @@ class ChangeModel:
                         peaks[vec_idx] = peak
                     except np.linalg.LinAlgError as err:
                         if 'Singular matrix' in str(err):
-                            log_prob[vec_idx] = -1e3
+                            log_prob[vec_idx] = -1e10
                             warnings.warn(f'noise covariance is singular for sample {sam_idx}'
                                           f'with variances {np.diag(sigma_n_s)}')
                         else:
@@ -430,7 +432,7 @@ class Trainer:
                 warnings.warn(f'{np.sum(nans)} nan samples generated.')
         return y1, y2
 
-    def generate_test_samples(self, n_samples=1000, effect_size=0.1, noise_level=0.0, n_repeats=100):
+    def generate_test_samples(self, n_samples=1000, effect_size=0.1, noise_level=0.0, n_repeats=100, base_params=None):
         """
         Important note: for this feature the forward model needs to have an internal noise model t
         hat accepts the parameter 'noise_level'. Otherwise, gaussian white noise is added to the measurements.
@@ -458,7 +460,10 @@ class Trainer:
             sigma_n = None  # it is identity matrix times noise_level ** 2, we dont return it for memory concerns.
 
         print(f'Generating {n_samples} test samples:')
-        all_params = {p: v.rvs(n_samples) for p, v in self.param_prior_dists.items()}
+        if base_params is None:
+            all_params = {p: v.rvs(n_samples) for p, v in self.param_prior_dists.items()}
+        else:
+            all_params = {p: v * np.ones(n_samples) for p, v in base_params.items()}
 
         y_1 = np.zeros((n_samples, self.n_dim))
         y_2 = np.zeros_like(y_1)
@@ -627,10 +632,12 @@ def performance_measures(posteriors, true_change, set_names):
 def plot_conf_mat(conf_mat, param_names, f_name=None, title=None):
     import matplotlib.pyplot as plt
     import seaborn as sns
+    plt.rcParams['font.size'] = 16
 
     sets = ['[]'] + param_names
-    plt.figure(figsize=(8, 7))
-    ax = sns.heatmap(conf_mat.T, annot=True, fmt="2.2f", vmin=0, vmax=1)
+    plt.figure(figsize=(7, 6))
+    ax = sns.heatmap(conf_mat.T, annot=True, fmt="2.2f", vmin=0, vmax=1,
+                     annot_kws={'size': 12})
 
     plt.tight_layout()
     ax.set_xticklabels(labels=sets, rotation=45, fontdict={'size': 12})
