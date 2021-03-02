@@ -18,14 +18,14 @@ def test_parameter_estimation():
     actual = np.array([1, 2, 2])
     noise_level = 1e-3
     data = toy_model(x, *actual)
-    noisy_data = data + noise_level * np.rand
+    noisy_data = data + noise_level * np.random.randn(*data.shape)
 
     fits, _ = mi.map_fit_sig(func, param_priors, noisy_data, noise_level)
     np.testing.assert_allclose(actual, fits, rtol=1e-2)
 
 
 def test_std_estimation():
-    x = np.array([1, -3, 4])[:, np.newaxis]
+    x = np.array([1, 2, 3])[:, np.newaxis]
     func = lambda params: toy_model(x, **params)
     actual_params = np.array([1, 2, 2])
     noise_level = 1e-3
@@ -37,13 +37,13 @@ def test_std_estimation():
 
     a = np.array([[p ** 2, p, 1] for p in x[:, 0]])
     a_inv = np.linalg.inv(a)
-    pe_a = np.squeeze(a_inv @ noisy_data)
+    pe_a = np.squeeze(a_inv @ data)
 
     cov = a_inv.dot(a_inv.T) * (noise_level ** 2)
-    stda = np.diagonal(cov)
+    stda = np.sqrt(np.diagonal(cov))
 
-    np.testing.assert_allclose(pe_a, actual_params, rtol=1e-2)
-    np.testing.assert_allclose(stda, stde, rtol=1e-2)
+    np.testing.assert_allclose(pe_a, actual_params, rtol=1e-3)
+    np.testing.assert_allclose(stda, stde, rtol=1e-7)
 
 
 def test_confmats():

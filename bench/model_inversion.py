@@ -13,7 +13,7 @@ import scipy.stats as st
 from typing import Union, Callable, List
 from progressbar import ProgressBar
 import argparse
-import numdifftools as nd
+#import numdifftools as nd
 
 
 def log_prior(params, priors):
@@ -35,34 +35,29 @@ def log_posterior_sig(params, priors, model, y, noise_level):
     else:
         ll = log_likelihood_sig(param_dict, model, y, noise_level)
 
-    return prior * 0 + ll
+    return prior + ll
 
 
 def map_fit_sig(model: Callable, priors: dict, y: np.ndarray, noise_level):
     x0 = np.array([v.mean() for v in priors.values()])
-    # bounds = [v.interval(1 - 1e-2) for v in priors.values()]
+    bounds = [v.support() for v in priors.values()]
 
     f = lambda x: -log_posterior_sig(x, priors, model, y, noise_level)
-    p = optimize.minimize(f, x0=x0, options={'disp': False})
-    h = hessian(f, p.x)
-    h = nd.Hessian(f)(p.x)
-    std = 1/np.sqrt(abs(np.diag(h)))
+    p = optimize.minimize(f, x0=x0, bounds=bounds, options={'disp': False})
+    h = hessian(f, p.x, dp=1e-2)
+    # h = nd.Hessian(f)(p.x)
+    std = np.sqrt(np.diag(abs(np.linalg.inv(h))))
     return p.x, std
 
 
 def grad(f, p, dp=1e-6):
-    dp *= np.abs(p[np.nonzero(p)]).min()
-    fp = f(p)
-    if np.isscalar(fp):
-        l = 1
-    else:
-        l = len(fp)
-    g = np.zeros((len(p), l))
+    dp = np.maximum(1e-20, abs(p * dp))
+    g = []
     for i in range(len(p)):
         pi = np.zeros(len(p))
-        pi[i] = dp
-        g[i] = np.squeeze((f(p + pi) - fp)/dp)
-    return g
+        pi[i] = dp[i]
+        g.append(np.squeeze((f(p + pi) - f(p-pi))/(2 * dp[i])))
+    return np.stack(g, axis=0)
 
 
 def hessian(f, p, dp=1e-6):
