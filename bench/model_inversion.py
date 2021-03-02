@@ -23,29 +23,29 @@ def log_prior(params, priors):
 def log_likelihood_sig(params, model, y, noise_level):
     expected = np.squeeze(model(params))
     d = expected.shape[0]
-    p = st.multivariate_normal(mean=expected, cov=np.eye(d) * noise_level ** 2).logpdf(y)
+    p = st.multivariate_normal(mean=expected, cov=np.eye(d) * noise_level ** 2).logpdf(np.squeeze(y))
     return p
 
 
 def log_posterior_sig(params, priors, model, y, noise_level):
     param_dict = {k: v for k, v in zip(priors.keys(), params)}
     prior = log_prior(param_dict, priors)
-    if not np.isneginf(prior):
-        posterior = log_likelihood_sig(param_dict, model, y, noise_level)
+    if np.isneginf(prior):
+        ll = -np.inf
     else:
-        posterior = 0
+        ll = log_likelihood_sig(param_dict, model, y, noise_level)
 
-    return prior + posterior
+    return prior * 0 + ll
 
 
 def map_fit_sig(model: Callable, priors: dict, y: np.ndarray, noise_level):
     x0 = np.array([v.mean() for v in priors.values()])
-    bounds = [v.interval(1 - 1e-6) for v in priors.values()]
+    # bounds = [v.interval(1 - 1e-2) for v in priors.values()]
 
     f = lambda x: -log_posterior_sig(x, priors, model, y, noise_level)
-    p = optimize.minimize(f, x0=x0,  bounds=bounds, options={'disp': False})
+    p = optimize.minimize(f, x0=x0, options={'disp': False})
     h = hessian(f, p.x)
-    # h = nd.Hessian(f)(p.x)
+    h = nd.Hessian(f)(p.x)
     std = 1/np.sqrt(abs(np.diag(h)))
     return p.x, std
 
