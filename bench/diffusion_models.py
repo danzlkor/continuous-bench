@@ -155,7 +155,7 @@ def cigar(bval=0, bvec=np.array([0, 0, 1]), theta=0., phi=0,
     return s0 * np.exp(-bval * (d_r + (d_a - d_r) * bvec.dot(orientation) ** 2))
 
 
-def bingham_zeppelin(bval=0, bvec=np.array([[0, 0, 1]]), d_a=1., d_r=0.,
+def bingham_zeppelin(bval=0., bvec=np.array([[0, 0, 1]]), d_a=1., d_r=0.,
                      odi=.99, odi2=None, theta=0., phi=0., psi=0., s0=1.):
     """
     Simulates diffusion signal for a bingham-distributed ODF
@@ -212,7 +212,7 @@ def bingham_zeppelin(bval=0, bvec=np.array([[0, 0, 1]]), d_a=1., d_r=0.,
         bing_mat = np.array([r[i].T @ b_diag[i] @ r[i] for i in range(b_diag.shape[0])])
 
     denom = hyp_sapprox(np.linalg.eigvalsh(bing_mat)[..., ::-1])
-    q = bing_mat[:, np.newaxis, :, :] - (bval * (d_a - d_r))[..., np.newaxis, np.newaxis, np.newaxis] * \
+    q = bing_mat[:, np.newaxis, :, :] - (bval * (d_a - d_r)[..., np.newaxis])[..., np.newaxis, np.newaxis] * \
         ((bvec[:, np.newaxis, :] * bvec[:, :, np.newaxis])[np.newaxis, ...])
     num = hyp_sapprox(np.linalg.eigvalsh(q)[..., ::-1]) * np.exp(-d_r * bval)[:, np.newaxis]
 
@@ -630,6 +630,9 @@ def simulate_signal(model, acq, model_params):
     :param params: dictionary of model parameter with shape S
     :return: diffusion signal (S..., ndirs)
     """
+    bvals = np.array([s.bval for s in acq.shells])
+    return model(bval=bvals[acq.idx_shells], bvec=acq.bvecs, s0=1, **model_params)
+
     n_samples = np.max([np.atleast_1d(p).shape for p in model_params.values()]) # assumes all parameters have the same length or only one of them is more than one.
     #  np.broadcast_shapes(*[np.asarray(p).shape for p in params.values()])
     n_directions = acq.bvecs.shape[0]

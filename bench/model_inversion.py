@@ -23,8 +23,9 @@ def log_prior(params, priors):
 def log_likelihood_sig(params, model, y, noise_level):
     expected = np.squeeze(model(params))
     d = expected.shape[0]
-    p = st.multivariate_normal(mean=expected, cov=np.eye(d) * noise_level ** 2).logpdf(np.squeeze(y))
-    return p
+    expo = -0.5 * np.linalg.norm((y - expected)/noise_level) ** 2
+    nc = -0.5 * d * np.log((2 * np.pi * noise_level ** 2))
+    return expo + nc
 
 
 def log_posterior_sig(params, priors, model, y, noise_level):
@@ -44,25 +45,34 @@ def map_fit_sig(model: Callable, priors: dict, y: np.ndarray, noise_level):
 
     f = lambda x: -log_posterior_sig(x, priors, model, y, noise_level)
     p = optimize.minimize(f, x0=x0, bounds=bounds, options={'disp': False})
-    h = hessian(f, p.x, dp=1e-2)
+    h = hessian(f, p.x, bounds=bounds, dp=1e-2)
     # h = nd.Hessian(f)(p.x)
     std = np.sqrt(np.diag(abs(np.linalg.inv(h))))
     return p.x, std
 
 
-def grad(f, p, dp=1e-6):
-    dp = np.maximum(1e-20, abs(p * dp))
+def grad(f, p, bounds, dp=1e-6):
+    dp = np.maximum(1e-10, abs(p * dp))
     g = []
     for i in range(len(p)):
         pi = np.zeros(len(p))
         pi[i] = dp[i]
-        g.append(np.squeeze((f(p + pi) - f(p-pi))/(2 * dp[i])))
+
+        u = p + pi
+        if u[i] > bounds[i][1]:
+            u[i] = bounds[i][1]
+
+        l = p - pi
+        if l[i] < bounds[i][0]:
+            l[i] = bounds[i][0]
+
+        g.append((f(u) - f(l)) / (u[i]-l[i]))
     return np.stack(g, axis=0)
 
 
-def hessian(f, p, dp=1e-6):
-    g = lambda p_: grad(f, p_, dp)
-    return grad(g, p, dp)
+def hessian(f, p, bounds, dp=1e-6):
+    g = lambda p_: grad(f, p_, bounds, dp)
+    return grad(g, p, bounds, dp)
 
 
 def log_likelihood_smm(params, model, acq, sph_degree, y, noise_level):
