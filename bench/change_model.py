@@ -12,7 +12,7 @@ from dataclasses import dataclass
 import numpy as np
 from joblib import Parallel, delayed
 from progressbar import ProgressBar
-from scipy.integrate import quad
+from scipy.integrate import quad, simps
 from scipy.optimize import minimize_scalar, root_scalar
 from scipy.spatial import KDTree
 from scipy.stats import rv_continuous, lognorm
@@ -137,12 +137,15 @@ class ChangeModel:
         """
 
         print(f'running inference for {data.shape[0]} samples ...')
-        lls, peaks = self.compute_log_likelihood(data, delta_data, sigma_n, parallel=False)
+        lls, peaks = self.compute_log_likelihood(data, delta_data, sigma_n, parallel=True)
         priors = np.array([1.] + [m.prior for m in self.models])  # the 1 is for empty set
         priors = priors / priors.sum()
         model_log_posteriors = lls + np.log(priors)
         posteriors = np.exp(model_log_posteriors)
-        posteriors[posteriors.all(axis=1), 0] = 1# in case all integrals were zeros take the null model.
+
+        posteriors[posteriors.sum(axis=1) == 0, 0] = 1 # in case all integrals were zeros take the null model.
+        posteriors[np.isposinf(posteriors)] = 1000
+
         posteriors = posteriors / posteriors.sum(axis=1)[:, np.newaxis]
         predictions = np.argmax(posteriors, axis=1)
         return posteriors, predictions, peaks
@@ -185,9 +188,16 @@ class ChangeModel:
                         log_post_pdf = ch_mdl.log_posterior_pdf(y_s, dy_s, sigma_n_s)
 
                         peak, low, high = find_range(log_post_pdf, ch_mdl.lim)
-                        post_pdf = lambda dv: np.exp(log_post_pdf(dv).astype(np.float128))
-                        integral = quad(post_pdf, low, high, points=[peak], epsrel=1e-9)[0]
-                        log_prob[vec_idx] = np.log(integral) if integral > 0 else -np.inf
+
+                        log_post_max = np.log(np.exp(log_post_pdf(peak).astype(np.float128)))  # to check for underflow error
+                        if np.isneginf(log_post_max):
+                            log_prob[vec_idx] = -np.inf
+                        else:
+                            post_pdf = lambda dv: np.exp(log_post_pdf(dv) - log_post_max)
+                            integral = quad(post_pdf, low, high, points=[peak], epsrel=1e-9)[0]
+                            log_prob[vec_idx] = np.log(integral) + log_post_max
+
+
                         peaks[vec_idx] = peak
                     except np.linalg.LinAlgError as err:
                         if 'Singular matrix' in str(err):
@@ -438,6 +448,7 @@ class Trainer:
         """
         Important note: for this feature the forward model needs to have an internal noise model t
         hat accepts the parameter 'noise_level'. Otherwise, gaussian white noise is added to the measurements.
+        :param base_params:
         :param n_samples:
         :param effect_size:
         :param noise_level:
@@ -485,7 +496,7 @@ class Trainer:
                             for k, v in params_1.items()}
 
                 valid = np.all([self.param_prior_dists[k].pdf(params_2[k]) > 0 for k in params_2.keys()])
-                if not valid:# then swap param 1 and param 2
+                if not valid:  # then swap param 1 and param 2
                     params_2 = params_1.copy()
                     params_1 = {k: np.abs(v - models[tc - 1].vec.get(k, 0) * effect_size * sign)
                                 for k, v in params_1.items()}
