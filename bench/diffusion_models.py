@@ -2,9 +2,10 @@
 This module contains definition of some microstructural diffusion models and a prior distribution for their parameters.
 """
 
+import numba
 import numpy as np
 from scipy import stats
-import numba
+
 from bench import summary_measures, dtm
 
 # prior distributions:
@@ -214,7 +215,7 @@ def bingham_zeppelin(bval=0., bvec=np.array([[0, 0, 1]]), d_a=1., d_r=0.,
     denom = hyp_sapprox(np.linalg.eigvalsh(bing_mat)[..., ::-1])
     q = bing_mat[:, np.newaxis, :, :] - (bval * (d_a - d_r)[..., np.newaxis])[..., np.newaxis, np.newaxis] * \
         ((bvec[:, np.newaxis, :] * bvec[:, :, np.newaxis])[np.newaxis, ...])
-    num = hyp_sapprox(np.linalg.eigvalsh(q)[..., ::-1]) * np.exp(-d_r * bval)[:, np.newaxis]
+    num = hyp_sapprox(np.linalg.eigvalsh(q)[..., ::-1]) * np.exp(-d_r[..., np.newaxis] * bval)
 
     #for bval_, g in zip(bval, bvec):
     #    q = bing_mat - bval_ * (d_a - d_r) * g[:, np.newaxis].dot(g[np.newaxis, :])
@@ -364,7 +365,7 @@ def watson_noddi_constrained(bval, bvec, s_iso, s_in, s_ex, odi, theta=0., phi=0
     d_iso = 3
     dax_int = 1.7
     dax_ext = 1.7
-    tortuosity = s_in / (s_in + s_ex)
+    tortuosity = s_in / (s_in + s_ex + 1e-100)
 
     signal = watson_noddi(bval=bval, bvec=bvec,
                           s_iso=s_iso, s_in=s_in, s_ex=s_ex,
@@ -632,17 +633,6 @@ def simulate_signal(model, acq, model_params):
     """
     bvals = np.array([s.bval for s in acq.shells])
     return model(bval=bvals[acq.idx_shells], bvec=acq.bvecs, s0=1, **model_params)
-
-    n_samples = np.max([np.atleast_1d(p).shape for p in model_params.values()]) # assumes all parameters have the same length or only one of them is more than one.
-    #  np.broadcast_shapes(*[np.asarray(p).shape for p in params.values()])
-    n_directions = acq.bvecs.shape[0]
-    signal = np.zeros((n_samples, n_directions))
-    for shell_idx, single_shell in enumerate(acq.shells):
-        dir_idx = acq.idx_shells == shell_idx
-        acquisition_params = {'bval': single_shell.bval, 'bvec': acq.bvecs[dir_idx, :], 's0': 1}
-        signal[..., dir_idx] = model(**acquisition_params, **model_params)
-
-    return signal
 
 
 def bench_decorator(model, summary_type='shm'):

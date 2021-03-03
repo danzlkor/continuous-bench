@@ -2,12 +2,14 @@
     This module reads diffusion data and returns data in proper format for inference
 """
 
+import os
+
 import numpy as np
 from fsl.data.featdesign import loadDesignMat
 from fsl.data.image import Image
-from .summary_measures import sample_from_native_space
-import os
 from typing import List
+
+from .summary_measures import sample_from_native_space
 
 
 def group_glm(data, design_mat, design_con):

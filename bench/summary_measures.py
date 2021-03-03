@@ -2,19 +2,21 @@
 This module contains functions for fitting spherical harmonics to diffusion data.
 """
 
-from fsl.transform import fnirt
-from fsl.data.image import Image
-import nibabel as nib
-import os
-import sys
 import glob
-from fsl.wrappers import convertwarp
+import os
 from warnings import warn
+
+import nibabel as nib
 import numpy as np
+import sys
 from dipy.reconst.shm import real_sym_sh_basis
-from bench.acquisition import Acquisition, ShellParameters
-from sympy.physics.quantum.cg import CG
+from fsl.data.image import Image
+from fsl.transform import fnirt
+from fsl.wrappers import convertwarp
 from scipy.special import lpmv, factorial
+from sympy.physics.quantum.cg import CG
+
+from bench.acquisition import Acquisition, ShellParameters
 
 
 def summary_names(acq, shm_degree, cg=False):

@@ -1,11 +1,11 @@
 import numpy as np
-from numpy.lib.function_base import diff
-from bench.change_model import Trainer
-from bench import acquisition, diffusion_models
-from scipy.stats import distributions
-from numpy import testing
 import pytest
 from dipy.data import default_sphere
+from numpy import testing
+from scipy.stats import distributions
+
+from bench import acquisition, diffusion_models
+from bench.change_model import Trainer
 
 
 def forward_model(x, a, b, c) -> np.ndarray:

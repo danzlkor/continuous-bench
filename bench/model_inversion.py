@@ -1,18 +1,22 @@
-from bench import diffusion_models as dm, summary_measures, user_interface, acquisition, change_model
-import numpy as np
-import os
-from scipy import optimize
-from fsl.data.image import Image
+import argparse
 import glob
+import os
+from warnings import warn
+
 import fsl.utils.fslsub as fslsub
-from fsl.utils.run import run
+import numpy as np
+import scipy.stats as st
 import sys
 from fsl.data.featdesign import loadDesignMat
-from warnings import warn
-import scipy.stats as st
-from typing import Union, Callable, List
+from fsl.data.image import Image
+from fsl.utils.run import run
 from progressbar import ProgressBar
-import argparse
+from scipy import optimize
+from typing import Callable
+
+from bench import diffusion_models as dm, summary_measures, user_interface, acquisition, change_model
+
+
 #import numdifftools as nd
 
 
@@ -44,7 +48,7 @@ def map_fit_sig(model: Callable, priors: dict, y: np.ndarray, noise_level):
     bounds = [v.support() for v in priors.values()]
 
     f = lambda x: -log_posterior_sig(x, priors, model, y, noise_level)
-    p = optimize.minimize(f, x0=x0, bounds=bounds, options={'disp': False})
+    p = optimize.minimize(f, x0=x0, bounds=bounds, options={'disp': False}, method='Nelder-mead')
     h = hessian(f, p.x, bounds=bounds, dp=1e-2)
     # h = nd.Hessian(f)(p.x)
     std = np.sqrt(np.diag(abs(np.linalg.inv(h))))

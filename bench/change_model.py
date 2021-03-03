@@ -2,24 +2,24 @@
 This module contains classes and functions to train a change model and make inference on new data.
 """
 
-import numpy as np
-from scipy.spatial import KDTree
-from scipy.stats import rv_continuous, gamma, norm, lognorm
-from typing import Callable, List, Any, Union, Sequence, Mapping
-from progressbar import ProgressBar
-from dataclasses import dataclass
-from sklearn.preprocessing import PolynomialFeatures
-from sklearn import linear_model
-from sklearn.pipeline import Pipeline
+import inspect
 import os
+import pickle
+import warnings
+from collections import defaultdict
+from dataclasses import dataclass
+
+import numpy as np
+from joblib import Parallel, delayed
+from progressbar import ProgressBar
 from scipy.integrate import quad
 from scipy.optimize import minimize_scalar, root_scalar
-import warnings
-import inspect
-import pickle
-from joblib import Parallel, delayed
-from collections import defaultdict
-
+from scipy.spatial import KDTree
+from scipy.stats import rv_continuous, lognorm
+from sklearn import linear_model
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import PolynomialFeatures
+from typing import Callable, List, Any, Union, Sequence, Mapping
 
 all_scale = defaultdict(list)
 
@@ -94,7 +94,7 @@ class ChangeVector:
         mu, sigma_p = self.estimate_change(y)
         lim = self.lim
         scale = self.scale
-        # scale = 0.001  # 1 / np.sqrt(mu @ np.linalg.inv(sigma_n) @ mu.T)
+        # scale = 1 / np.sqrt(mu @ np.linalg.inv(sigma_n) @ mu.T)
 
         all_scale[self.name].append(scale)
 
@@ -137,11 +137,12 @@ class ChangeModel:
         """
 
         print(f'running inference for {data.shape[0]} samples ...')
-        lls, peaks = self.compute_log_likelihood(data, delta_data, sigma_n, parallel=True)
+        lls, peaks = self.compute_log_likelihood(data, delta_data, sigma_n, parallel=False)
         priors = np.array([1.] + [m.prior for m in self.models])  # the 1 is for empty set
         priors = priors / priors.sum()
         model_log_posteriors = lls + np.log(priors)
         posteriors = np.exp(model_log_posteriors)
+        posteriors[posteriors.all(axis=1), 0] = 1# in case all integrals were zeros take the null model.
         posteriors = posteriors / posteriors.sum(axis=1)[:, np.newaxis]
         predictions = np.argmax(posteriors, axis=1)
         return posteriors, predictions, peaks
@@ -174,7 +175,7 @@ class ChangeModel:
 
             if np.isnan(y_s).any() or np.isnan(dy_s).any() or np.isnan(sigma_n_s).any():
                 log_prob = np.ones(n_models) / n_models
-                warnings.warn("Recieved nan inputs at inference.")
+                warnings.warn("Received nan inputs at inference.")
 
             else:
                 log_prob[0] = log_mvnpdf(x=dy_s, mean=np.zeros(n_dim), cov=sigma_n_s)
@@ -184,13 +185,13 @@ class ChangeModel:
                         log_post_pdf = ch_mdl.log_posterior_pdf(y_s, dy_s, sigma_n_s)
 
                         peak, low, high = find_range(log_post_pdf, ch_mdl.lim)
-                        post_pdf = lambda dv: np.exp(log_post_pdf(dv))
-                        integral = quad(post_pdf, low, high, epsrel=1e-3)[0]
+                        post_pdf = lambda dv: np.exp(log_post_pdf(dv).astype(np.float128))
+                        integral = quad(post_pdf, low, high, points=[peak], epsrel=1e-9)[0]
                         log_prob[vec_idx] = np.log(integral) if integral > 0 else -np.inf
                         peaks[vec_idx] = peak
                     except np.linalg.LinAlgError as err:
                         if 'Singular matrix' in str(err):
-                            log_prob[vec_idx] = -1e10
+                            log_prob[vec_idx] = -np.inf
                             warnings.warn(f'noise covariance is singular for sample {sam_idx}'
                                           f'with variances {np.diag(sigma_n_s)}')
                         else:
@@ -432,7 +433,8 @@ class Trainer:
                 warnings.warn(f'{np.sum(nans)} nan samples generated.')
         return y1, y2
 
-    def generate_test_samples(self, n_samples=1000, effect_size=0.1, noise_level=0.0, n_repeats=100, base_params=None):
+    def generate_test_samples(self, n_samples=1000, effect_size=0.1, noise_level=0.0, n_repeats=100,
+                              base_params=None, true_change=None):
         """
         Important note: for this feature the forward model needs to have an internal noise model t
         hat accepts the parameter 'noise_level'. Otherwise, gaussian white noise is added to the measurements.
@@ -449,8 +451,11 @@ class Trainer:
             for l in lims:
                 models.append(ChangeVector(vec=vec, mu_mdl=None, l_mdl=None,
                                            prior=prior, lim=l, name=str(name) + ', ' + l))
+        if true_change is None:
+            true_change = np.random.randint(0, len(models) + 1, n_samples)
+        else:
+            n_samples = len(true_change)
 
-        true_change = np.random.randint(0, len(models) + 1, n_samples)
         args = self.args.copy()
         has_noise_model = 'noise_level' in inspect.getfullargspec(self.forward_model).args
         if has_noise_model:

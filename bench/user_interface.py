@@ -3,14 +3,16 @@ This module is to parse inputs from commandline and call the proper functions fr
 """
 
 import argparse
+import glob
 import os
 from warnings import warn
-import numpy as np
-from bench import change_model, glm, summary_measures, diffusion_models, acquisition
-from fsl.data.image import Image
+
 import nibabel as nib
+import numpy as np
+from fsl.data.image import Image
 from fsl.utils.run import run
-import glob
+
+from bench import change_model, glm, summary_measures, diffusion_models, acquisition
 
 
 def main(argv=None):
