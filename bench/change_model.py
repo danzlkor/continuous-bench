@@ -28,28 +28,6 @@ BOUNDS = {'negative': (-np.inf, 0), 'positive': (0, np.inf), 'twosided': (-np.in
 INTEGRAL_LIMITS = list(BOUNDS.keys())
 
 
-def log_lh(dv, dy, mu, sigma_p, sigma_n):
-    mean = np.squeeze(mu * dv)
-    cov = np.squeeze(sigma_p) * (dv ** 2) + sigma_n
-    return log_mvnpdf(x=dy, mean=mean, cov=cov)
-
-
-def log_prior(dv, scale, lim):
-    if lim == 'negative':
-        dv = -dv
-    elif lim == 'twosided':
-        dv = np.abs(dv)
-
-    p = lognorm(s=np.log(10), scale=scale).logpdf(x=dv)  # norm(scale=scale, loc=0).pdf(x=dv)  #
-
-    if np.isinf(p):
-        p = -1e20
-    if lim == 'twosided':
-        return p - np.log(2)
-    else:
-        return p
-
-
 @dataclass
 class ChangeVector:
     """
@@ -89,19 +67,27 @@ class ChangeVector:
 
         return mu, sigma
 
-    def log_posterior_pdf(self, y, dy, sigma_n):
-
+    def log_lh(self, dv, y, dy, sigma_n):
         mu, sigma_p = self.estimate_change(y)
-        lim = self.lim
-        scale = self.scale
-        # scale = 1 / np.sqrt(mu @ np.linalg.inv(sigma_n) @ mu.T)
+        mean = np.squeeze(dv * mu)
+        cov = (dv ** 2) * np.squeeze(sigma_p) + sigma_n
+        return log_mvnpdf(x=dy, mean=mean, cov=cov)
 
-        all_scale[self.name].append(scale)
+    def log_prior(self, dv):
+        if self.lim == 'negative':
+            dv = -dv
+        elif self.lim == 'twosided':
+            dv = np.abs(dv)
 
-        def pdf(dv):
-            return log_prior(dv, scale, lim) + log_lh(dv, dy, mu, sigma_p, sigma_n)
+        p = lognorm(s=np.log(10), scale=self.scale).logpdf(x=dv)  # norm(scale=scale, loc=0).pdf(x=dv)  #
 
-        return pdf
+        if self.lim == 'twosided':
+             p -= np.log(2)
+
+        return p
+
+    def log_posterior(self,dv, y, dy, sigma_n):
+        return self.log_prior(dv) + self.log_lh(dv, y, dy, sigma_n)
 
 
 @dataclass
@@ -143,8 +129,7 @@ class ChangeModel:
         model_log_posteriors = lls + np.log(priors)
         posteriors = np.exp(model_log_posteriors)
 
-        posteriors[posteriors.sum(axis=1) == 0, 0] = 1 # in case all integrals were zeros take the null model.
-        posteriors[np.isposinf(posteriors)] = 1000
+        posteriors[posteriors.sum(axis=1) == 0, 0] = 1  # in case all integrals were zeros accept the null model.
 
         posteriors = posteriors / posteriors.sum(axis=1)[:, np.newaxis]
         predictions = np.argmax(posteriors, axis=1)
@@ -185,20 +170,23 @@ class ChangeModel:
 
                 for vec_idx, ch_mdl in enumerate(self.models, 1):
                     try:
-                        log_post_pdf = ch_mdl.log_posterior_pdf(y_s, dy_s, sigma_n_s)
+                        log_lh_pdf = lambda dv: ch_mdl.log_lh(dv, y_s, dy_s, sigma_n_s)
+                        peak, low, high = find_range(log_lh_pdf, ch_mdl.lim)
 
-                        peak, low, high = find_range(log_post_pdf, ch_mdl.lim)
-
-                        log_post_max = np.log(np.exp(log_post_pdf(peak).astype(np.float128)))  # to check for underflow error
-                        if np.isneginf(log_post_max):
+                        log_lh_max = np.log(np.exp(log_lh_pdf(peak).astype(np.float128))) # to check for underflow error
+                        if np.isneginf(log_lh_max):
                             log_prob[vec_idx] = -np.inf
                         else:
-                            post_pdf = lambda dv: np.exp(log_post_pdf(dv) - log_post_max)
-                            integral = quad(post_pdf, low, high, points=[peak], epsrel=1e-9)[0]
-                            log_prob[vec_idx] = np.log(integral) + log_post_max
+                            post_pdf = lambda dv: np.exp(ch_mdl.log_posterior(dv, y_s, dy_s, sigma_n_s) - log_lh_max)
+                            integral = quad(post_pdf, low, high, points=[peak], epsrel=1e-3)[0]
 
+                        if integral == 0:
+                            log_prob[vec_idx] = -np.inf
+                        else:
+                            log_prob[vec_idx] = np.log(integral) + log_lh_max
 
                         peaks[vec_idx] = peak
+
                     except np.linalg.LinAlgError as err:
                         if 'Singular matrix' in str(err):
                             log_prob[vec_idx] = -np.inf
@@ -304,7 +292,7 @@ class Trainer:
     """
     forward_model: Callable
     """ The forward model, it must be function of the form f(args, **params) that returns a numpy array. """
-    args: Any
+    args: Mapping[str, Any]
     param_prior_dists: Mapping[str, rv_continuous]
     change_vecs: List[Mapping] = None
     lims: List = None
@@ -443,7 +431,7 @@ class Trainer:
                 warnings.warn(f'{np.sum(nans)} nan samples generated.')
         return y1, y2
 
-    def generate_test_samples(self, n_samples=1000, effect_size=0.1, noise_level=0.0, n_repeats=100,
+    def generate_test_samples(self, n_samples=1000, effect_size=0.1, noise_level=0.0, n_repeats=1,
                               base_params=None, true_change=None):
         """
         Important note: for this feature the forward model needs to have an internal noise model t
@@ -469,6 +457,7 @@ class Trainer:
 
         args = self.args.copy()
         has_noise_model = 'noise_level' in inspect.getfullargspec(self.forward_model).args
+
         if has_noise_model:
             args['noise_level'] = noise_level
             sigma_n = np.zeros((n_samples, self.n_dim, self.n_dim))
@@ -478,7 +467,7 @@ class Trainer:
         print(f'Generating {n_samples} test samples:')
         if base_params is None:
             all_params = {p: v.rvs(n_samples) for p, v in self.param_prior_dists.items()}
-        else:
+        else:  # assumes base params is a single parameter setting
             all_params = {p: v * np.ones(n_samples) for p, v in base_params.items()}
 
         y_1 = np.zeros((n_samples, self.n_dim))
@@ -598,25 +587,27 @@ def log_mvnpdf(x, mean, cov):
     return expo + nc
 
 
-def find_range(f: Callable, lim, scale=1e-2, search_rad=0.2):
+def find_range(f: Callable, lim: str, scale=1e-3, search_rad=1.):
     """
      find the range for integration
     :param f: function in logarithmic scale, e.g. log_posterior
+    :param lim:
     :param scale: the ratio of limits to peak
     :param search_rad: radious to search for limits
     :return: peak, lower limit and higher limit of the function
     """
-    minus_f = lambda dv: -f(dv)
+    neg_f = lambda dv: -f(dv)
     np.seterr(invalid='raise')
-    peak = minimize_scalar(minus_f, bounds=BOUNDS[lim]).x
+    peak = minimize_scalar(neg_f, bounds=BOUNDS[lim]).x
 
     f_norm = lambda dv: f(dv) - (f(peak) + np.log(scale))
-    lower, upper = -search_rad + peak, search_rad + peak
+    lower = np.maximum(-search_rad + peak, BOUNDS[lim][0])
+    upper = np.minimum(search_rad + peak, BOUNDS[lim][1])
     if f_norm(lower) < 0:
         try:
             lower = root_scalar(f_norm, bracket=[lower, peak], method='brentq').root
         except Exception as e:
-            print(f"Error of type {e.__class__} occurred, while finding lower limit of integral."
+            print(f"Error of type {e.__class__} occurred while finding the lower limit of integral."
                   f"The peak + search_rad ({peak:1.6f} + {search_rad}) is used instead")
 
     if f_norm(upper) < 0:
