@@ -123,7 +123,7 @@ class ChangeModel:
         """
 
         print(f'running inference for {data.shape[0]} samples ...')
-        lls, peaks = self.compute_log_likelihood(data, delta_data, sigma_n, parallel=True)
+        lls, peaks = self.compute_log_likelihood(data, delta_data, sigma_n, parallel=True, integral_bound=10)
         priors = np.array([1.] + [m.prior for m in self.models])  # the 1 is for empty set
         priors = priors / priors.sum()
         model_log_posteriors = lls + np.log(priors)
@@ -137,7 +137,7 @@ class ChangeModel:
 
     # warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-    def compute_log_likelihood(self, y, delta_y, sigma_n, parallel=False):
+    def compute_log_likelihood(self, y, delta_y, sigma_n, integral_bound=1e3, parallel=False):
         """
         Computes log_likelihood function for all models of change.
 
@@ -147,6 +147,7 @@ class ChangeModel:
         :param y: (n_samples, n_dim) array of data
         :param delta_y: (n_samples, n_dim) array of delta data
         :param sigma_n: (n_samples, n_dim, n_dim) noise covariance per sample
+        :param integral_bound
         :return: np array containing log likelihood for each sample per class
         """
 
@@ -170,22 +171,36 @@ class ChangeModel:
 
                 for vec_idx, ch_mdl in enumerate(self.models, 1):
                     try:
-                        log_lh_pdf = lambda dv: ch_mdl.log_lh(dv, y_s, dy_s, sigma_n_s)
-                        peak, low, high = find_range(log_lh_pdf, ch_mdl.lim)
+                        log_post_pdf = lambda dv: ch_mdl.log_posterior(dv, y_s, dy_s, sigma_n_s)
+                        post_pdf = lambda dv: np.exp(log_post_pdf(dv))
 
-                        log_lh_max = np.log(np.exp(log_lh_pdf(peak).astype(np.float128))) # to check for underflow error
-                        if np.isneginf(log_lh_max):
-                            log_prob[vec_idx] = -np.inf
+                        if ch_mdl.lim == 'positive':
+                            neg_int = 0
                         else:
-                            post_pdf = lambda dv: np.exp(ch_mdl.log_posterior(dv, y_s, dy_s, sigma_n_s) - log_lh_max)
-                            integral = quad(post_pdf, low, high, points=[peak], epsrel=1e-3)[0]
+                            neg_peak, lower, upper = find_range(log_post_pdf, (-integral_bound, 0))
+                            neg_int = quad(post_pdf, lower, upper, points=[neg_peak], epsrel=1e-3)[0]
 
+                        if ch_mdl.lim == 'negative':
+                            pos_int = 0
+                        else:
+                            pos_peak, lower, upper = find_range(log_post_pdf, (0, integral_bound))
+                            pos_int = quad(post_pdf, lower, upper, points=[pos_peak], epsrel=1e-3)[0]
+
+                        integral = pos_int + neg_int
                         if integral == 0:
                             log_prob[vec_idx] = -np.inf
                         else:
-                            log_prob[vec_idx] = np.log(integral) + log_lh_max
+                            log_prob[vec_idx] = np.log(integral)
 
-                        peaks[vec_idx] = peak
+                        if ch_mdl.lim == 'positive':
+                            peaks[vec_idx] = pos_peak
+                        if ch_mdl.lim == 'negative':
+                            peaks[vec_idx] = neg_peak
+                        else:
+                            if log_post_pdf(neg_peak) < log_post_pdf(pos_peak):
+                                peaks[vec_idx] = pos_peak
+                            else:
+                                peaks[vec_idx] = neg_peak
 
                     except np.linalg.LinAlgError as err:
                         if 'Singular matrix' in str(err):
@@ -275,7 +290,7 @@ def parse_change_vecs(vec_texts: List[str]):
             this_lims = sub[1].rstrip().lower().split()
             for l in this_lims:
                 if l not in INTEGRAL_LIMITS:
-                    raise ValueError(f'limits should be any of {INTEGRAL_LIMITS} but got {l}.')
+                    raise ValueError(f'limits must be one of {INTEGRAL_LIMITS} but got {l}.')
         else:
             this_lims = ['twosided']
 
@@ -570,15 +585,13 @@ def l_to_sigma(l_vec):
 
 def log_mvnpdf(x, mean, cov):
     """
-    log of multivariate normal distribution
+    log of multivariate normal distribution. identical to scipy.stats.multivariate_normal(mean, cov).logpdf(x) but faster.
     :param x: input numpy array
     :param mean: mean of the distribution numpy array same size of x
-    :param cov: covariance of distribution, numpy array
+    :param cov: covariance of distribution, numpy array or scalar
     :return scalar
     """
-    if np.isscalar(cov):
-        cov = np.array([[cov]])
-
+    cov = np.atleast_2d(cov)
     d = mean.shape[-1]
     expo = -0.5 * (x - mean).T @ np.linalg.inv(cov) @ (x - mean)
     nc = -0.5 * np.log(((2 * np.pi) ** d) * np.linalg.det(cov.astype(float)))
@@ -587,35 +600,34 @@ def log_mvnpdf(x, mean, cov):
     return expo + nc
 
 
-def find_range(f: Callable, lim: str, scale=1e-3, search_rad=1.):
+def find_range(f: Callable, bounds, scale=1e-3):
     """
      find the range for integration
     :param f: function in logarithmic scale, e.g. log_posterior
-    :param lim:
+    :param bounds:
     :param scale: the ratio of limits to peak
     :param search_rad: radious to search for limits
     :return: peak, lower limit and higher limit of the function
     """
     neg_f = lambda dv: -f(dv)
     np.seterr(invalid='raise')
-    peak = minimize_scalar(neg_f, bounds=BOUNDS[lim]).x
+    peak = minimize_scalar(neg_f, bounds=bounds, method='bounded').x
 
     f_norm = lambda dv: f(dv) - (f(peak) + np.log(scale))
-    lower = np.maximum(-search_rad + peak, BOUNDS[lim][0])
-    upper = np.minimum(search_rad + peak, BOUNDS[lim][1])
-    if f_norm(lower) < 0:
+    lower, upper = bounds
+    if f_norm(lower) < 0:  # to check the function is not flat.
         try:
             lower = root_scalar(f_norm, bracket=[lower, peak], method='brentq').root
         except Exception as e:
             print(f"Error of type {e.__class__} occurred while finding the lower limit of integral."
-                  f"The peak + search_rad ({peak:1.6f} + {search_rad}) is used instead")
+                  f"The lower bound is used instead")
 
     if f_norm(upper) < 0:
         try:
             upper = root_scalar(f_norm, bracket=[peak, upper], method='brentq').root
         except Exception as e:
             print(f"Error of type {e.__class__} occurred, while finding higher limit of integral."
-                  f"The peak + search_rad ({peak:1.6f} + {search_rad}) is used instead")
+                  f"The upper bound is used instead")
 
     return peak, lower, upper
 
