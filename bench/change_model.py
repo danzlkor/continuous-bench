@@ -178,13 +178,19 @@ class ChangeModel:
                             neg_int = 0
                         else:
                             neg_peak, lower, upper = find_range(log_post_pdf, (-integral_bound, 0))
-                            neg_int = quad(post_pdf, lower, upper, points=[neg_peak], epsrel=1e-3)[0]
+                            if check_exp_underflow(log_post_pdf(neg_peak)):
+                                neg_int = 0
+                            else:
+                                neg_int = quad(post_pdf, lower, upper, points=[neg_peak], epsrel=1e-3)[0]
 
                         if ch_mdl.lim == 'negative':
                             pos_int = 0
                         else:
                             pos_peak, lower, upper = find_range(log_post_pdf, (0, integral_bound))
-                            pos_int = quad(post_pdf, lower, upper, points=[pos_peak], epsrel=1e-3)[0]
+                            if check_exp_underflow(pos_peak):
+                                pos_int = 0
+                            else:
+                                pos_int = quad(post_pdf, lower, upper, points=[pos_peak], epsrel=1e-3)[0]
 
                         integral = pos_int + neg_int
                         if integral == 0:
@@ -630,6 +636,20 @@ def find_range(f: Callable, bounds, scale=1e-3):
                   f"The upper bound is used instead")
 
     return peak, lower, upper
+
+
+def check_exp_underflow(x):
+    """
+    Checks if underflow happens for calculating exp(x)
+    :param x:
+    :return:
+    """
+    with np.errstate(under='raise'):
+        try:
+            np.exp(x)
+            return False
+        except FloatingPointError:
+            return True
 
 
 def performance_measures(posteriors, true_change, set_names):
