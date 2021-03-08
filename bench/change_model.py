@@ -325,16 +325,14 @@ class Trainer:
 
         if self.change_vecs is None:
             self.change_vecs = [{p: 1} for p in self.param_names]
-            self.lims = [['twosided']] * len(self.change_vecs)
-
-        elif np.all([p is dict for p in self.change_vecs]):
-            if self.lims is None:
-                self.lims = [['twosided']] * len(self.change_vecs)
 
         elif np.all([isinstance(p, str) for p in self.change_vecs]):
             self.change_vecs, self.lims = parse_change_vecs(self.change_vecs)
         else:
             raise ValueError(" Change vectors are not defined properly.")
+
+        if self.lims is None:
+            self.lims = [['twosided']] * len(self.change_vecs)
 
         self.vec_names = [dict_to_string(s) for s in self.change_vecs]
         self.n_vecs = len(self.change_vecs)
