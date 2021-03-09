@@ -12,9 +12,10 @@ from dataclasses import dataclass
 import numpy as np
 from joblib import Parallel, delayed
 from progressbar import ProgressBar
-from scipy.integrate import quad, simps
+from scipy.integrate import quad
 from scipy.optimize import minimize_scalar, root_scalar
 from scipy.spatial import KDTree
+from scipy.cluster.vq import whiten
 from scipy.stats import rv_continuous, lognorm
 from sklearn import linear_model
 from sklearn.pipeline import Pipeline
@@ -549,16 +550,19 @@ def knn_estimation(y, dy, k=100, lam=1e-12):
     idx = np.tril_indices(dim)
     diag_idx = np.argwhere(idx[0] == idx[1])
 
-    tree = KDTree(y)
-    _, neigbs = tree.query(y, k)
+    y_whitened = whiten(y)
+    tree = KDTree(y_whitened)
+    dists, neigbs = tree.query(y_whitened, k)
+    weights = 1 / (dists + 1)
     pbar = ProgressBar()
     print('KNN approximation of sample means and covariances:')
     for vec_idx in pbar(range(n_vecs)):
         for sample_idx in range(n_samples):
             pop = dy[vec_idx, neigbs[sample_idx]]
-            mu[vec_idx, sample_idx] = pop.mean(axis=0)
+            mu[vec_idx, sample_idx] = np.average(pop, axis=0, weights=weights[sample_idx])
             try:
-                tril[vec_idx, sample_idx] = np.linalg.cholesky(np.cov(pop.T) + lam * np.eye(dim))[np.tril_indices(dim)]
+                c = np.cov(pop.T, aweights=weights[sample_idx])
+                tril[vec_idx, sample_idx] = np.linalg.cholesky(c + lam * np.eye(dim))[np.tril_indices(dim)]
             except Exception as ex:
                 print(ex)
                 raise ex
