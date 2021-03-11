@@ -8,7 +8,6 @@ import pickle
 import warnings
 from collections import defaultdict
 from dataclasses import dataclass
-
 import numpy as np
 from joblib import Parallel, delayed
 from progressbar import ProgressBar

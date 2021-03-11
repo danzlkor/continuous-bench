@@ -16,7 +16,7 @@ from fsl.wrappers import convertwarp
 from scipy.special import lpmv, factorial
 from sympy.physics.quantum.cg import CG
 
-from bench.acquisition import Acquisition, ShellParameters
+from . import acquisition
 
 
 def summary_names(acq, shm_degree, cg=False):
@@ -181,10 +181,10 @@ def fit_summary_single_subject(subj_idx: str, diff_add: str, xfm_add: str, bvec_
     if bvecs.shape[1] > bvecs.shape[0]:
         bvecs = bvecs.T
     bvals = np.genfromtxt(bval_add)
-    idx_shells, shells = ShellParameters.create_shells(bval=bvals)
-    acq = Acquisition(shells, idx_shells, bvecs)
+    idx_shells, shells = acquisition.ShellParameters.create_shells(bval=bvals)
+    acq = acquisition.Acquisition(shells, idx_shells, bvecs)
 
-    summaries, _ = fit_shm(data, acq, shm_degree=sph_degree)
+    summaries = fit_shm(data, acq, shm_degree=sph_degree)
 
     # write to nifti:
     mask_img = Image(mask_add)
@@ -326,7 +326,7 @@ def from_cmd(args):
         Wrapper function that parses the input from commandline
         :param args: list of strings containing all required parameters for fit_summary_single_subj()
         """
-    args.pop(0)  # this tends to be python file name!
+    args.pop(0)  # python file name
     subj_idx_ = args[0]
     diff_add_ = args[1]
     xfm_add_ = args[2]

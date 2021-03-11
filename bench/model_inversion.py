@@ -11,13 +11,11 @@ from fsl.data.featdesign import loadDesignMat
 from fsl.data.image import Image
 from fsl.utils.run import run
 from progressbar import ProgressBar
+from joblib import delayed, Parallel
 from scipy import optimize
 from typing import Callable
 
-from bench import diffusion_models as dm, summary_measures, user_interface, acquisition, change_model
-
-
-#import numdifftools as nd
+import diffusion_models as dm, summary_measures, user_interface, acquisition, change_model
 
 
 def log_prior(params, priors):
@@ -50,7 +48,6 @@ def map_fit_sig(model: Callable, priors: dict, y: np.ndarray, noise_level):
     f = lambda x: -log_posterior_sig(x, priors, model, y, noise_level)
     p = optimize.minimize(f, x0=x0, bounds=bounds, options={'disp': False}, method='Nelder-mead')
     h = hessian(f, p.x, bounds=bounds, dp=1e-2)
-    # h = nd.Hessian(f)(p.x)
     std = np.sqrt(np.diag(abs(np.linalg.inv(h))))
     return p.x, std
 
@@ -135,7 +132,7 @@ def fit_model_sig(diffusion_sig, noise_level, forward_model_name, bvals, bvecs):
     if forward_model_name in available_models:
         priors = dm.prior_distributions[forward_model_name]
 
-        def func(acq, **params):
+        def func(params):
             return dm.simulate_signal(funcdict[forward_model_name], acq, params)
 
     else:
@@ -143,12 +140,16 @@ def fit_model_sig(diffusion_sig, noise_level, forward_model_name, bvals, bvecs):
 
     idx_shells, shells = acquisition.ShellParameters.create_shells(bval=bvals)
     acq = acquisition.Acquisition(shells, idx_shells, bvecs)
-    pbar = ProgressBar()
-    pe = np.zeros((diffusion_sig.shape[0], len(priors)))
-    std_e = np.zeros((diffusion_sig.shape[0], len(priors)))
-    for i in pbar(range(diffusion_sig.shape[0])):
-        pe[i], std_e[i] = map_fit_sig(func, acq, priors, diffusion_sig[i], noise_level)
-    return pe
+    n_samples = diffusion_sig.shape[0]
+
+    def tmp_func(i):
+        return map_fit_sig(func, priors, diffusion_sig[i], noise_level)
+
+    res = Parallel(n_jobs=-1, verbose=True)(delayed(tmp_func)(i) for i in range(n_samples))
+
+    pe = np.array([item[0] for item in res])
+    std = np.array([item[1] for item in res])
+    return pe, std
 
 
 def read_pes(pe_dir, mask_add):
@@ -179,9 +180,9 @@ def pipeline(argv=None):
         task_list = list()
         for subj_idx, (x, d, bv) in enumerate(zip(args.xfm, args.data, args.bvecs)):
             task_list.append(
-                f'python3 {py_file_path} {subj_idx} {d} {x} {bv} {args.bval} {args.mask} {args.model} {pe_dir}')
+                f'python {py_file_path} {subj_idx} {d} {x} {bv} {args.bval} {args.mask} {args.model} {pe_dir}')
         # uncomment to debug:
-        parse_args_and_fit(f'{py_file_path} {subj_idx} {d} {x} {bv} {args.bval} {args.mask} {args.model} {pe_dir}'.split())
+        # parse_args_and_fit(f'{py_file_path} {subj_idx} {d} {x} {bv} {args.bval} {args.mask} {args.model} {pe_dir}'.split())
 
         if 'SGE_ROOT' in os.environ.keys():
             print('Submitting jobs to SGE ...')
@@ -191,7 +192,7 @@ def pipeline(argv=None):
                 f.close()
 
                 job_id = run(f'fsl_sub -t {args.output}/tasklist.txt '
-                             f'-q short.q -N bench_inversion -l {pe_dir}/log -s openmp,2')
+                             f'-T 240 -N bench_inversion -l {pe_dir}/log')
                 print('jobs submitted to SGE ...')
                 fslsub.hold(job_id)
         else:
@@ -251,13 +252,13 @@ def single_sub_fit(subj_idx, diff_add, xfm_add, bvec_add, bval_add, mask_add, md
     def_field = f"{def_field_dir}/{subj_idx}.nii.gz"
     data, valid_vox = summary_measures.sample_from_native_space(diff_add, xfm_add, mask_add, def_field)
     data = data / 1000
-    params = fit_model_smm(data, mdl_name, bvals, bvecs, sph_degree=4)
+    params, stds = fit_model_sig(data, 0.01, mdl_name, bvals, bvecs)
     print(f'subject {subj_idx} parameters estimated.')
 
     # write down [pes, vpes] to 4d files
     fname = f"{output_add}/subj_{subj_idx}.nii.gz"
     user_interface.write_nifti(params, mask_add, fname, np.logical_not(valid_vox))
-    print(' Model fitted to subject')
+    print(f'Model fitted to subject {subj_idx} data.')
 
 
 def parse_args_and_fit(args):
@@ -266,7 +267,8 @@ def parse_args_and_fit(args):
 
 
 if __name__ == '__main__':
-    parse_args_and_fit(sys.argv)
+    print(sys.version)
+    # parse_args_and_fit(sys.argv)
 
 
 def inference_parse_args(argv):

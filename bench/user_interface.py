@@ -12,7 +12,7 @@ import numpy as np
 from fsl.data.image import Image
 from fsl.utils.run import run
 
-from bench import change_model, glm, summary_measures, diffusion_models, acquisition
+from . import change_model, glm, summary_measures, diffusion_models, acquisition
 
 
 def main(argv=None):
@@ -83,7 +83,7 @@ def parse_args(argv):
                                      help="Gradient orientations for each subject")
     diff_summary_parser.add_argument("--bval", metavar='bval', required=True,
                                      help="b_values (should be the same for all subjects")
-    diff_summary_parser.add_argument("--shm_degree", default=4,
+    diff_summary_parser.add_argument("--shm-degree", default=2,
                                      help=" Degree for spherical harmonics summary measurements",
                                      required=False, type=int)
     diff_summary_parser.add_argument("--study-dir", help="Path to the output directory", required=True)
@@ -181,22 +181,22 @@ def submit_summary(args):
 
     os.makedirs(summary_dir, exist_ok=True)
     if len(glob.glob(summary_dir + '/subj_*.nii.gz')) < len(args.data):
-        py_file_path = os.path.realpath(__file__)
+        py_file_path = os.path.dirname(os.path.realpath(__file__)) + '/summary_measures'
         task_list = list()
-        for subj_idx, (x, d, bv) in enumerate(zip(args.xfms, args.data, args.bvecs)):
-            cmd = f'python3 {py_file_path} {subj_idx} {d} {x} {bv} ' \
-                  f'{args.bvals} {args.roi_mask} {args.sph_degree} {args.study_dir}'
+        for subj_idx, (x, d, bv) in enumerate(zip(args.xfm, args.data, args.bvecs)):
+            cmd = f'python {py_file_path} {subj_idx} {d} {x} {bv} ' \
+                  f'{args.bval} {args.mask} {args.shm_degree} {args.study_dir}'
             task_list.append(cmd)
-            # from_cmd(cmd.split()[1:])
+            summary_measures.from_cmd(cmd.split()[1:])
 
-        if 'SGE_ROOT' in os.environ.keys():
+        if 'SGE_ROOT1' in os.environ.keys():
             with open(f'{args.study_dir}/summary_tasklist.txt', 'w') as f:
                 for t in task_list:
                     f.write("%s\n" % t)
                 f.close()
 
                 job_id = run(f'fsl_sub -t {args.study_dir}/summary_tasklist.txt'
-                             f'-T 200 -R 4 -N bench_summary -l {args.study_dir}/log -s openmp,2')
+                             f'-T 200 -R 4 -N bench_summary -l {args.study_dir}/log')
                 print(f'Jobs were submitted to SGE with job id {job_id}.')
         else:
             print(f'No clusters were found. The jobs will run locally.')
@@ -267,3 +267,7 @@ def write_nifti(data: np.ndarray, mask_add: str, fname: str, invalids=None):
     img[tuple(std_indices_invalid.T)] = 0
 
     nib.Nifti1Image(img, mask.nibImage.affine).to_filename(fname)
+
+
+if __name__ == '__main__':
+    print('hello!')

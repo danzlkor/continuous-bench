@@ -6,7 +6,7 @@ import numba
 import numpy as np
 from scipy import stats
 
-from bench import summary_measures, dtm
+from . import summary_measures, dtm
 
 # prior distributions:
 
