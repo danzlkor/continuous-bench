@@ -67,7 +67,7 @@ def fit_shm(signal, acq, shm_degree, cg=False):
             if cg:
                 sum_meas.append(cleb_gord_summary_complex(shell_signal, bvecs, this_shell.lmax))
 
-    sum_meas = np.array(sum_meas).T
+    sum_meas = np.stack(sum_meas, axis=-1)
     return sum_meas
 
 

@@ -24,7 +24,6 @@ from typing import Callable, List, Any, Union, Sequence, Mapping
 
 all_scale = defaultdict(list)
 
-
 BOUNDS = {'negative': (-np.inf, 0), 'positive': (0, np.inf), 'twosided': (-np.inf, np.inf)}
 INTEGRAL_LIMITS = list(BOUNDS.keys())
 
@@ -83,11 +82,11 @@ class ChangeVector:
         p = lognorm(s=np.log(10), scale=self.scale).logpdf(x=dv)  # norm(scale=scale, loc=0).pdf(x=dv)  #
 
         if self.lim == 'twosided':
-             p -= np.log(2)
+            p -= np.log(2)
 
         return p
 
-    def log_posterior(self,dv, y, dy, sigma_n):
+    def log_posterior(self, dv, y, dy, sigma_n):
         return self.log_prior(dv) + self.log_lh(dv, y, dy, sigma_n)
 
 
@@ -411,7 +410,15 @@ class Trainer:
 
         return ChangeModel(models=models, model_name=model_name)
 
-    def generate_train_samples(self, n_samples: int, dv0: float, parallel=True, old=False) -> tuple:
+    def generate_train_samples(self, n_samples: int, dv0: float = 1e-6, parallel=True, old=False) -> tuple:
+        """
+        generate samples to estimate derivatives.
+        :param n_samples:
+        :param dv0:
+        :param parallel:
+        :param old:
+        :return: M(V) , M(V+\Delta V).
+        """
         all_params = {p: v.rvs(n_samples) for p, v in self.param_prior_dists.items()}
 
         if old:
@@ -448,7 +455,7 @@ class Trainer:
             y1 = y1[~nans]
             y2 = y2[:, ~nans, :]
             if np.sum(nans) > 0:
-                warnings.warn(f'{np.sum(nans)} nan samples generated.')
+                warnings.warn(f'{np.sum(nans)} nan samples generated during training.')
         return y1, y2
 
     def generate_test_samples(self, n_samples=1000, effect_size=0.1, noise_level=0.0, n_repeats=1,
@@ -522,7 +529,6 @@ class Trainer:
             else:
                 y_1[s_idx] = self.forward_model(**args, **params_1) + np.random.randn(self.n_dim) * noise_level
                 y_2[s_idx] = self.forward_model(**args, **params_2) + np.random.randn(self.n_dim) * noise_level
-
 
         # data = Parallel(n_jobs=-1, verbose=True)(delayed(generator_func)(i) for i in range(n_samples))
 
