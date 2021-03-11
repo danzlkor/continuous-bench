@@ -154,7 +154,7 @@ def nan_mat(shape):
 
 #  image functions:
 def fit_summary_single_subject(subj_idx: str, diff_add: str, xfm_add: str, bvec_add: str,
-                               bval_add: str, mask_add: str, sph_degree: int, output_add: str):
+                               bval_add: str, mask_add: str, shm_degree: int, output_add: str):
     """
         the main function that fits summary measurements for a single subject
         :param subj_idx: used to name the summary files.
@@ -163,7 +163,7 @@ def fit_summary_single_subject(subj_idx: str, diff_add: str, xfm_add: str, bvec_
         :param bvec_add: path to bvec file
         :param bval_add: path to bvec file
         :param mask_add: path to mask
-        :param sph_degree: path to the trained model of change file
+        :param shm_degree: path to the trained model of change file
         :param output_add: path to output directory
         :return:
         """
@@ -172,7 +172,7 @@ def fit_summary_single_subject(subj_idx: str, diff_add: str, xfm_add: str, bvec_
     print('bvec address: ' + bvec_add)
     print('mask address: ' + mask_add)
     print('bval address: ' + bval_add)
-    print('shm_degree: ' + str(sph_degree))
+    print('shm_degree: ' + str(shm_degree))
     print('output path: ' + output_add)
 
     def_field = f"{output_add}/def_field_{subj_idx}.nii.gz"
@@ -184,20 +184,20 @@ def fit_summary_single_subject(subj_idx: str, diff_add: str, xfm_add: str, bvec_
     idx_shells, shells = acquisition.ShellParameters.create_shells(bval=bvals)
     acq = acquisition.Acquisition(shells, idx_shells, bvecs)
 
-    summaries = fit_shm(data, acq, shm_degree=sph_degree)
+    summaries = fit_shm(data, acq, shm_degree=shm_degree)
 
     # write to nifti:
     mask_img = Image(mask_add)
-    mat = np.zeros((*mask_img.shape, len(summaries))) + np.nan
+    mat = np.zeros((*mask_img.shape, summaries.shape[-1])) + np.nan
     std_indices = np.array(np.where(mask_img.data > 0)).T
     std_indices_valid = std_indices[valid_vox]
 
-    mat[tuple(std_indices_valid.T)] = np.array(summaries).T
+    mat[tuple(std_indices_valid.T)] = summaries
 
     fname = f"{output_add}/subj_{subj_idx}.nii.gz"
     nib.Nifti1Image(mat, mask_img.nibImage.affine).to_filename(fname)
     if subj_idx == '0':
-        np.save(f'{output_add}/summary_names', summary_names(acq, sph_degree))
+        np.save(f'{output_add}/summary_names', summary_names(acq, shm_degree))
 
     print(f'Summary measurements for subject {subj_idx} computed')
 

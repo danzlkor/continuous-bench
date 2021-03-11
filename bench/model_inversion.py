@@ -178,25 +178,25 @@ def pipeline(argv=None):
     if len(glob.glob(pe_dir + '/subj_*.nii.gz')) < len(args.data):
         py_file_path = os.path.realpath(__file__)
         task_list = list()
-        for subj_idx, (x, d, bv) in enumerate(zip(args.xfm, args.data, args.bvecs)):
+        for subj_idx, (x, d, bval, bvec) in enumerate(zip(args.xfm, args.data, args.bval, args.bvecs)):
             task_list.append(
-                f'python {py_file_path} {subj_idx} {d} {x} {bv} {args.bval} {args.mask} {args.model} {pe_dir}')
+                f'python {py_file_path} {subj_idx} {d} {x} {bvec} {bval} {args.mask} {args.model} {pe_dir}')
         # uncomment to debug:
-        # parse_args_and_fit(f'{py_file_path} {subj_idx} {d} {x} {bv} {args.bval} {args.mask} {args.model} {pe_dir}'.split())
+            parse_args_and_fit(f'{py_file_path} {subj_idx} {d} {x} {bvec} {bval} {args.mask} {args.model} {pe_dir}'.split())
 
-        if 'SGE_ROOT' in os.environ.keys():
-            print('Submitting jobs to SGE ...')
-            with open(f'{args.output}/tasklist.txt', 'w') as f:
-                for t in task_list:
-                    f.write("%s\n" % t)
-                f.close()
-
-                job_id = run(f'fsl_sub -t {args.output}/tasklist.txt '
-                             f'-T 240 -N bench_inversion -l {pe_dir}/log')
-                print('jobs submitted to SGE ...')
-                fslsub.hold(job_id)
-        else:
-            os.system('; '.join(task_list))
+        # if 'SGE_ROOT' in os.environ.keys():
+        #     print('Submitting jobs to SGE ...')
+        #     with open(f'{args.output}/tasklist.txt', 'w') as f:
+        #         for t in task_list:
+        #             f.write("%s\n" % t)
+        #         f.close()
+        #
+        #         job_id = run(f'fsl_sub -t {args.output}/tasklist.txt '
+        #                      f'-T 240 -N bench_inversion -l {pe_dir}/log')
+        #         print('jobs submitted to SGE ...')
+        #         fslsub.hold(job_id)
+        # else:
+        #     os.system('; '.join(task_list))
 
         if len(glob.glob(pe_dir + '/subj_*.nii.gz')) == len(args.data):
             print(f'model fitted to {len(args.data)} subjects.')
@@ -298,8 +298,8 @@ def inference_parse_args(argv):
                          nargs='+', metavar='xfm.nii', required=False)
     preproc.add_argument("--bvecs", nargs='+', metavar='bvec', required=False,
                          help="Gradient orientations for each subject")
-    preproc.add_argument("--bval", metavar='bval', required=False,
-                         help="b_values (should be the same for all subjects")
+    preproc.add_argument("--bval",nargs='+', metavar='bval', required=False,
+                         help="b_values")
     preproc.add_argument("--shm_degree", default=4, help=" Degree for spherical harmonics summary measurements",
                          required=False, type=int)
 
@@ -324,14 +324,14 @@ def inference_parse_args(argv):
         if len(args.bvecs) > n_subjects:
             raise ValueError(f"Got more bvecs than diffusion MRI data/transformations: {args.bvecs[n_subjects:]}")
 
-        for subj_idx, (nl, d, bv) in enumerate(zip(args.xfm, args.data, args.bvecs), 1):
-            print(f'Scan {subj_idx}: dMRI ({d} with {bv}); transform ({nl})')
-            for f in [nl, d, bv]:
+        for subj_idx, (nl, d, bvec, bval) in enumerate(zip(args.xfm, args.data, args.bvecs, args.bval), 1):
+            print(f'Scan {subj_idx}: dMRI ({d} with {bvec}); transform ({nl})')
+            for f in [nl, d, bvec, bvec]:
                 if not os.path.exists(f):
                     raise FileNotFoundError(f'{f} not found. Please check the input files.')
 
-        if not os.path.exists(args.bval):
-            raise FileNotFoundError(f'{args.bval} not found. Please check the paths for input files.')
+        # if not os.path.exists(args.bval):
+        #     raise FileNotFoundError(f'{args.bval} not found. Please check the paths for input files.')
 
     if args.model is not None:
         if args.design_mat is None:

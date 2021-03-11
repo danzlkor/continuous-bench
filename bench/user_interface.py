@@ -81,7 +81,7 @@ def parse_args(argv):
                                      nargs='+', metavar='xfm.nii', required=True)
     diff_summary_parser.add_argument("--bvecs", nargs='+', metavar='bvec', required=True,
                                      help="Gradient orientations for each subject")
-    diff_summary_parser.add_argument("--bval", metavar='bval', required=True,
+    diff_summary_parser.add_argument("--bval", nargs='+', metavar='bval', required=True,
                                      help="b_values (should be the same for all subjects")
     diff_summary_parser.add_argument("--shm-degree", default=2,
                                      help=" Degree for spherical harmonics summary measurements",
@@ -169,23 +169,24 @@ def submit_summary(args):
     if len(args.bvecs) > n_subjects:
         raise ValueError(f"Got more bvecs than diffusion MRI data/transformations: {args.bvecs[n_subjects:]}")
 
-    for subj_idx, (nl, d, bv) in enumerate(zip(args.xfm, args.data, args.bvecs), 1):
-        print(f'Scan {subj_idx}: dMRI ({d} with {bv}); transform ({nl})')
-        for f in [nl, d, bv]:
+    for subj_idx, (nl, d, bvec, bval) in \
+            enumerate(zip(args.xfm, args.data, args.bvecs, args.bval), 1):
+        print(f'Scan {subj_idx}: dMRI ({d} with {bvec} and {bval}); transform ({nl})')
+        for f in [nl, d, bvec, bval]:
             if not os.path.exists(f):
                 raise FileNotFoundError(f'{f} not found.')
 
-    if not os.path.exists(args.bval):
-        raise FileNotFoundError(f'{args.bval} not found.')
+    #if not os.path.exists(args.bval):
+     #   raise FileNotFoundError(f'{args.bval} not found.')
     summary_dir = f'{args.study_dir}/SammaryMeasurements'
 
     os.makedirs(summary_dir, exist_ok=True)
     if len(glob.glob(summary_dir + '/subj_*.nii.gz')) < len(args.data):
         py_file_path = os.path.dirname(os.path.realpath(__file__)) + '/summary_measures'
         task_list = list()
-        for subj_idx, (x, d, bv) in enumerate(zip(args.xfm, args.data, args.bvecs)):
-            cmd = f'python {py_file_path} {subj_idx} {d} {x} {bv} ' \
-                  f'{args.bval} {args.mask} {args.shm_degree} {args.study_dir}'
+        for subj_idx, (x, d, bval, bvec) in enumerate(zip(args.xfm, args.data, args.bval, args.bvecs)):
+            cmd = f'python {py_file_path} {subj_idx} {d} {x} {bvec} ' \
+                  f'{bval} {args.mask} {args.shm_degree} {args.study_dir}'
             task_list.append(cmd)
             summary_measures.from_cmd(cmd.split()[1:])
 
