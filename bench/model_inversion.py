@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import argparse
 import glob
 import os
@@ -15,7 +17,7 @@ from joblib import delayed, Parallel
 from scipy import optimize
 from typing import Callable
 
-import diffusion_models as dm, summary_measures, user_interface, acquisition, change_model
+from bench import diffusion_models as dm, summary_measures, user_interface, acquisition, change_model
 
 
 def log_prior(params, priors):

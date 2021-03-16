@@ -25,8 +25,8 @@ setup(
     entry_points={
         'console_scripts': [
             'bench=bench.user_interface:main',
-            'bench_train=bench.user_interface:train_from_cmd',
-            'bench_preproc=bench.summary_meausures:from_cmd'
+            'bench_train=bench.user_interface:submit_train',
+            'bench_preproc=bench.user_interface:submit_summary'
         ],
     },
     install_requires=requirements,

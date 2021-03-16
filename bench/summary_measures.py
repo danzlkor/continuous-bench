@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 """
 This module contains functions for fitting spherical harmonics to diffusion data.
 """
@@ -16,7 +18,7 @@ from fsl.wrappers import convertwarp
 from scipy.special import lpmv, factorial
 from sympy.physics.quantum.cg import CG
 
-from . import acquisition
+from bench import acquisition
 
 
 def summary_names(acq, shm_degree, cg=False):
@@ -212,6 +214,7 @@ def read_summary_images(summary_dir: str, mask: str, normalize=True):
     """
     mask_img = Image(mask)
     n_subj = len(glob.glob(summary_dir + '/subj_*.nii.gz'))
+    print(summary_dir)
     if n_subj == 0:
         raise Exception('No summary measures found in the specified directory.')
 

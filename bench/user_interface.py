@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 This module is to parse inputs from commandline and call the proper functions from other modules.
 """
@@ -6,13 +7,10 @@ import argparse
 import glob
 import os
 from warnings import warn
-
 import nibabel as nib
 import numpy as np
 from fsl.data.image import Image
-from fsl.utils.run import run
-
-from . import change_model, glm, summary_measures, diffusion_models, acquisition
+from bench import change_model, glm, summary_measures, diffusion_models, acquisition
 
 
 def main(argv=None):

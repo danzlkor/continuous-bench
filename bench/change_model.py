@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 """
 This module contains classes and functions to train a change model and make inference on new data.
 """

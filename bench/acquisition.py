@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 """
 This module contains functions to simulate diffusion signals using diffusion_models.py and compute summary measures
 using summary_measures.py

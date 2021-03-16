@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 This module contains definition of some microstructural diffusion models and a prior distribution for their parameters.
 """
@@ -6,7 +7,7 @@ import numba
 import numpy as np
 from scipy import stats
 
-from . import summary_measures, dtm
+from bench import summary_measures, dtm
 
 # prior distributions:
 

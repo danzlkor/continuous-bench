@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Summary metrics based on diffusion tensor fit
 """
