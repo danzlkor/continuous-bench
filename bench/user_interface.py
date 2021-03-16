@@ -10,6 +10,7 @@ from warnings import warn
 import nibabel as nib
 import numpy as np
 from fsl.data.image import Image
+from fsl.utils.run import run
 from bench import change_model, glm, summary_measures, diffusion_models, acquisition
 
 
