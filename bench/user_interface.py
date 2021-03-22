@@ -48,6 +48,7 @@ def parse_args(argv):
 
     diff_train_parser = subparsers.add_parser('diff-train')
     diff_summary_parser = subparsers.add_parser('diff-summary')
+    diff_single_subj_summary_parser = subparsers.add_parser('diff-single-summary')
     diff_normalize_parse = subparsers.add_parser('diff-normalize')
     glm_parser = subparsers.add_parser('glm')
     inference_parser = subparsers.add_parser('inference')
@@ -86,6 +87,9 @@ def parse_args(argv):
                                      help=" Degree for spherical harmonics summary measurements",
                                      required=False, type=int)
     diff_summary_parser.add_argument("--study-dir", help="Path to the output directory", required=True)
+
+    # single subject summary:
+    diff_single_subj_summary_parser.add_argument()
 
     # normalization args
     diff_normalize_parse.add_argument('--study-dir', default=None,
@@ -150,13 +154,19 @@ def submit_train(args):
 
 
 def submit_summary(args):
+    """
+    submits jobs to cluster (or runs serially) to compute summary measurements for the given subjects
+    :param args: namespace form parseargs output that contains all addresses to the required files
+    (masks, transformations, diffusion data, bvalues, and bvecs) and output folder
+    :return: job ids (the results are saved to files once the jobs are done)
+    """
     if not os.path.exists(args.mask):
         raise FileNotFoundError('Mask file was not found.')
 
     if os.path.isdir(args.study_dir):
         warn('Output directory already exists, contents might be overwritten.')
         if not os.access(args.study_dir, os.W_OK):
-            raise PermissionError('user does not have permission to write in the output location.')
+            raise PermissionError('User does not have permission to write in the output location.')
     else:
         os.makedirs(args.study_dir, exist_ok=True)
 
@@ -175,19 +185,20 @@ def submit_summary(args):
             if not os.path.exists(f):
                 raise FileNotFoundError(f'{f} not found.')
 
-    #if not os.path.exists(args.bval):
-     #   raise FileNotFoundError(f'{args.bval} not found.')
-    summary_dir = f'{args.study_dir}/SammaryMeasurements'
+    summary_dir = f'{args.study_dir}/SummaryMeasurements'
 
     os.makedirs(summary_dir, exist_ok=True)
-    if len(glob.glob(summary_dir + '/subj_*.nii.gz')) < len(args.data):
-        py_file_path = os.path.dirname(os.path.realpath(__file__)) + '/summary_measures'
+    if len(glob.glob(summary_dir + '/subj_*.nii.gz')) == len(args.data):
+        print('Summary measurements already exist in the specified path.'
+              'If you want to re-compute them, delete the current files.')
+        job_id = 0
+    else:
         task_list = list()
         for subj_idx, (x, d, bval, bvec) in enumerate(zip(args.xfm, args.data, args.bval, args.bvecs)):
-            cmd = f'python {py_file_path} {subj_idx} {d} {x} {bvec} ' \
-                  f'{bval} {args.mask} {args.shm_degree} {args.study_dir}'
+            cmd = f'bench_fit_summary {subj_idx} {d} {x} {bvec} ' \
+                  f'{bval} {args.mask} {args.shm_degree} {args.study_dir} '
             task_list.append(cmd)
-            summary_measures.from_cmd(cmd.split()[1:])
+            # submit_summary_single_subject(cmd.split()) # for debugging.
 
         if 'SGE_ROOT1' in os.environ.keys():
             with open(f'{args.study_dir}/summary_tasklist.txt', 'w') as f:
@@ -195,19 +206,36 @@ def submit_summary(args):
                     f.write("%s\n" % t)
                 f.close()
 
-                job_id = run(f'fsl_sub -t {args.study_dir}/summary_tasklist.txt'
+                job_id = run(f'conda activate py37; module load fsl;'
+                             f'fsl_sub -t {args.study_dir}/summary_tasklist.txt'
                              f'-T 200 -R 4 -N bench_summary -l {args.study_dir}/log')
+
                 print(f'Jobs were submitted to SGE with job id {job_id}.')
         else:
-            print(f'No clusters were found. The jobs will run locally.')
+            print(f'No clusters were found. The jobs are running locally.')
+            print('; '.join(task_list))
+            1/0
             os.system('; '.join(task_list))
             job_id = 0
-    else:
-        print('Summary measurements already exist in the specified path.'
-              'If you want to re-compute them, delete the current files.')
-        job_id = 0
 
     return job_id
+
+
+def submit_summary_single_subject(args):
+    """
+        Wrapper function that parses the input from commandline
+        :param args: list of strings containing all required parameters for fit_summary_single_subj()
+        """
+    subj_idx_ = args[0]
+    diff_add_ = args[1]
+    xfm_add_ = args[2]
+    bvec_add_ = args[3]
+    bval_add_ = args[4]
+    mask_add_ = args[5]
+    sph_degree = int(args[6])
+    output_add_ = args[7]
+    summary_measures.fit_summary_single_subject(subj_idx_, diff_add_, xfm_add_, bvec_add_,
+                                                bval_add_, mask_add_, sph_degree, output_add_)
 
 
 def submit_normalize(args):

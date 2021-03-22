@@ -26,7 +26,8 @@ setup(
         'console_scripts': [
             'bench=bench.user_interface:main',
             'bench_train=bench.user_interface:submit_train',
-            'bench_preproc=bench.user_interface:submit_summary'
+            'bench_preproc=bench.user_interface:submit_summary',
+            'bench_fit_summary=bench.user_interface:submit_summary_single_subject',
         ],
     },
     install_requires=requirements,
