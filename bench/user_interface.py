@@ -303,15 +303,34 @@ def submit_inference(args):
     posteriors, predictions, peaks = ch_mdl.predict(data, delta_data, sigma_n)
 
     # save the results:
-    vec_names = ['No-change'] + [m.name for m in ch_mdl.models]
+    vec_names = ['no_change'] + [m.name for m in ch_mdl.models]
     maps_dir = f'{args.study_dir}/PosteriorMaps/{ch_mdl.model_name}'
-    write_nifti(vec_names, posteriors, args.mask, maps_dir)
+    os.makedirs(maps_dir, exist_ok=True)
+    for i, m in enumerate(vec_names):
+        write_nifti(posteriors[:, i][:, np.newaxis], args.mask, f'{maps_dir}/{m}_posterior')
+        if i > 0:
+            write_nifti(peaks[:, i-1][:, np.newaxis], args.mask, f'{maps_dir}/{m}_peaks')
+
     print(f'Analysis completed successfully, the posterior probability maps are stored in {maps_dir}')
 
 
 def write_nifti(data: np.ndarray, mask_add: str, fname: str, invalids=None):
+    """
+    writes data to a nifti file.
+
+    :param data: data matrix to be written to the file (M, d)
+    :param mask_add: mask address, the mask should have exactly M ones.
+    :param fname: full path to the output nifiti file
+    :param invalids: invalid voxels (filled with zeros)
+    :return:
+    """
+
     mask = Image(mask_add)
     std_indices = np.array(np.where(mask.data > 0)).T
+
+    if invalids is None:
+        invalids = np.zeros((std_indices.shape[0],), dtype=bool)
+
     std_indices_valid = std_indices[np.logical_not(invalids)]
     std_indices_invalid = std_indices[invalids]
 
@@ -323,4 +342,4 @@ def write_nifti(data: np.ndarray, mask_add: str, fname: str, invalids=None):
 
 
 if __name__ == '__main__':
-    print('This is bench user interface')
+    print('This is bench user interface.')

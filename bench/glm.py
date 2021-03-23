@@ -141,7 +141,7 @@ def voxelwise_group_glm(data, weights, design_con):
     return data1, delta_data, sigma_n
 
 
-def read_glm_weights(data: List[str], xfm: List[str],  mask: str, save_xfm_path: str):
+def read_glm_weights(data: List[str], xfm: List[str],  mask: str, save_xfm_path:str):
     """
     reads voxelwise glm weights for each subject in an arbitrary space and a transformation from that space to standard,
     then takes voxels that lie within the mask (that is in standard space).
