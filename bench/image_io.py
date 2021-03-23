@@ -1,0 +1,140 @@
+#!/usr/bin/env python3
+
+"""
+This module contains functions for reading and writing to image files
+"""
+
+import glob
+import os
+from warnings import warn
+
+import nibabel as nib
+import numpy as np
+from fsl.data.image import Image
+from fsl.transform import fnirt
+from fsl.wrappers import convertwarp
+from bench import summary_measures
+
+
+def read_summary_images(summary_dir: str, mask: str, normalize=True):
+    """
+    Reads summary measure images
+    :param summary_dir: path to the summary measurements
+    :param mask: roi mask file name
+    :param normalize: normalize the data by group average
+    :return: 3d numpy array containing summary measurements, inclusion mask
+    """
+    mask_img = Image(mask)
+    n_subj = len(glob.glob(summary_dir + '/subj_*.nii.gz'))
+    print(summary_dir)
+    if n_subj == 0:
+        raise Exception('No summary measures found in the specified directory.')
+
+    summary_list = list()
+    for subj_idx in range(n_subj):
+        f = f'{summary_dir}/subj_{subj_idx}.nii.gz'
+        summary_list.append(Image(f).data[mask_img.data > 0, :])
+
+    print(f'loaded summaries from {n_subj} subjects')
+    all_summaries = np.array(summary_list)  # n_subj, n_vox, n_dim
+    subj_n_invalids = np.isnan(all_summaries).sum(axis=(1, 2))
+    faulty_subjs = np.argwhere(subj_n_invalids > 0.2 * all_summaries.shape[1])
+    for s in faulty_subjs:
+        warn(f'Subject No. {s + 1} has more than 20% out of scope voxels. You may need to exclude it in the GLM.')
+
+    invalid_voxs = np.isnan(all_summaries).any(axis=(0, 2))
+
+    if invalid_voxs.sum() > 0:
+        warn(f'{invalid_voxs.sum()} voxels are excluded since they were '
+             f'outside of the image in at least one subject.')
+    with open(f'{summary_dir}/summary_names.txt', 'r') as reader:
+        names = [line.rstrip() for line in reader]
+
+    if normalize:
+        all_summaries = summary_measures.normalize_summaries(all_summaries, names)
+
+    return all_summaries, invalid_voxs, names
+
+
+def convert_warp_to_deformation_field(warp_field, std_image, def_field, overwrite=False):
+    """
+    Converts a warp wield to a deformation field
+
+    This is required because fnirt.Readfnirt only accepts deformation field. If the def_field
+     exists it does nothing.
+    :param warp_field:
+    :param std_image:
+    :param def_field:
+    :param overwrite:
+    :return:
+    """
+    if not os.path.exists(def_field) or overwrite is True:
+        convertwarp(def_field, std_image, warp1=warp_field)
+        img = nib.load(def_field)
+        img.header['intent_code'] = 2006  # for displacement field style warps
+        img.to_filename(def_field)
+
+
+def transform_indices(native_image, std_mask, def_field):
+    """
+    Findes nearest neighbour of each voxel of a standard space mask in native space image.
+    :param native_image:
+    :param std_mask:
+    :param def_field:
+    :return:
+    """
+    std_indices = np.array(np.where(std_mask.data > 0)).T
+    transform = fnirt.readFnirt(def_field, native_image, std_mask)
+    native_indices = np.around(transform.transform(std_indices, 'voxel', 'voxel')).astype(int)
+
+    valid_vox = [np.all([0 < native_indices[j, i] < native_image.shape[i] for i in range(3)])
+                 for j in range(native_indices.shape[0])]
+
+    if not np.all(valid_vox):
+        warn('Some voxels in mask lie out of native space box.')
+
+    return native_indices, valid_vox
+
+
+def sample_from_native_space(image, xfm, mask, def_field):
+    """
+    Sample data from native space using a mask in standard space
+    :param image:
+    :param xfm:
+    :param mask:
+    :param def_field:
+    :return:
+    """
+    convert_warp_to_deformation_field(xfm, mask, def_field)
+    data_img = Image(image)
+    mask_img = Image(mask)
+    subj_indices, valid_vox = transform_indices(data_img, mask_img, def_field)
+    data_vox = data_img.data[tuple(subj_indices[valid_vox, :].T)].astype(float)
+    return data_vox, valid_vox
+
+
+def write_nifti(data: np.ndarray, mask_add: str, fname: str, invalids=None):
+    """
+    writes data to a nifti file.
+
+    :param data: data matrix to be written to the file (M, d)
+    :param mask_add: mask address, the mask should have exactly M ones.
+    :param fname: full path to the output nifiti file
+    :param invalids: invalid voxels (filled with zeros)
+    :return:
+    """
+
+    mask = Image(mask_add)
+    std_indices = np.array(np.where(mask.data > 0)).T
+
+    if invalids is None:
+        invalids = np.zeros((std_indices.shape[0],), dtype=bool)
+
+    std_indices_valid = std_indices[np.logical_not(invalids)]
+    std_indices_invalid = std_indices[invalids]
+
+    img = np.zeros((*mask.shape, data.shape[1]))
+    img[tuple(std_indices_valid.T)] = data
+    img[tuple(std_indices_invalid.T)] = np.nan
+
+    nib.Nifti1Image(img, mask.nibImage.affine).to_filename(fname)

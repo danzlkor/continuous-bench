@@ -8,11 +8,9 @@ import subprocess
 import glob
 import os
 from warnings import warn
-import nibabel as nib
 import numpy as np
-from fsl.data.image import Image
 from fsl.utils.run import run
-from bench import change_model, glm, summary_measures, diffusion_models, acquisition
+from bench import change_model, glm, summary_measures, diffusion_models, acquisition, image_io
 
 
 def main(argv=None):
@@ -283,12 +281,12 @@ def submit_glm(args):
 
     glm_dir = f'{args.study_dir}/Glm/'
     os.makedirs(glm_dir, exist_ok=True)
-    write_nifti(data, args.mask, glm_dir + '/data', invalid_vox)
-    write_nifti(delta_data, args.mask, glm_dir + '/delta_data', invalid_vox)
-    write_nifti(variances, args.mask, glm_dir + '/variances', invalid_vox)
+    image_io.write_nifti(data, args.mask, glm_dir + '/data', invalid_vox)
+    image_io.write_nifti(delta_data, args.mask, glm_dir + '/delta_data', invalid_vox)
+    image_io.write_nifti(variances, args.mask, glm_dir + '/variances', invalid_vox)
 
     valid_mask = np.ones((data.shape[0], 1))
-    write_nifti(valid_mask, args.mask, glm_dir + '/valid_mask', invalid_vox)
+    image_io.write_nifti(valid_mask, args.mask, glm_dir + '/valid_mask', invalid_vox)
 
 
 def submit_inference(args):
@@ -307,38 +305,11 @@ def submit_inference(args):
     maps_dir = f'{args.study_dir}/PosteriorMaps/{ch_mdl.model_name}'
     os.makedirs(maps_dir, exist_ok=True)
     for i, m in enumerate(vec_names):
-        write_nifti(posteriors[:, i][:, np.newaxis], args.mask, f'{maps_dir}/{m}_posterior')
+        image_io.write_nifti(posteriors[:, i][:, np.newaxis], args.mask, f'{maps_dir}/{m}_posterior')
         if i > 0:
-            write_nifti(peaks[:, i-1][:, np.newaxis], args.mask, f'{maps_dir}/{m}_peaks')
+            image_io.write_nifti(peaks[:, i-1][:, np.newaxis], args.mask, f'{maps_dir}/{m}_peaks')
 
     print(f'Analysis completed successfully, the posterior probability maps are stored in {maps_dir}')
-
-
-def write_nifti(data: np.ndarray, mask_add: str, fname: str, invalids=None):
-    """
-    writes data to a nifti file.
-
-    :param data: data matrix to be written to the file (M, d)
-    :param mask_add: mask address, the mask should have exactly M ones.
-    :param fname: full path to the output nifiti file
-    :param invalids: invalid voxels (filled with zeros)
-    :return:
-    """
-
-    mask = Image(mask_add)
-    std_indices = np.array(np.where(mask.data > 0)).T
-
-    if invalids is None:
-        invalids = np.zeros((std_indices.shape[0],), dtype=bool)
-
-    std_indices_valid = std_indices[np.logical_not(invalids)]
-    std_indices_invalid = std_indices[invalids]
-
-    img = np.zeros((*mask.shape, data.shape[1]))
-    img[tuple(std_indices_valid.T)] = data
-    img[tuple(std_indices_invalid.T)] = 0
-
-    nib.Nifti1Image(img, mask.nibImage.affine).to_filename(fname)
 
 
 if __name__ == '__main__':

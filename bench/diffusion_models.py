@@ -7,7 +7,7 @@ import numba
 import numpy as np
 from scipy import stats
 
-from bench import summary_measures, dtm
+from bench import summary_measures, dti
 
 # prior distributions:
 
@@ -648,7 +648,7 @@ def bench_decorator(model, summary_type='shm'):
         def func(acq, noise_level, **params):
             sig = simulate_signal(model, acq, params)
             noise = np.random.randn(*sig.shape) * noise_level
-            sm = dtm.fit_dtm(sig + noise, acq)
+            sm = dti.fit_dtm(sig + noise, acq)
             return sm
 
     func.__name__ = model.__name__
