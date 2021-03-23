@@ -4,6 +4,7 @@ This module is to parse inputs from commandline and call the proper functions fr
 """
 
 import argparse
+import subprocess
 import glob
 import os
 from warnings import warn
@@ -27,6 +28,8 @@ def main(argv=None):
         submit_train(args)
     elif args.commandname == 'diff-summary':
         submit_summary(args)
+    elif args.commandname == 'diff-single-summary':
+        submit_summary_single_subject(args)
     elif args.commandname == 'diff-normalize':
         submit_normalize(args)
     elif args.commandname == 'glm':
@@ -89,7 +92,14 @@ def parse_args(argv):
     diff_summary_parser.add_argument("--study-dir", help="Path to the output directory", required=True)
 
     # single subject summary:
-    diff_single_subj_summary_parser.add_argument()
+    diff_single_subj_summary_parser.add_argument('subj_idx')
+    diff_single_subj_summary_parser.add_argument('diff_add')
+    diff_single_subj_summary_parser.add_argument('xfm_add')
+    diff_single_subj_summary_parser.add_argument('bvec_add')
+    diff_single_subj_summary_parser.add_argument('bval_add')
+    diff_single_subj_summary_parser.add_argument('mask_add')
+    diff_single_subj_summary_parser.add_argument('output_add')
+    diff_single_subj_summary_parser.add_argument('sph_degree', type=int, default=2)
 
     # normalization args
     diff_normalize_parse.add_argument('--study-dir', default=None,
@@ -98,12 +108,15 @@ def parse_args(argv):
     # glm arguments:
     glm_parser.add_argument("--design-mat", help="Design matrix for the group glm", required=True)
     glm_parser.add_argument("--design-con", help="Design contrast for the group glm", required=True)
-    glm_parser.add_argument("--study-dir", help='Path to save the outputs')
+    glm_parser.add_argument("--study-dir", help='Path to save the outputs', default='./')
+    glm_parser.add_argument("--mask", help='Path to the mask', required=True)
 
     # inference arguments:
     inference_parser.add_argument("--model", help="Forward model, either name of a standard model or full path to"
-                                                  "a trained change model file", default=None, required=False)
-    inference_parser.add_argument('--study-dir', help="Path to save posterior probability maps")
+                                                  "a trained change model file", default=None, required=True)
+    inference_parser.add_argument('--study-dir', help="Path to store posterior probability maps")
+    inference_parser.add_argument("--mask", help='Path to the mask', default=None, required=False)
+
     args = parser.parse_args(argv)
 
     return args
@@ -148,6 +161,7 @@ def submit_train(args):
                              model_name=forward_model.__name__,
                              poly_degree=int(args.p),
                              regularization=float(args.alpha))
+
     ch_model.meausrement_names = summary_measures.summary_names(acq, args.d)
     ch_model.save(path='', file_name=args.output)
     print('All change models were trained successfully')
@@ -195,8 +209,8 @@ def submit_summary(args):
     else:
         task_list = list()
         for subj_idx, (x, d, bval, bvec) in enumerate(zip(args.xfm, args.data, args.bval, args.bvecs)):
-            cmd = f'bench_fit_summary {subj_idx} {d} {x} {bvec} ' \
-                  f'{bval} {args.mask} {args.shm_degree} {args.study_dir} '
+            cmd = f'bench diff-single-summary {subj_idx} {d} {x} {bvec} ' \
+                  f'{bval} {args.mask} {args.study_dir} {args.shm_degree} '
             task_list.append(cmd)
             # submit_summary_single_subject(cmd.split()) # for debugging.
 
@@ -206,16 +220,15 @@ def submit_summary(args):
                     f.write("%s\n" % t)
                 f.close()
 
-                job_id = run(f'conda activate py37; module load fsl;'
+                job_id = run(f'conda activate py37; module load fsl;' # needs to be changed.
                              f'fsl_sub -t {args.study_dir}/summary_tasklist.txt'
                              f'-T 200 -R 4 -N bench_summary -l {args.study_dir}/log')
 
                 print(f'Jobs were submitted to SGE with job id {job_id}.')
         else:
             print(f'No clusters were found. The jobs are running locally.')
-            print('; '.join(task_list))
-            1/0
-            os.system('; '.join(task_list))
+            processes = [subprocess.Popen(t.split(), shell=False) for t in task_list]
+            exitcodes = [p.wait() for p in processes]
             job_id = 0
 
     return job_id
@@ -226,16 +239,9 @@ def submit_summary_single_subject(args):
         Wrapper function that parses the input from commandline
         :param args: list of strings containing all required parameters for fit_summary_single_subj()
         """
-    subj_idx_ = args[0]
-    diff_add_ = args[1]
-    xfm_add_ = args[2]
-    bvec_add_ = args[3]
-    bval_add_ = args[4]
-    mask_add_ = args[5]
-    sph_degree = int(args[6])
-    output_add_ = args[7]
-    summary_measures.fit_summary_single_subject(subj_idx_, diff_add_, xfm_add_, bvec_add_,
-                                                bval_add_, mask_add_, sph_degree, output_add_)
+    output_add = args.output_add + '/SummaryMeasurements'
+    summary_measures.fit_summary_single_subject(args.subj_idx, args.diff_add, args.xfm_add, args.bvec_add,
+                                                args.bval_add, args.mask_add, args.sph_degree, output_add)
 
 
 def submit_normalize(args):
@@ -243,6 +249,11 @@ def submit_normalize(args):
 
 
 def submit_glm(args):
+    """
+    Runs glm on the summary meausres.
+    :param args: output from argparse, should contain desing matrix anc contrast addresss, summary_dir and masks
+    :return:
+    """
     if args.design_mat is None:
         raise RuntimeError('For inference you have to provide a design matrix file.')
     elif not os.path.exists(args.design_mat):
@@ -253,42 +264,56 @@ def submit_glm(args):
     elif not os.path.exists(args.design_con):
         raise FileNotFoundError(f'{args.design_con} file not found.')
     glm_dir = f'{args.study_dir}/GLM'
+
+    if os.path.exists(args.study_dir + '/SummaryMeasurements'):
+        summary_dir = args.study_dir + '/SummaryMeasurements'
+    else:
+        summary_dir = args.study_dir
+
     if not os.path.isdir(glm_dir):
         os.makedirs(glm_dir)
 
-    summaries, invalid_vox = summary_measures.read_summary_images(
-        summary_dir=args.study_dir, mask=args.mask)
+    summaries, invalid_vox, _ = summary_measures.read_summary_images(
+        summary_dir=summary_dir, mask=args.mask, normalize=True)
 
     summaries = summaries[:, invalid_vox == 0, :]
     # perform glm:
     data, delta_data, sigma_n = glm.group_glm(summaries, args.design_mat, args.design_con)
-    glm_dir = f'{args.study_dir}/Glm'
-    write_nifti(('data',), data, args.mask, glm_dir, invalid_vox)
-    write_nifti(('delta_data',), delta_data, args.mask, glm_dir, invalid_vox)
+    variances = np.diagonal(sigma_n, offset=0, axis1=1, axis2=2)
+
+    glm_dir = f'{args.study_dir}/Glm/'
+    os.makedirs(glm_dir, exist_ok=True)
+    write_nifti(data, args.mask, glm_dir + '/data', invalid_vox)
+    write_nifti(delta_data, args.mask, glm_dir + '/delta_data', invalid_vox)
+    write_nifti(variances, args.mask, glm_dir + '/variances', invalid_vox)
+
+    valid_mask = np.ones((data.shape[0], 1))
+    write_nifti(valid_mask, args.mask, glm_dir + '/valid_mask', invalid_vox)
 
 
 def submit_inference(args):
-    summaries, invalid_vox = summary_measures.read_summary_images(
-        summary_dir=args.summary_dir, mask=args.mask)
+    glm_dir = f'{args.study_dir}/Glm/'
+    if args.mask is None:
+        args.mask = glm_dir + '/valid_mask.nii'
 
-    summaries = summaries[:, invalid_vox == 0, :]
-    data, delta_data, sigma_n = glm.group_glm(summaries, args.design_mat, args.design_con)
+    data, delta_data, variances = glm.read_glm(glm_dir, args.mask)
+    sigma_n = [np.diag(v) for v in variances]
     # perform inference:
     ch_mdl = change_model.ChangeModel.load(args.model)
     posteriors, predictions, peaks = ch_mdl.predict(data, delta_data, sigma_n)
 
     # save the results:
     vec_names = ['No-change'] + [m.name for m in ch_mdl.models]
-    maps_dir = f'{args.study_dir}/PosteriorMaps/{ch_mdl.name}'
-    write_nifti(vec_names, posteriors, args.mask, maps_dir, invalid_vox)
+    maps_dir = f'{args.study_dir}/PosteriorMaps/{ch_mdl.model_name}'
+    write_nifti(vec_names, posteriors, args.mask, maps_dir)
     print(f'Analysis completed successfully, the posterior probability maps are stored in {maps_dir}')
 
 
 def write_nifti(data: np.ndarray, mask_add: str, fname: str, invalids=None):
     mask = Image(mask_add)
     std_indices = np.array(np.where(mask.data > 0)).T
-    std_indices_valid = std_indices[[not v for v in invalids]]
-    std_indices_invalid = std_indices[invalids == 1]
+    std_indices_valid = std_indices[np.logical_not(invalids)]
+    std_indices_invalid = std_indices[invalids]
 
     img = np.zeros((*mask.shape, data.shape[1]))
     img[tuple(std_indices_valid.T)] = data
@@ -298,4 +323,4 @@ def write_nifti(data: np.ndarray, mask_add: str, fname: str, invalids=None):
 
 
 if __name__ == '__main__':
-    print('hello!')
+    print('This is bench user interface')

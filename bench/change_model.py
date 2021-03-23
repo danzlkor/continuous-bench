@@ -401,7 +401,7 @@ class Trainer:
                                  l_mdl=l_mdl,
                                  prior=prior,
                                  lim=l,
-                                 name=str(name) + ', ' + l)
+                                 name=str(name) + '_' + l)
                 )
                 if verbose:
                     print(models[-1].name)

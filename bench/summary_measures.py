@@ -10,13 +10,11 @@ from warnings import warn
 
 import nibabel as nib
 import numpy as np
-import sys
 from dipy.reconst.shm import real_sym_sh_basis
 from fsl.data.image import Image
 from fsl.transform import fnirt
 from fsl.wrappers import convertwarp
-from scipy.special import lpmv, factorial
-from sympy.physics.quantum.cg import CG
+
 
 from bench import acquisition
 
@@ -40,7 +38,7 @@ def normalized_shms(bvecs, lmax):
     return y, l
 
 
-def fit_shm(signal, acq, shm_degree, cg=False):
+def fit_shm(signal, acq, shm_degree):
     """
     Cumputes summary measurements from spherical harmonics fit.
     :param signal: diffusion signal
@@ -66,14 +64,11 @@ def fit_shm(signal, acq, shm_degree, cg=False):
             for degree in np.arange(2, shm_degree + 1, 2):
                 sum_meas.append(np.power(coeffs[..., l == degree], 2).mean(axis=-1))
 
-            if cg:
-                sum_meas.append(cleb_gord_summary_complex(shell_signal, bvecs, this_shell.lmax))
-
     sum_meas = np.stack(sum_meas, axis=-1)
     return sum_meas
 
 
-def shm_cov(sum_meas, signal, acq, sph_degree, noise_level, cg=False):
+def shm_cov(sum_meas, signal, acq, sph_degree, noise_level):
     if sum_meas.ndim == 1:
         sum_meas = sum_meas[np.newaxis, :]
     if signal.ndim == 1:
@@ -91,12 +86,6 @@ def shm_cov(sum_meas, signal, acq, sph_degree, noise_level, cg=False):
             for degree in np.arange(2, sph_degree + 1, 2):
                 f = (noise_level ** 2) / c
                 variances[:, s_idx] = f * (2 * sum_meas[:, s_idx] + f) / (2 * degree + 1)
-                s_idx += 1
-            if cg:
-                y_inv = np.linalg.pinv(y).T
-                coeffs = signal[:, acq.idx_shells == shell_idx] @ y_inv
-                grad = cleb_gord_grad(coeffs[..., l == 2], y_inv[:, l == 2])
-                variances[:, s_idx] = (grad * grad).sum(axis=-1) * (noise_level ** 2)
                 s_idx += 1
 
     sigma_n = np.array([np.diag(v) for v in variances])
@@ -198,8 +187,13 @@ def fit_summary_single_subject(subj_idx: str, diff_add: str, xfm_add: str, bvec_
 
     fname = f"{output_add}/subj_{subj_idx}.nii.gz"
     nib.Nifti1Image(mat, mask_img.nibImage.affine).to_filename(fname)
-    if subj_idx == '0':
-        np.save(f'{output_add}/summary_names', summary_names(acq, shm_degree))
+
+    if subj_idx == '0': # write summary names to a text file in the folder.
+        names = summary_names(acq, shm_degree)
+        with open(f'{output_add}/summary_names.txt', 'w') as f:
+            for t in names:
+                f.write("%s\n" % t)
+            f.close()
 
     print(f'Summary measurements for subject {subj_idx} computed')
 
@@ -235,11 +229,13 @@ def read_summary_images(summary_dir: str, mask: str, normalize=True):
     if invalid_voxs.sum() > 0:
         warn(f'{invalid_voxs.sum()} voxels are excluded since they were '
              f'outside of the image in at least one subject.')
-    names = np.load(f'{summary_dir}/summary_names.npy')
+    with open(f'{summary_dir}/summary_names.txt', 'r') as reader:
+        names = [line.rstrip() for line in reader]
+
     if normalize:
         all_summaries = normalize_summaries(all_summaries, names)
 
-    return all_summaries, invalid_voxs
+    return all_summaries, invalid_voxs, names
 
 
 def normalize_summaries(summaries, names):
@@ -253,12 +249,13 @@ def normalize_summaries(summaries, names):
         raise ValueError(f'Number of summary measurements doesnt match with the trained model.'
                          f'\n Expected {len(names)} measures but got {summaries.shape[2]}.')
 
-    b0_idx = [i for i, (b, _) in enumerate(names) if b == 0]
+    b0_idx = names.index('b0_mean')
+    summary_type = [l.split('_')[1] for l in names]
     mean_b0 = np.nanmean(summaries[:, :, b0_idx], axis=0)
     summaries_norm = np.zeros_like(summaries)
-    for smm_idx, (_, l) in enumerate(names):
+    for smm_idx, l in enumerate(summary_type):
         data = summaries[:, :, smm_idx]
-        if l == 'l0':
+        if l == 'mean':
             data = data / mean_b0.T
         else:
             data = data / (mean_b0.T ** 2)

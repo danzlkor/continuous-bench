@@ -44,9 +44,26 @@ def group_glm(data, design_mat, design_con):
 
     data1 = copes[:, :, 0]
     delta_data = copes[:, :, 1]
-    sigma_n = varcopes[..., 1]
+    variances = varcopes[..., 1]
 
-    return data1, delta_data, sigma_n
+    return data1, delta_data, variances
+
+
+def read_glm(glm_dir, mask_add=None):
+    """
+    :param glm_dir: path to the glm dir, it must contain data.nii.gz, delta_data.nii.gz, variance.nii.gz,
+    and valid_mask.nii.gz
+    :param mask_add: address of mask file, by default it uses the mask in glm dir.
+    :return:
+    """
+    if mask_add is None:
+        mask_add = glm_dir + '/valid_mask.nii'
+
+    mask_img = Image(mask_add)
+    data = Image(f'{glm_dir}/data.nii').data[mask_img.data > 0, :]
+    delta_data = Image(f'{glm_dir}/delta_data.nii').data[mask_img.data > 0, :]
+    variances = Image(f'{glm_dir}/variances.nii').data[mask_img.data > 0, :]
+    return data, delta_data, variances
 
 
 def loadcontrast(design_con):
@@ -124,9 +141,9 @@ def voxelwise_group_glm(data, weights, design_con):
     return data1, delta_data, sigma_n
 
 
-def read_glm_weights(data: List[str], xfm: List[str],  mask: str, output: str):
+def read_glm_weights(data: List[str], xfm: List[str],  mask: str, save_xfm_path: str):
     """
-    Voxelwise glm weights for each subject in an arbitrary space and a transformation from that space to standard,
+    reads voxelwise glm weights for each subject in an arbitrary space and a transformation from that space to standard,
     then takes voxels that lie within the mask (that is in standard space).
 
     :param output: output directory to save intermediate transformation files
@@ -137,7 +154,7 @@ def read_glm_weights(data: List[str], xfm: List[str],  mask: str, output: str):
 
     """
 
-    os.makedirs(output, exist_ok=True)
+    os.makedirs(save_xfm_path, exist_ok=True)
     mask_img = Image(mask)
     std_indices = np.array(np.where(mask_img.data > 0)).T
 
@@ -147,7 +164,7 @@ def read_glm_weights(data: List[str], xfm: List[str],  mask: str, output: str):
     print('Reading GLM weights:')
 
     for subj_idx, (d, x) in enumerate(zip(data, xfm)):
-        data, valid_vox = sample_from_native_space(d, x, mask, f"{output}/def_field_{subj_idx}.nii.gz")
+        data, valid_vox = sample_from_native_space(d, x, mask, f"{save_xfm_path}/def_field_{subj_idx}.nii.gz")
         weights[subj_idx, valid_vox] = data
         print(subj_idx, end=' ', flush=True)
     return weights
