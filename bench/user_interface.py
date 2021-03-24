@@ -10,6 +10,7 @@ import os
 from warnings import warn
 import numpy as np
 from fsl.utils.run import run
+from fsl.utils.fslsub import submit
 from bench import change_model, glm, summary_measures, diffusion_models, acquisition, image_io
 
 
@@ -212,15 +213,14 @@ def submit_summary(args):
             task_list.append(cmd)
         # main(cmd.split()[1:]) # for debugging.
 
-        if 'SGE_ROOT1' in os.environ.keys():
+        if 'SGE_ROOT' in os.environ.keys():
             with open(f'{args.study_dir}/summary_tasklist.txt', 'w') as f:
                 for t in task_list:
                     f.write("%s\n" % t)
                 f.close()
 
-                job_id = run(f'conda activate py37; module load fsl;' # needs to be changed.
-                             f'fsl_sub -t {args.study_dir}/summary_tasklist.txt'
-                             f'-T 200 -R 4 -N bench_summary -l {args.study_dir}/log')
+                job_id = run(f'fsl_sub -t {args.study_dir}/summary_tasklist.txt'
+                             f'-T 200 -R 4 -N bench_summary -l {args.study_dir}/log', env=os.environ)
 
                 print(f'Jobs were submitted to SGE with job id {job_id}.')
         else:

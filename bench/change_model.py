@@ -8,7 +8,6 @@ import inspect
 import os
 import pickle
 import warnings
-from collections import defaultdict
 from dataclasses import dataclass
 import numpy as np
 from joblib import Parallel, delayed
@@ -22,8 +21,8 @@ from sklearn import linear_model
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import PolynomialFeatures
 from typing import Callable, List, Any, Union, Sequence, Mapping
+from scipy import optimize
 
-all_scale = defaultdict(list)
 
 BOUNDS = {'negative': (-np.inf, 0), 'positive': (0, np.inf), 'twosided': (-np.inf, np.inf)}
 INTEGRAL_LIMITS = list(BOUNDS.keys())
@@ -411,7 +410,54 @@ class Trainer:
 
         return ChangeModel(models=models, model_name=model_name)
 
-    def generate_train_samples(self, n_samples: int, dv0: float = 1e-6, parallel=True, old=False) -> tuple:
+    def train_ml(self, n_samples=1000, poly_degree=2, regularization=1, k=100, dv0=1e-6, model_name=None, verbose=True):
+        """
+        Train change models (estimates w_mu and w_l) using forward model simulation
+
+        :param n_samples: number simulated samples to estimate forward model
+        :param k: nearest neighbours parameter
+        :param dv0: the amount perturbation in parameter to estimate derivatives
+        :param poly_degree: polynomial degree for regression
+        :param regularization: ridge regression alpha
+        :param model_name: name of the model.
+        """
+        y_1, y_2 = self.generate_train_samples(n_samples, dv0)
+        dy = (y_2 - y_1) / dv0
+
+
+
+        models = []
+        if verbose:
+            print('Trained models are:')
+
+        for idx, (vec, name, prior, lims) \
+                in enumerate(zip(self.change_vecs, self.vec_names, self.priors, self.lims)):
+
+            w = np.random(self.n_dim + self.n_dim * (self.n_dim + 1) / 2)
+            weights = optimize.minimize(neg_log_likelihood, w, args=(y_1, dy[idx], regularization))
+
+            mu_mdl = make_pipeline(poly_degree, regularization)
+            l_mdl = make_pipeline(poly_degree, regularization)
+            mu_mdl.set_params()
+            l_mdl.set_params()
+            for l in lims:
+                models.append(
+                    ChangeVector(vec=vec,
+                                 mu_mdl=mu_mdl,
+                                 l_mdl=l_mdl,
+                                 prior=prior,
+                                 lim=l,
+                                 name=str(name) + '_' + l)
+                )
+                if verbose:
+                    print(models[-1].name)
+
+        if model_name is None:
+            model_name = getattr(self.forward_model, '__name__', None)
+
+        return ChangeModel(models=models, model_name=model_name)
+
+    def generate_train_samples(self, n_samples: int, dv0: float = 1e-6, parallel=False, old=False) -> tuple:
         """
         generate samples to estimate derivatives.
         :param n_samples:
@@ -675,6 +721,30 @@ def performance_measures(posteriors, true_change, set_names):
     true_posteriors = np.nanmean(posteriors[np.arange(len(true_change_idx)), true_change_idx])
 
     return accuracy, true_posteriors
+
+
+def neg_log_likelihood(weights, y, dy, poly_degree=2, alpha=0.1):
+    """
+     Computes the negative log-liklihood for a set of weights given y and dy
+    :param weights: all weights for mu and sigma (d + d(d+1)/2)
+    :param y: measurements (n, d)
+    :param dy: derivatives (n, d)
+    :param alpha: regularization weight
+    :return:
+    """
+    nsamples, ndim = dy.shape
+    yf = PolynomialFeatures(degree=poly_degree).fit_transform(y)
+    nfeatures = yf.shape[-1]
+    w_mu = weights[:nfeatures * ndim]
+    w_sig = weights[nfeatures * ndim:]
+    mu_mat = w_mu.reshape(nfeatures, ndim)
+    sig_mat = w_sig.reshape(nfeatures, (ndim * (ndim + 1)) // 2)
+    mu = yf @ mu_mat
+    sigma = l_to_sigma(yf @ sig_mat)
+    offset = dy - mu
+    return np.sum(np.log(np.linalg.det(sigma)) +
+                  np.einsum('ij,ijk,ik->i', offset, np.linalg.inv(sigma), offset)) +\
+           alpha * np.sum(weights ** 2)
 
 
 def plot_conf_mat(conf_mat, param_names, f_name=None, title=None):

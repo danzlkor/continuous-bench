@@ -203,3 +203,12 @@ class Acquisition:
         print(to_string(shells))
         print('')
         return cls(shells, idx_shells, bvecs, name)
+
+    @classmethod
+    def from_bval_bvec(cls, bval_add, bvec_add):
+        bvecs = np.genfromtxt(bvec_add)
+        if bvecs.shape[1] > bvecs.shape[0]:
+            bvecs = bvecs.T
+        bvals = np.genfromtxt(bval_add)
+        idx_shells, shells = ShellParameters.create_shells(bval=bvals)
+        return cls(shells, idx_shells, bvecs)

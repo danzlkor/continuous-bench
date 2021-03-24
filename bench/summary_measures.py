@@ -157,19 +157,14 @@ def fit_summary_single_subject(subj_idx: str, diff_add: str, xfm_add: str, bvec_
 
     def_field = f"{output_add}/def_field_{subj_idx}.nii.gz"
     data, valid_vox = image_io.sample_from_native_space(diff_add, xfm_add, mask_add, def_field)
-    bvecs = np.genfromtxt(bvec_add)
-    if bvecs.shape[1] > bvecs.shape[0]:
-        bvecs = bvecs.T
-    bvals = np.genfromtxt(bval_add)
-    idx_shells, shells = acquisition.ShellParameters.create_shells(bval=bvals)
-    acq = acquisition.Acquisition(shells, idx_shells, bvecs)
 
+    acq = acquisition.Acquisition.from_bval_bvec(bval_add, bvec_add)
     summaries = fit_shm(data, acq, shm_degree=shm_degree)
 
     # write to nifti:
     fname = f"{output_add}/subj_{subj_idx}.nii.gz"
     image_io.write_nifti(summaries, mask_add, fname, np.logical_not(valid_vox))
-    if subj_idx == '0': # write summary names to a text file in the folder.
+    if subj_idx == '0':  # write summary names to a text file in the folder.
         names = summary_names(acq, shm_degree)
         with open(f'{output_add}/summary_names.txt', 'w') as f:
             for t in names:
