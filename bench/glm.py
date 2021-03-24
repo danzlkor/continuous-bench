@@ -8,10 +8,9 @@ import os
 
 import numpy as np
 from fsl.data.featdesign import loadDesignMat
-from fsl.data.image import Image
 from typing import List
 
-from bench.summary_measures import sample_from_native_space
+from bench.image_io import sample_from_native_space
 
 
 def group_glm(data, design_mat, design_con):
@@ -47,23 +46,6 @@ def group_glm(data, design_mat, design_con):
     variances = varcopes[..., 1]
 
     return data1, delta_data, variances
-
-
-def read_glm(glm_dir, mask_add=None):
-    """
-    :param glm_dir: path to the glm dir, it must contain data.nii.gz, delta_data.nii.gz, variance.nii.gz,
-    and valid_mask.nii.gz
-    :param mask_add: address of mask file, by default it uses the mask in glm dir.
-    :return:
-    """
-    if mask_add is None:
-        mask_add = glm_dir + '/valid_mask.nii'
-
-    mask_img = Image(mask_add)
-    data = Image(f'{glm_dir}/data.nii').data[mask_img.data > 0, :]
-    delta_data = Image(f'{glm_dir}/delta_data.nii').data[mask_img.data > 0, :]
-    variances = Image(f'{glm_dir}/variances.nii').data[mask_img.data > 0, :]
-    return data, delta_data, variances
 
 
 def loadcontrast(design_con):

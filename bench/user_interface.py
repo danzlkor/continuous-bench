@@ -210,7 +210,7 @@ def submit_summary(args):
             cmd = f'bench diff-single-summary {subj_idx} {d} {x} {bvec} ' \
                   f'{bval} {args.mask} {args.study_dir} {args.shm_degree} '
             task_list.append(cmd)
-            # submit_summary_single_subject(cmd.split()) # for debugging.
+        # main(cmd.split()[1:]) # for debugging.
 
         if 'SGE_ROOT1' in os.environ.keys():
             with open(f'{args.study_dir}/summary_tasklist.txt', 'w') as f:
@@ -271,7 +271,7 @@ def submit_glm(args):
     if not os.path.isdir(glm_dir):
         os.makedirs(glm_dir)
 
-    summaries, invalid_vox, _ = summary_measures.read_summary_images(
+    summaries, invalid_vox, _ = image_io.read_summary_images(
         summary_dir=summary_dir, mask=args.mask, normalize=True)
 
     summaries = summaries[:, invalid_vox == 0, :]
@@ -294,7 +294,7 @@ def submit_inference(args):
     if args.mask is None:
         args.mask = glm_dir + '/valid_mask.nii'
 
-    data, delta_data, variances = glm.read_glm(glm_dir, args.mask)
+    data, delta_data, variances = image_io.read_glm(glm_dir, args.mask)
     sigma_n = [np.diag(v) for v in variances]
     # perform inference:
     ch_mdl = change_model.ChangeModel.load(args.model)
@@ -304,6 +304,7 @@ def submit_inference(args):
     vec_names = ['no_change'] + [m.name for m in ch_mdl.models]
     maps_dir = f'{args.study_dir}/PosteriorMaps/{ch_mdl.model_name}'
     os.makedirs(maps_dir, exist_ok=True)
+    image_io.write_nifti(predictions[:, np.newaxis], args.mask, f'{maps_dir}/predictions')
     for i, m in enumerate(vec_names):
         image_io.write_nifti(posteriors[:, i][:, np.newaxis], args.mask, f'{maps_dir}/{m}_posterior')
         if i > 0:

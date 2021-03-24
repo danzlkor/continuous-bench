@@ -77,10 +77,10 @@ def convert_warp_to_deformation_field(warp_field, std_image, def_field, overwrit
 
 def transform_indices(native_image, std_mask, def_field):
     """
-    Findes nearest neighbour of each voxel of a standard space mask in native space image.
-    :param native_image:
-    :param std_mask:
-    :param def_field:
+    Findes nearest neighbour of each voxel of a standard space mask in a native space image.
+    :param native_image: images object of native space
+    :param std_mask: image object of a standard space mask
+    :param def_field: string
     :return:
     """
     std_indices = np.array(np.where(std_mask.data > 0)).T
@@ -96,14 +96,14 @@ def transform_indices(native_image, std_mask, def_field):
     return native_indices, valid_vox
 
 
-def sample_from_native_space(image, xfm, mask, def_field):
+def sample_from_native_space(image, xfm, mask, def_field=None):
     """
     Sample data from native space using a mask in standard space
-    :param image:
-    :param xfm:
-    :param mask:
-    :param def_field:
-    :return:
+    :param image: address to the image file in native space
+    :param xfm: address to the transformation from standard to native
+    :param mask: adress to the mask in standard space
+    :param def_field: adress to the deformation field file, if not exsits will creat it, otherwise will use it.
+    :return: sampled data, and valid voxels
     """
     convert_warp_to_deformation_field(xfm, mask, def_field)
     data_img = Image(image)
@@ -113,14 +113,31 @@ def sample_from_native_space(image, xfm, mask, def_field):
     return data_vox, valid_vox
 
 
+def read_glm(glm_dir, mask_add=None):
+    """
+    :param glm_dir: path to the glm dir, it must contain data.nii.gz, delta_data.nii.gz, variance.nii.gz,
+    and valid_mask.nii.gz
+    :param mask_add: address of mask file, by default it uses the mask in glm dir.
+    :return:
+    """
+    if mask_add is None:
+        mask_add = glm_dir + '/valid_mask.nii'
+
+    mask_img = Image(mask_add)
+    data = Image(f'{glm_dir}/data.nii').data[mask_img.data > 0, :]
+    delta_data = Image(f'{glm_dir}/delta_data.nii').data[mask_img.data > 0, :]
+    variances = Image(f'{glm_dir}/variances.nii').data[mask_img.data > 0, :]
+    return data, delta_data, variances
+
+
 def write_nifti(data: np.ndarray, mask_add: str, fname: str, invalids=None):
     """
     writes data to a nifti file.
 
     :param data: data matrix to be written to the file (M, d)
-    :param mask_add: mask address, the mask should have exactly M ones.
+    :param mask_add: mask address, the mask should have exactly N ones.
     :param fname: full path to the output nifiti file
-    :param invalids: invalid voxels (filled with zeros)
+    :param invalids: invalid voxels (filled with zeros) (N, 1) with M false entries
     :return:
     """
 
