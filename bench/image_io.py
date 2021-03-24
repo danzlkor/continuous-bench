@@ -14,6 +14,7 @@ from fsl.data.image import Image
 from fsl.transform import fnirt
 from fsl.wrappers import convertwarp
 from bench import summary_measures
+from typing import List
 
 
 def read_summary_images(summary_dir: str, mask: str, normalize=True):
@@ -127,7 +128,46 @@ def read_glm(glm_dir, mask_add=None):
     data = Image(f'{glm_dir}/data.nii').data[mask_img.data > 0, :]
     delta_data = Image(f'{glm_dir}/delta_data.nii').data[mask_img.data > 0, :]
     variances = Image(f'{glm_dir}/variances.nii').data[mask_img.data > 0, :]
-    return data, delta_data, variances
+
+    n_vox, n_dim = data.shape
+    tril_idx = np.tril_indices(n_dim)
+    diag_idx = np.diag_indices(n_dim)
+    sigma_n = np.zeros((n_vox, n_dim, n_dim))
+    for i in range(n_vox):
+        sigma_n[i][tril_idx] = variances[i]
+        sigma_n[i] = sigma_n[i] + sigma_n[i].T
+        sigma_n[i][diag_idx] /= 2
+
+    return data, delta_data, sigma_n
+
+
+def read_glm_weights(data: List[str], xfm: List[str],  mask: str, save_xfm_path:str):
+    """
+    reads voxelwise glm weights for each subject in an arbitrary space and a transformation from that space to standard,
+    then takes voxels that lie within the mask (that is in standard space).
+
+    :param output: output directory to save intermediate transformation files
+    :param data: list of nifti files one per subject
+    :param xfm: list of transformations from the native space to standad space
+    :param mask: address of roi mask in standard space
+    :returns: weights matrix (n_subj , n_vox). For the voxels that lie outside of image boundaries it places nans.
+
+    """
+
+    os.makedirs(save_xfm_path, exist_ok=True)
+    mask_img = Image(mask)
+    std_indices = np.array(np.where(mask_img.data > 0)).T
+
+    n_vox = std_indices.shape[0]
+    n_subj = len(data)
+    weights = np.zeros((n_subj, n_vox)) + np.nan
+    print('Reading GLM weights:')
+
+    for subj_idx, (d, x) in enumerate(zip(data, xfm)):
+        data, valid_vox = sample_from_native_space(d, x, mask, f"{save_xfm_path}/def_field_{subj_idx}.nii.gz")
+        weights[subj_idx, valid_vox] = data
+        print(subj_idx, end=' ', flush=True)
+    return weights
 
 
 def write_nifti(data: np.ndarray, mask_add: str, fname: str, invalids=None):

@@ -282,10 +282,13 @@ def ball_stick(bval=0, bvec=np.array([0, 0, 1]), theta=0., phi=0.0, d_a=dif_coef
     :param s0: attenuation for b=0
     :return: simulated signal (M,)
     """
-    assert s_iso >= 0, 'volume fraction cant be negative'
-    assert s_a >= 0, 'volume fraction cant be negative'
+    assert np.all(s_iso >= 0), 'volume fraction cant be negative'
+    assert np.all(s_a >= 0), 'volume fraction cant be negative'
 
-    return s_a * stick(bval, bvec, d_a, theta, phi, s0) + s_iso * ball(bval, bvec, d_iso, s0)
+    s_a = np.atleast_1d(s_a)
+    s_iso = np.atleast_1d(s_iso)
+    return stick(bval, bvec, d_a, theta, phi, s0) * s_a[:, np.newaxis] \
+           + ball(bval, bvec, d_iso, s0) * s_iso[:, np.newaxis]
 
 
 def watson_noddi(bval=0, bvec=np.array([0, 0, 1]),

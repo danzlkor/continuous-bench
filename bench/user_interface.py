@@ -277,13 +277,14 @@ def submit_glm(args):
     summaries = summaries[:, invalid_vox == 0, :]
     # perform glm:
     data, delta_data, sigma_n = glm.group_glm(summaries, args.design_mat, args.design_con)
-    variances = np.diagonal(sigma_n, offset=0, axis1=1, axis2=2)
+    tril_idx = np.tril_indices(sigma_n.shape[-1])
+    covariances = np.stack([s[tril_idx] for s in sigma_n], axis=0)
 
     glm_dir = f'{args.study_dir}/Glm/'
     os.makedirs(glm_dir, exist_ok=True)
     image_io.write_nifti(data, args.mask, glm_dir + '/data', invalid_vox)
     image_io.write_nifti(delta_data, args.mask, glm_dir + '/delta_data', invalid_vox)
-    image_io.write_nifti(variances, args.mask, glm_dir + '/variances', invalid_vox)
+    image_io.write_nifti(covariances, args.mask, glm_dir + '/variances', invalid_vox)
 
     valid_mask = np.ones((data.shape[0], 1))
     image_io.write_nifti(valid_mask, args.mask, glm_dir + '/valid_mask', invalid_vox)
@@ -294,8 +295,9 @@ def submit_inference(args):
     if args.mask is None:
         args.mask = glm_dir + '/valid_mask.nii'
 
-    data, delta_data, variances = image_io.read_glm(glm_dir, args.mask)
-    sigma_n = [np.diag(v) for v in variances]
+    data, delta_data, sigma_n = image_io.read_glm(glm_dir, args.mask)
+
+
     # perform inference:
     ch_mdl = change_model.ChangeModel.load(args.model)
     posteriors, predictions, peaks = ch_mdl.predict(data, delta_data, sigma_n)

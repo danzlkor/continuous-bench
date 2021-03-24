@@ -609,7 +609,7 @@ def log_mvnpdf(x, mean, cov):
     cov = np.atleast_2d(cov)
     d = mean.shape[-1]
     expo = -0.5 * (x - mean).T @ np.linalg.inv(cov) @ (x - mean)
-    nc = -0.5 * np.log(((2 * np.pi) ** d) * np.linalg.det(cov.astype(float)))
+    nc = -0.5 * np.log(((2 * np.pi) ** d) * abs(np.linalg.det(cov.astype(float))))
 
     # var2 = np.log(multivariate_normal(mean=mean, cov=cov).pdf(x))
     return expo + nc

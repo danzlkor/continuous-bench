@@ -4,13 +4,8 @@
     This module reads diffusion data and returns data in proper format for inference
 """
 
-import os
-
 import numpy as np
 from fsl.data.featdesign import loadDesignMat
-from typing import List
-
-from bench.image_io import sample_from_native_space
 
 
 def group_glm(data, design_mat, design_con):
@@ -20,7 +15,7 @@ def group_glm(data, design_mat, design_con):
 
     :param data: 3d numpy array (n_subj, n_vox, n_dim) 
     :param design_mat: path to design.mat file
-    :param design_con: path to design.con file, the first contrast must be first group mean, the second contrast is the 
+    :param design_con: path to design.con file, the first contrast must be first group mean, the second (or last) contrast is the
     change across groups contrast
     :return: data1, delta_data and noise covariance matrices.
     """
@@ -42,10 +37,10 @@ def group_glm(data, design_mat, design_con):
     varcopes = sigma_sq[..., np.newaxis] * np.diagonal(c @ np.linalg.inv(x.T @ x) @ c.T)
 
     data1 = copes[:, :, 0]
-    delta_data = copes[:, :, 1]
-    variances = varcopes[..., 1]
+    delta_data = copes[:, :, -1]
+    sigma_n = varcopes[..., -1]
 
-    return data1, delta_data, variances
+    return data1, delta_data, sigma_n
 
 
 def loadcontrast(design_con):
@@ -123,30 +118,3 @@ def voxelwise_group_glm(data, weights, design_con):
     return data1, delta_data, sigma_n
 
 
-def read_glm_weights(data: List[str], xfm: List[str],  mask: str, save_xfm_path:str):
-    """
-    reads voxelwise glm weights for each subject in an arbitrary space and a transformation from that space to standard,
-    then takes voxels that lie within the mask (that is in standard space).
-
-    :param output: output directory to save intermediate transformation files
-    :param data: list of nifti files one per subject
-    :param xfm: list of transformations from the native space to standad space
-    :param mask: address of roi mask in standard space
-    :returns: weights matrix (n_subj , n_vox). For the voxels that lie outside of image boundaries it places nans.
-
-    """
-
-    os.makedirs(save_xfm_path, exist_ok=True)
-    mask_img = Image(mask)
-    std_indices = np.array(np.where(mask_img.data > 0)).T
-
-    n_vox = std_indices.shape[0]
-    n_subj = len(data)
-    weights = np.zeros((n_subj, n_vox)) + np.nan
-    print('Reading GLM weights:')
-
-    for subj_idx, (d, x) in enumerate(zip(data, xfm)):
-        data, valid_vox = sample_from_native_space(d, x, mask, f"{save_xfm_path}/def_field_{subj_idx}.nii.gz")
-        weights[subj_idx, valid_vox] = data
-        print(subj_idx, end=' ', flush=True)
-    return weights
