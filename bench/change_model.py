@@ -554,7 +554,7 @@ class Trainer:
                 params_2 = params_1
             else:
                 lim = models[tc - 1].lim
-                sign = {'positive': 1, 'negative': -1, 'twosided': np.sign(np.random.randn())}[lim]
+                sign = {'positive': 1, 'negative': -1, 'twosided': 1}[lim]
                 params_2 = {k: np.abs(v + models[tc - 1].vec.get(k, 0) * effect_size * sign)
                             for k, v in params_1.items()}
 

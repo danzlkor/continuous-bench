@@ -8,6 +8,6 @@ progressbar~=2.5
 
 # dataclasses~=0.7
 sklearn~=0.0
-scikit-learn~=0.23.2
+scikit-learn
 setuptools~=50.3.1.post20201107
 bench~=0.0.1

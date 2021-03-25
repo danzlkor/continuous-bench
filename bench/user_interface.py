@@ -276,7 +276,7 @@ def submit_glm(args):
 
     summaries = summaries[:, invalid_vox == 0, :]
     # perform glm:
-    data, delta_data, sigma_n = glm.group_glm(summaries, args.design_mat, args.design_con)
+    data, _, delta_data, sigma_n = glm.group_glm(summaries, args.design_mat, args.design_con)
     tril_idx = np.tril_indices(sigma_n.shape[-1])
     covariances = np.stack([s[tril_idx] for s in sigma_n], axis=0)
 
