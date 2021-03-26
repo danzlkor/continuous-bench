@@ -23,7 +23,6 @@ from sklearn.preprocessing import PolynomialFeatures
 from typing import Callable, List, Any, Union, Sequence, Mapping
 from scipy import optimize
 
-
 BOUNDS = {'negative': (-np.inf, 0), 'positive': (0, np.inf), 'twosided': (-np.inf, np.inf)}
 INTEGRAL_LIMITS = list(BOUNDS.keys())
 
@@ -66,6 +65,49 @@ class ChangeVector:
         sigma = l_to_sigma(self.l_mdl.predict(y))
 
         return mu, sigma
+
+    def log_lh(self, dv, y, dy, sigma_n):
+        mu, sigma_p = self.estimate_change(y)
+        mean = np.squeeze(dv * mu)
+        cov = (dv ** 2) * np.squeeze(sigma_p) + sigma_n
+        return log_mvnpdf(x=dy, mean=mean, cov=cov)
+
+    def log_prior(self, dv):
+        if self.lim == 'negative':
+            dv = -dv
+        elif self.lim == 'twosided':
+            dv = np.abs(dv)
+
+        p = lognorm(s=np.log(10), scale=self.scale).logpdf(x=dv)  # norm(scale=scale, loc=0).pdf(x=dv)  #
+
+        if self.lim == 'twosided':
+            p -= np.log(2)
+
+        return p
+
+    def log_posterior(self, dv, y, dy, sigma_n):
+        return self.log_prior(dv) + self.log_lh(dv, y, dy, sigma_n)
+
+
+@dataclass
+class MLChangeVector:
+    """
+    class for a single model of change
+    """
+    vec: Mapping
+    estimate_change: Callable
+    lim: str
+    prior: float = 1
+    scale: float = 0.1
+    name: str = None
+
+    def __post_init__(self):
+        scale = np.round(np.linalg.norm(list(self.vec.values())), 3)
+        if scale != 1:
+            warnings.warn(f'Change vector {self.name} does not have a unit length')
+
+        if self.name is None:
+            self.name = dict_to_string(self.vec)
 
     def log_lh(self, dv, y, dy, sigma_n):
         mu, sigma_p = self.estimate_change(y)
@@ -367,7 +409,8 @@ class Trainer:
     def dict_to_vec(self, dict_: Mapping):
         return np.array([dict_.get(p, 0) for p in self.param_names])
 
-    def train(self, n_samples=1000, poly_degree=2, regularization=1, k=100, dv0=1e-6, model_name=None, verbose=True):
+    def train_knn(self, n_samples=1000, poly_degree=2, regularization=1, k=100, dv0=1e-6, model_name=None,
+                  verbose=True):
         """
         Train change models (estimates w_mu and w_l) using forward model simulation
 
@@ -424,7 +467,7 @@ class Trainer:
         y_1, y_2 = self.generate_train_samples(n_samples, dv0)
         dy = (y_2 - y_1) / dv0
 
-
+        n_features = PolynomialFeatures(degree=poly_degree).fit_transform(y_1[0][np.newaxis, :]).shape[1]
 
         models = []
         if verbose:
@@ -433,21 +476,20 @@ class Trainer:
         for idx, (vec, name, prior, lims) \
                 in enumerate(zip(self.change_vecs, self.vec_names, self.priors, self.lims)):
 
-            w = np.random(self.n_dim + self.n_dim * (self.n_dim + 1) / 2)
-            weights = optimize.minimize(neg_log_likelihood, w, args=(y_1, dy[idx], regularization))
+            init_weights = np.random.randn((self.n_dim + self.n_dim * (self.n_dim + 1) // 2) * n_features)
+            mu_weights = optimize.minimize(neg_log_likelihood, init_weights,
+                                           args=(y_1, dy[idx], poly_degree, regularization, True))
+            weights = optimize.minimize(neg_log_likelihood, mu_weights.x,
+                                        args=(y_1, dy[idx], poly_degree, regularization, False))
 
-            mu_mdl = make_pipeline(poly_degree, regularization)
-            l_mdl = make_pipeline(poly_degree, regularization)
-            mu_mdl.set_params()
-            l_mdl.set_params()
+            estimator = lambda x: estimate_derivatives(x, weights.x, poly_degree)
             for l in lims:
                 models.append(
-                    ChangeVector(vec=vec,
-                                 mu_mdl=mu_mdl,
-                                 l_mdl=l_mdl,
-                                 prior=prior,
-                                 lim=l,
-                                 name=str(name) + '_' + l)
+                    MLChangeVector(vec=vec,
+                                   estimate_change=estimator,
+                                   prior=prior,
+                                   lim=l,
+                                   name=str(name) + '_' + l)
                 )
                 if verbose:
                     print(models[-1].name)
@@ -723,28 +765,39 @@ def performance_measures(posteriors, true_change, set_names):
     return accuracy, true_posteriors
 
 
-def neg_log_likelihood(weights, y, dy, poly_degree=2, alpha=0.1):
+def neg_log_likelihood(weights, y, dy, poly_degree=2, alpha=0.1, fixed_sigma=False):
     """
      Computes the negative log-liklihood for a set of weights given y and dy
     :param weights: all weights for mu and sigma (d + d(d+1)/2)
     :param y: measurements (n, d)
     :param dy: derivatives (n, d)
+    :param poly_degree degree of the polynomial
     :param alpha: regularization weight
     :return:
     """
-    nsamples, ndim = dy.shape
-    yf = PolynomialFeatures(degree=poly_degree).fit_transform(y)
-    nfeatures = yf.shape[-1]
-    w_mu = weights[:nfeatures * ndim]
-    w_sig = weights[nfeatures * ndim:]
-    mu_mat = w_mu.reshape(nfeatures, ndim)
-    sig_mat = w_sig.reshape(nfeatures, (ndim * (ndim + 1)) // 2)
-    mu = yf @ mu_mat
-    sigma = l_to_sigma(yf @ sig_mat)
+    mu, sigma = estimate_derivatives(y, weights, poly_degree)
     offset = dy - mu
-    return np.sum(np.log(np.linalg.det(sigma)) +
-                  np.einsum('ij,ijk,ik->i', offset, np.linalg.inv(sigma), offset)) +\
-           alpha * np.sum(weights ** 2)
+    if fixed_sigma:
+        sigma = np.stack([np.eye(y.shape[1])] * y.shape[0], axis=0)
+        ll = np.einsum('ij,ijk,ik->i', offset, np.linalg.inv(sigma), offset).sum() + alpha * np.sum(weights ** 2)
+    else:
+        ll = np.sum(np.log(np.linalg.det(sigma)) +
+                    np.einsum('ij,ijk,ik->i', offset, np.linalg.inv(sigma), offset)) + \
+             alpha * np.sum(weights ** 2)
+    return ll
+
+
+def estimate_derivatives(y, weights, poly_degree, lam=1e-12):
+    yf = PolynomialFeatures(degree=poly_degree).fit_transform(y)
+    n_samples, n_features = yf.shape
+    n_dim = y.shape[1]
+
+    w_mu = weights[:n_features * n_dim].reshape(n_features, n_dim)
+    w_sig = weights[n_features * n_dim:].reshape(n_features, (n_dim * (n_dim + 1)) // 2)
+
+    mu = yf @ w_mu
+    sigma = l_to_sigma(yf @ w_sig) + lam * abs(mu[np.nonzero(mu)]).min() * np.eye(n_dim)
+    return mu, sigma
 
 
 def plot_conf_mat(conf_mat, param_names, f_name=None, title=None):

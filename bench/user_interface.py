@@ -156,7 +156,7 @@ def submit_train(args):
         change_vecs=args.change_vecs,
         param_prior_dists=param_dist)
 
-    ch_model = trainer.train(n_samples=int(args.n), k=int(args.k),
+    ch_model = trainer.train_ml(n_samples=int(args.n), k=int(args.k),
                              model_name=forward_model.__name__,
                              poly_degree=int(args.p),
                              regularization=float(args.alpha))
