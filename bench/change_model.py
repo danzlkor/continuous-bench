@@ -95,7 +95,9 @@ class MLChangeVector:
     class for a single model of change
     """
     vec: Mapping
-    estimate_change: Callable
+    mu_weight: np.ndarray
+    sig_weight: np.ndarray
+    poly_degree: int
     lim: str
     prior: float = 1
     scale: float = 0.1
@@ -108,6 +110,13 @@ class MLChangeVector:
 
         if self.name is None:
             self.name = dict_to_string(self.vec)
+
+        self.feature_extractor = PolynomialFeatures(degree=self.poly_degree)
+
+    def estimate_change(self, y):
+        y = np.atleast_2d(y)
+        yf = self.feature_extractor.fit_transform(y)
+        return estimate_derivatives(yf, self.mu_weight, self.sig_weight)
 
     def log_lh(self, dv, y, dy, sigma_n):
         mu, sigma_p = self.estimate_change(y)
@@ -135,11 +144,7 @@ class MLChangeVector:
 @dataclass
 class ChangeModel:
     models: List[ChangeVector]
-    model_name: str
-
-    def __post_init__(self):
-        if self.model_name is None:
-            self.model_name = 'unnamed'
+    model_name: str = 'unnamed'
 
     def save(self, path='./', file_name=None):
         """
@@ -409,8 +414,7 @@ class Trainer:
     def dict_to_vec(self, dict_: Mapping):
         return np.array([dict_.get(p, 0) for p in self.param_names])
 
-    def train_knn(self, n_samples=1000, poly_degree=2, regularization=1, k=100, dv0=1e-6, model_name=None,
-                  verbose=True):
+    def train_knn(self, n_samples=1000, poly_degree=2, regularization=1, k=100, dv0=1e-6, verbose=True):
         """
         Train change models (estimates w_mu and w_l) using forward model simulation
 
@@ -421,6 +425,7 @@ class Trainer:
         :param regularization: ridge regression alpha
         :param model_name: name of the model.
         """
+        print('Generating training samples...')
         y_1, y_2 = self.generate_train_samples(n_samples, dv0)
         dy = (y_2 - y_1) / dv0
 
@@ -428,7 +433,7 @@ class Trainer:
 
         models = []
         if verbose:
-            print('Trained models are:')
+            print('Training the models...')
         for idx, (vec, name, prior, lims) \
                 in enumerate(zip(self.change_vecs, self.vec_names, self.priors, self.lims)):
 
@@ -448,12 +453,10 @@ class Trainer:
                 if verbose:
                     print(models[-1].name)
 
-        if model_name is None:
-            model_name = getattr(self.forward_model, '__name__', None)
+        return ChangeModel(models=models)
 
-        return ChangeModel(models=models, model_name=model_name)
-
-    def train_ml(self, n_samples=1000, poly_degree=2, regularization=1, k=100, dv0=1e-6, model_name=None, verbose=True):
+    def train_ml(self, n_samples=1000, poly_degree=2, regularization=1, dv0=1e-6,
+                 verbose=True, parallel=True, train_sigma=True):
         """
         Train change models (estimates w_mu and w_l) using forward model simulation
 
@@ -464,40 +467,54 @@ class Trainer:
         :param regularization: ridge regression alpha
         :param model_name: name of the model.
         """
-        y_1, y_2 = self.generate_train_samples(n_samples, dv0)
+        print('Generating training samples...')
+        y_1, y_2 = self.generate_train_samples(n_samples, dv0, old=True)
         dy = (y_2 - y_1) / dv0
 
-        n_features = PolynomialFeatures(degree=poly_degree).fit_transform(y_1[0][np.newaxis, :]).shape[1]
-
-        models = []
+        feature_extractor = lambda y: PolynomialFeatures(degree=poly_degree).fit_transform(y)
+        yf = feature_extractor(y_1)
+        n_features = yf.shape[-1]
         if verbose:
-            print('Trained models are:')
+            print('Training models of change ...')
 
-        for idx, (vec, name, prior, lims) \
-                in enumerate(zip(self.change_vecs, self.vec_names, self.priors, self.lims)):
+        def func(idx):
 
-            init_weights = np.random.randn((self.n_dim + self.n_dim * (self.n_dim + 1) // 2) * n_features)
-            mu_weights = optimize.minimize(neg_log_likelihood, init_weights,
-                                           args=(y_1, dy[idx], poly_degree, regularization, True))
-            weights = optimize.minimize(neg_log_likelihood, mu_weights.x,
-                                        args=(y_1, dy[idx], poly_degree, regularization, False))
+            init_weights = np.random.randn(self.n_dim * n_features) / n_features
+            weights = optimize.minimize(neg_log_likelihood, init_weights,
+                                           args=(yf, dy[idx], regularization, True))
+            if train_sigma:
+                init_weights = np.concatenate(
+                    [weights.x, np.random.randn(
+                        (self.n_dim * (self.n_dim + 1) // 2) * n_features) / n_features])
 
-            estimator = lambda x: estimate_derivatives(x, weights.x, poly_degree)
-            for l in lims:
+                weights = optimize.minimize(neg_log_likelihood, init_weights,
+                                            args=(yf, dy[idx], regularization, False))
+
+            models = []
+            w_mu, w_sig = reshape_weights(weights.x, n_features, self.n_dim)
+            for l in self.lims[idx]:
                 models.append(
-                    MLChangeVector(vec=vec,
-                                   estimate_change=estimator,
-                                   prior=prior,
+                    MLChangeVector(vec=self.change_vecs[idx],
+                                   mu_weight=w_mu,
+                                   sig_weight=w_sig,
+                                   poly_degree=poly_degree,
+                                   prior=self.priors[idx],
                                    lim=l,
-                                   name=str(name) + '_' + l)
+                                   name=str(self.vec_names[idx]) + '_' + l)
                 )
                 if verbose:
-                    print(models[-1].name)
+                    print(f'Tained models for {models[-1].name}.')
+                return models
 
-        if model_name is None:
-            model_name = getattr(self.forward_model, '__name__', None)
+        if parallel:
+            models = Parallel(n_jobs=-1, verbose=True)(delayed(func)(i) for i in range(len(self.change_vecs)))
+            models = [m for a in models for m in a]
+        else:
+            models = []
+            for i in range(len(self.change_vecs)):
+                models.extend(func(i))
 
-        return ChangeModel(models=models, model_name=model_name)
+        return ChangeModel(models=models)
 
     def generate_train_samples(self, n_samples: int, dv0: float = 1e-6, parallel=False, old=False) -> tuple:
         """
@@ -518,7 +535,7 @@ class Trainer:
                 for v_idx, vec in enumerate(self.change_vecs):
                     params_2 = {k: np.abs(v + vec.get(k, 0) * dv0) for k, v in params_1.items()}
                     y_2[v_idx] = self.forward_model(**self.args, **params_2)
-                    if np.any(np.abs(y_2[v_idx] - y_1) > 1e6 * dv0):
+                    if np.any(np.abs(y_2[v_idx] - y_1) > 1e2 * dv0):
                         warnings.warn('Derivatives are too large, something might be wrong!')
                 return y_1, y_2
 
@@ -544,7 +561,7 @@ class Trainer:
             y1 = y1[~nans]
             y2 = y2[:, ~nans, :]
             if np.sum(nans) > 0:
-                warnings.warn(f'{np.sum(nans)} nan samples generated during training.')
+                warnings.warn(f'{np.sum(nans)} nan samples were generated during training.')
         return y1, y2
 
     def generate_test_samples(self, n_samples=1000, effect_size=0.1, noise_level=0.0, n_repeats=1,
@@ -678,7 +695,7 @@ def l_to_sigma(l_vec):
     dim = int((np.sqrt(8 * t + 1) - 1) / 2)  # t = dim*(dim+1)/2
     idx = np.tril_indices(dim)
     diag_idx = np.argwhere(idx[0] == idx[1])
-    l_vec[..., diag_idx] = np.exp(l_vec[..., diag_idx])
+    l_vec[..., diag_idx] = 1 / (1 + np.exp(-l_vec[..., diag_idx]))
     l_mat = np.zeros((*l_vec.shape[:-1], dim, dim))
     l_mat[..., idx[0], idx[1]] = l_vec
     sigma = l_mat @ l_mat.swapaxes(-2, -1)  # transpose last two dimensions
@@ -688,7 +705,7 @@ def l_to_sigma(l_vec):
 
 def log_mvnpdf(x, mean, cov):
     """
-    log of multivariate normal distribution. identical to scipy.stats.multivariate_normal(mean, cov).logpdf(x) but faster.
+    log of multivariate normal distribution. identical output to scipy.stats.multivariate_normal(mean, cov).logpdf(x) but faster.
     :param x: input numpy array
     :param mean: mean of the distribution numpy array same size of x
     :param cov: covariance of distribution, numpy array or scalar
@@ -738,8 +755,8 @@ def find_range(f: Callable, bounds, scale=1e-3):
 def check_exp_underflow(x):
     """
     Checks if underflow happens for calculating exp(x)
-    :param x:
-    :return:
+    :param x: float
+    :return: 1 if underflow error happens for x
     """
     with np.errstate(under='raise'):
         try:
@@ -765,38 +782,47 @@ def performance_measures(posteriors, true_change, set_names):
     return accuracy, true_posteriors
 
 
-def neg_log_likelihood(weights, y, dy, poly_degree=2, alpha=0.1, fixed_sigma=False):
+def neg_log_likelihood(weights, yf, dy, alpha=0.1, fixed_sigma=False):
     """
      Computes the negative log-liklihood for a set of weights given y and dy
     :param weights: all weights for mu and sigma (d + d(d+1)/2)
     :param y: measurements (n, d)
     :param dy: derivatives (n, d)
-    :param poly_degree degree of the polynomial
     :param alpha: regularization weight
+    :param fixed_sigma: flag for optimizing for sigma az well
     :return:
     """
-    mu, sigma = estimate_derivatives(y, weights, poly_degree)
+    n_dim = dy.shape[-1]
+    n_samples, n_features = yf.shape
+
+    w_mu, w_sig = reshape_weights(weights, n_features, n_dim)
+    mu, sigma_inv = estimate_derivatives(yf, w_mu, w_sig)
     offset = dy - mu
     if fixed_sigma:
-        sigma = np.stack([np.eye(y.shape[1])] * y.shape[0], axis=0)
-        ll = np.einsum('ij,ijk,ik->i', offset, np.linalg.inv(sigma), offset).sum() + alpha * np.sum(weights ** 2)
+        ll = np.linalg.norm(offset) ** 2 + alpha * np.sum(weights[:n_dim * n_features] ** 2)
     else:
-        ll = np.sum(np.log(np.linalg.det(sigma)) +
-                    np.einsum('ij,ijk,ik->i', offset, np.linalg.inv(sigma), offset)) + \
+        ll = np.sum(-np.log(np.linalg.det(sigma_inv)) +
+                    np.einsum('ij,ijk,ik->i', offset, sigma_inv, offset)) + \
              alpha * np.sum(weights ** 2)
     return ll
 
 
-def estimate_derivatives(y, weights, poly_degree, lam=1e-12):
-    yf = PolynomialFeatures(degree=poly_degree).fit_transform(y)
-    n_samples, n_features = yf.shape
-    n_dim = y.shape[1]
+def reshape_weights(weight_vec, n_features, n_dim):
+    w_mu = weight_vec[:n_features * n_dim].reshape(n_features, n_dim)
+    if len(weight_vec) > n_features * n_dim:
+        w_sig = weight_vec[n_features * n_dim:].reshape(n_features, (n_dim * (n_dim + 1)) // 2)
+    else:
+        w_sig = None
+    return w_mu, w_sig
 
-    w_mu = weights[:n_features * n_dim].reshape(n_features, n_dim)
-    w_sig = weights[n_features * n_dim:].reshape(n_features, (n_dim * (n_dim + 1)) // 2)
 
+def estimate_derivatives(yf, w_mu, w_sig, lam=1e-12):
+    n_dim = w_mu.shape[1]
     mu = yf @ w_mu
-    sigma = l_to_sigma(yf @ w_sig) + lam * abs(mu[np.nonzero(mu)]).min() * np.eye(n_dim)
+    if w_sig is None:
+        sigma = np.eye(n_dim)
+    else:
+        sigma = l_to_sigma(yf @ w_sig) + lam * np.eye(n_dim)
     return mu, sigma
 
 

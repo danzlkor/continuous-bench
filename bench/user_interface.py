@@ -10,7 +10,6 @@ import os
 from warnings import warn
 import numpy as np
 from fsl.utils.run import run
-from fsl.utils.fslsub import submit
 from bench import change_model, glm, summary_measures, diffusion_models, acquisition, image_io
 
 
@@ -30,7 +29,8 @@ def main(argv=None):
     elif args.commandname == 'diff-single-summary':
         submit_summary_single_subject(args)
     elif args.commandname == 'diff-normalize':
-        submit_normalize(args)
+        print('Normalization is performed while loading the data.')
+        # submit_normalize(args)
     elif args.commandname == 'glm':
         submit_glm(args)
     elif args.commandname == 'inference':
@@ -62,6 +62,8 @@ def parse_args(argv):
     train_required.add_argument("--bval", required=True)
 
     train_optional = diff_train_parser.add_argument_group("optional arguments")
+    train_optional.add_argument("--trainer", default='knn', type=str, required=False,
+                                help="training method either of knn (K nearest neighbour) or ml (maximum likelihood)")
     train_optional.add_argument("-k", default=100, type=int, help="number of nearest neighbours", required=False)
     train_optional.add_argument("-n", default=1000, type=int, help="number of training samples", required=False)
     train_optional.add_argument("-p", default=2, type=int, help="polynomial degree for design matrix", required=False)
@@ -156,11 +158,21 @@ def submit_train(args):
         change_vecs=args.change_vecs,
         param_prior_dists=param_dist)
 
-    ch_model = trainer.train_ml(n_samples=int(args.n), k=int(args.k),
-                             model_name=forward_model.__name__,
-                             poly_degree=int(args.p),
-                             regularization=float(args.alpha))
+    if args.trainer == 'knn':
+        print('Change models are trained using KNN approximation.')
+        ch_model = trainer.train_knn(n_samples=int(args.n), k=int(args.k),
+                                     poly_degree=int(args.p),
+                                     regularization=float(args.alpha))
 
+    elif args.trainer == 'ml':
+        print('Change models are trained using maximum likelihood.')
+        ch_model = trainer.train_ml(n_samples=int(args.n),
+                                    poly_degree=int(args.p),
+                                    regularization=float(args.alpha))
+    else:
+        raise ValueError(f'Trainer {args.trainer} is undefined. It must be either knn (default) or ml.')
+
+    ch_model.model_name = forward_model.__name__
     ch_model.meausrement_names = summary_measures.summary_names(acq, args.d)
     ch_model.save(path='', file_name=args.output)
     print('All change models were trained successfully')
@@ -226,7 +238,7 @@ def submit_summary(args):
         else:
             print(f'No clusters were found. The jobs are running locally.')
             processes = [subprocess.Popen(t.split(), shell=False) for t in task_list]
-            exitcodes = [p.wait() for p in processes]
+            [p.wait() for p in processes]
             job_id = 0
 
     return job_id
@@ -240,10 +252,6 @@ def submit_summary_single_subject(args):
     output_add = args.output_add + '/SummaryMeasurements'
     summary_measures.fit_summary_single_subject(args.subj_idx, args.diff_add, args.xfm_add, args.bvec_add,
                                                 args.bval_add, args.mask_add, args.sph_degree, output_add)
-
-
-def submit_normalize(args):
-    pass
 
 
 def submit_glm(args):
@@ -297,7 +305,6 @@ def submit_inference(args):
 
     data, delta_data, sigma_n = image_io.read_glm(glm_dir, args.mask)
 
-
     # perform inference:
     ch_mdl = change_model.ChangeModel.load(args.model)
     posteriors, predictions, peaks = ch_mdl.predict(data, delta_data, sigma_n)
@@ -310,7 +317,7 @@ def submit_inference(args):
     for i, m in enumerate(vec_names):
         image_io.write_nifti(posteriors[:, i][:, np.newaxis], args.mask, f'{maps_dir}/{m}_posterior')
         if i > 0:
-            image_io.write_nifti(peaks[:, i-1][:, np.newaxis], args.mask, f'{maps_dir}/{m}_peaks')
+            image_io.write_nifti(peaks[:, i - 1][:, np.newaxis], args.mask, f'{maps_dir}/{m}_peaks')
 
     print(f'Analysis completed successfully, the posterior probability maps are stored in {maps_dir}')
 
