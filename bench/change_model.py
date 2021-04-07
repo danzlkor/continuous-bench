@@ -486,19 +486,25 @@ class Trainer:
             mu_weights = optimize.minimize(neg_log_likelihood,
                                            x0=np.zeros(self.n_dim * n_features),
                                            method=None,
-                                           args=(yf, dy[idx], alpha, True))
+                                           args=(yf, dy[idx], None, alpha, True))
 
             if train_sigma:
-                sigma_weights = optimize.minimize(neg_log_likelihood_sigma,
-                                                  method=None,
-                                                  x0=np.zeros(
-                                                      (self.n_dim * (self.n_dim + 1) // 2) * n_features),
-                                                  args=(yf, dy[idx], mu_weights.x, alpha))
+                x0 = np.zeros((self.n_dim * (self.n_dim + 1) // 2) * n_features)
+                for _ in range(3):
+                    for method in [None, 'Nelder-Mead']:
+                        sigma_weights = optimize.minimize(neg_log_likelihood,
+                                                      method=method,
+                                                      x0=x0,
+                                                      options={'maxfev': 1e3 * x0.size,
+                                                               'disp': True, 'adaptive':True},
+                                                      args=(yf, dy[idx], mu_weights.x, alpha, False))
+                        x0 = sigma_weights.x
+                        print(sigma_weights.message, sigma_weights.fun, sigma_weights.nit)
 
                 all_weights = optimize.minimize(neg_log_likelihood,
                                                 method=None,
                                                 x0=np.concatenate([mu_weights.x, sigma_weights.x]),
-                                                args=(yf, dy[idx], alpha, False))
+                                                args=(yf, dy[idx],None, alpha, False))
 
             models = []
             w_mu, w_sig = reshape_weights(all_weights.x, n_features, self.n_dim)
@@ -537,41 +543,24 @@ class Trainer:
         """
         all_params = {p: v.rvs(n_samples) for p, v in self.param_prior_dists.items()}
 
-        if old:
-            def generator_func(s_idx):
-                params_1 = {k: v[s_idx] for (k, v) in all_params.items()}
-                y_1 = self.forward_model(**self.args, **params_1)
-                y_2 = np.zeros((self.n_vecs, self.n_dim))
-                for v_idx, vec in enumerate(self.change_vecs):
-                    params_2 = {k: np.abs(v + vec.get(k, 0) * dv0) for k, v in params_1.items()}
-                    y_2[v_idx] = self.forward_model(**self.args, **params_2)
-                    if np.any(np.abs(y_2[v_idx] - y_1) > 1e2 * dv0):
-                        warnings.warn('Derivatives are too large, something might be wrong!')
-                return y_1, y_2
+        for vec in self.change_vecs:
+            for (k, v) in all_params.items():
+                params_2 = v + vec.get(k, 0) * dv0
+                invalid = self.param_prior_dists[k].pdf(params_2) == 0
+                all_params[k][invalid] -= vec.get(k, 0) * dv0
 
-            if parallel:
-                res = Parallel(n_jobs=-1, verbose=True)(delayed(generator_func)(i) for i in range(n_samples))
-            else:
-                res = []
-                pbar = ProgressBar()
-                for i in pbar(range(n_samples)):
-                    res.append(generator_func(i))
+        y1 = self.forward_model(**self.args, **all_params)
+        y2 = []
+        for vec in self.change_vecs:
+            params_2 = {k: v + vec.get(k, 0) * dv0 for k, v in all_params.items()}
+            y2.append(self.forward_model(**self.args, **params_2))
+        y2 = np.stack(y2, 0)
 
-            y1 = np.squeeze(np.array([d[0] for d in res]))
-            y2 = np.transpose(np.array([d[1] for d in res]), axes=[1, 0, 2])
-        else:
-            y1 = self.forward_model(**self.args, **all_params)
-            y2 = []
-            for vec in self.change_vecs:
-                params_2 = {k: np.abs(v + vec.get(k, 0) * dv0) for k, v in all_params.items()}
-                y2.append(self.forward_model(**self.args, **params_2))
-            y2 = np.stack(y2, 0)
-
-            nans = np.isnan(y2).any(axis=(0, 2)) | np.isnan(y1).any(axis=1)
-            y1 = y1[~nans]
-            y2 = y2[:, ~nans, :]
-            if np.sum(nans) > 0:
-                warnings.warn(f'{np.sum(nans)} nan samples were generated during training.')
+        nans = np.isnan(y2).any(axis=(0, 2)) | np.isnan(y1).any(axis=1)
+        y1 = y1[~nans]
+        y2 = y2[:, ~nans, :]
+        if np.sum(nans) > 0:
+            warnings.warn(f'{np.sum(nans)} nan samples were generated during training.')
         return y1, y2
 
     def generate_test_samples(self, n_samples=1000, effect_size=0.1, noise_level=0.0, n_repeats=1,
@@ -624,13 +613,13 @@ class Trainer:
             else:
                 lim = models[tc - 1].lim
                 sign = {'positive': 1, 'negative': -1, 'twosided': 1}[lim]
-                params_2 = {k: np.abs(v + models[tc - 1].vec.get(k, 0) * effect_size * sign)
+                params_2 = {k: v + models[tc - 1].vec.get(k, 0) * effect_size * sign
                             for k, v in params_1.items()}
 
                 valid = np.all([self.param_prior_dists[k].pdf(params_2[k]) > 0 for k in params_2.keys()])
                 if not valid:  # then swap param 1 and param 2
                     params_2 = params_1.copy()
-                    params_1 = {k: np.abs(v - models[tc - 1].vec.get(k, 0) * effect_size * sign)
+                    params_1 = {k: v - models[tc - 1].vec.get(k, 0) * effect_size * sign
                                 for k, v in params_1.items()}
 
             if has_noise_model:
@@ -793,7 +782,7 @@ def performance_measures(posteriors, true_change, set_names):
     return accuracy, true_posteriors
 
 
-def neg_log_likelihood(weights, yf, dy, alpha=0.1, fixed_sigma=False):
+def neg_log_likelihood(weights, yf, dy, w_mu=None, alpha=0.1, fixed_sigma=False):
     """
      Computes the negative log-liklihood for a set of weights given y and dy
     :param weights: vectorized weights (d * n_features), if fixed sigma is False + d(d+1)/2 * n_features
@@ -806,20 +795,30 @@ def neg_log_likelihood(weights, yf, dy, alpha=0.1, fixed_sigma=False):
     n_dim = dy.shape[-1]
     n_samples, n_features = yf.shape
 
-    w_mu, w_sig = reshape_weights(weights, n_features, n_dim)
+    if w_mu is None:
+        if fixed_sigma:
+            w_mu = weights.reshape(n_features, n_dim)
+            w_sig = None
+        else:
+            w_mu, w_sig = reshape_weights(weights, n_features, n_dim)
+    else:
+        w_mu = w_mu.reshape(n_features, n_dim)
+        w_sig = weights.reshape(n_features, n_dim * (n_dim + 1) //2)
+
     mu, sigma = estimate_derivatives(yf, w_mu, w_sig)
     offset = dy - mu
+
     if fixed_sigma:
         nll = np.linalg.norm(offset) ** 2 \
-              + alpha * np.sum(weights ** 2)
+              + alpha * np.mean(weights ** 2)
     else:
         dets = np.linalg.det(sigma)
         if (dets == 0).any():
             return np.inf
 
-        nll = np.sum(np.log(dets) +
+        nll = np.mean(np.log(dets) +
                      np.einsum('ij,ijk,ik->i', offset, np.linalg.inv(sigma), offset)) + \
-              alpha * np.sum(weights ** 2)
+              alpha * np.mean(weights ** 2)
     return nll
 
 
@@ -843,12 +842,20 @@ def neg_log_likelihood_sigma(weights, yf, dy, w_mu_vec, alpha=0.1):
     return nll
 
 
-def reshape_weights(weight_vec, n_features, n_dim):
-    w_mu = weight_vec[:n_features * n_dim].reshape(n_features, n_dim)
-    if len(weight_vec) > n_features * n_dim:
+def reshape_weights(weight_vec, n_features, n_dim, fixed=2):
+
+    if fixed == 0:
+        w_mu = weight_vec.reshape(n_features, n_dim)
+        w_sig = None
+    elif fixed == 1:
+        w_mu = None
+        w_sig = weight_vec.reshape(n_features, (n_dim * (n_dim + 1)) // 2)
+    elif fixed == 2:
+        w_mu = weight_vec[:n_features * n_dim].reshape(n_features, n_dim)
         w_sig = weight_vec[n_features * n_dim:].reshape(n_features, (n_dim * (n_dim + 1)) // 2)
     else:
-        w_sig = None
+        raise ValueError('fixed should be 0, 1 or 2.')
+
     return w_mu, w_sig
 
 
