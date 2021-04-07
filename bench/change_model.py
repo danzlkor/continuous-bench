@@ -459,7 +459,7 @@ class Trainer:
 
         return ChangeModel(models=models)
 
-    def train_ml(self, n_samples=1000, poly_degree=2, alpha=1, dv0=1e-6,
+    def train_ml(self, n_samples=1000, poly_degree=2, alpha=.1, dv0=1e-6,
                  verbose=True, parallel=True, train_sigma=True):
         """
         Train change models (estimates w_mu and w_l) using forward model simulation
@@ -483,20 +483,25 @@ class Trainer:
             print('Training models of change ...')
 
         def func(idx):
-
-            init_weights = np.random.randn(self.n_dim * n_features) / n_features
-            weights = optimize.minimize(neg_log_likelihood, init_weights,
+            mu_weights = optimize.minimize(neg_log_likelihood,
+                                           x0=np.zeros(self.n_dim * n_features),
+                                           method=None,
                                            args=(yf, dy[idx], alpha, True))
-            if train_sigma:
-                init_weights = np.concatenate(
-                    [weights.x, np.random.randn(
-                        (self.n_dim * (self.n_dim + 1) // 2) * n_features) / n_features])
 
-                weights = optimize.minimize(neg_log_likelihood, init_weights,
-                                            args=(yf, dy[idx], alpha, False))
+            if train_sigma:
+                sigma_weights = optimize.minimize(neg_log_likelihood_sigma,
+                                                  method=None,
+                                                  x0=np.zeros(
+                                                      (self.n_dim * (self.n_dim + 1) // 2) * n_features),
+                                                  args=(yf, dy[idx], mu_weights.x, alpha))
+
+                all_weights = optimize.minimize(neg_log_likelihood,
+                                                method=None,
+                                                x0=np.concatenate([mu_weights.x, sigma_weights.x]),
+                                                args=(yf, dy[idx], alpha, False))
 
             models = []
-            w_mu, w_sig = reshape_weights(weights.x, n_features, self.n_dim)
+            w_mu, w_sig = reshape_weights(all_weights.x, n_features, self.n_dim)
             for l in self.lims[idx]:
                 models.append(
                     MLChangeVector(vec=self.change_vecs[idx],
@@ -806,11 +811,35 @@ def neg_log_likelihood(weights, yf, dy, alpha=0.1, fixed_sigma=False):
     offset = dy - mu
     if fixed_sigma:
         nll = np.linalg.norm(offset) ** 2 \
-              + alpha * np.sum(weights[:n_dim * n_features] ** 2)
+              + alpha * np.sum(weights ** 2)
     else:
-        nll = np.sum(np.log(np.linalg.det(sigma)) +
+        dets = np.linalg.det(sigma)
+        if (dets == 0).any():
+            return np.inf
+
+        nll = np.sum(np.log(dets) +
                      np.einsum('ij,ijk,ik->i', offset, np.linalg.inv(sigma), offset)) + \
               alpha * np.sum(weights ** 2)
+    return nll
+
+
+def neg_log_likelihood_sigma(weights, yf, dy, w_mu_vec, alpha=0.1):
+    """
+     Computes the negative log-liklihood for a set of weights given y and dy
+    :param weights: vectorized weights (d * n_features), if fixed sigma is False + d(d+1)/2 * n_features
+    :param yf: features extracted from summary measurements (n, n_features)
+    :param dy: derivatives (n, d)
+    :param alpha: regularization weight
+    :return: -log(P(dy | yf, weights)) + alpha * |weights|^2
+    """
+    n_dim = dy.shape[-1]
+    n_samples, n_features = yf.shape
+    w_mu, w_sig = reshape_weights(np.concatenate([w_mu_vec, weights]), n_features, n_dim)
+    mu, sigma = estimate_derivatives(yf, w_mu, w_sig)
+    offset = dy - mu
+    nll = np.sum(np.log(np.linalg.det(sigma)) +
+                 np.einsum('ij,ijk,ik->i', offset, np.linalg.inv(sigma), offset)) + \
+          alpha * np.sum(weights ** 2)
     return nll
 
 
@@ -823,7 +852,7 @@ def reshape_weights(weight_vec, n_features, n_dim):
     return w_mu, w_sig
 
 
-def estimate_derivatives(yf, w_mu, w_sig, lam=1e-6):
+def estimate_derivatives(yf, w_mu, w_sig, lam=0):
     """
     Given some measurements and regression weights, computes the hyperparameters of derivatives (mean and covariance)
     :param yf: feature vector (..., n_features)
