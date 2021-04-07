@@ -168,7 +168,7 @@ def submit_train(args):
         print('Change models are trained using maximum likelihood.')
         ch_model = trainer.train_ml(n_samples=int(args.n),
                                     poly_degree=int(args.p),
-                                    regularization=float(args.alpha))
+                                    alpha=float(args.alpha))
     else:
         raise ValueError(f'Trainer {args.trainer} is undefined. It must be either knn (default) or ml.')
 

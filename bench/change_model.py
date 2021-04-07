@@ -116,7 +116,8 @@ class MLChangeVector:
     def estimate_change(self, y):
         y = np.atleast_2d(y)
         yf = self.feature_extractor.fit_transform(y)
-        return estimate_derivatives(yf, self.mu_weight, self.sig_weight)
+        mu, sigma = estimate_derivatives(yf, self.mu_weight, self.sig_weight)
+        return mu, sigma
 
     def log_lh(self, dv, y, dy, sigma_n):
         mu, sigma_p = self.estimate_change(y)
@@ -360,8 +361,8 @@ class Trainer:
     """
     forward_model: Callable
     """ The forward model, it must be function of the form f(args, **params) that returns a numpy array. """
-    args: Mapping[str, Any]
     param_prior_dists: Mapping[str, rv_continuous]
+    args: Mapping[str, Any] = None
     change_vecs: List[Mapping] = None
     lims: List = None
     priors: Union[float, Sequence] = 1
@@ -369,6 +370,9 @@ class Trainer:
     def __post_init__(self):
 
         self.param_names = list(self.param_prior_dists.keys())
+
+        if self.args is None:
+            self.args = dict()
 
         if self.change_vecs is None:
             self.change_vecs = [{p: 1} for p in self.param_names]
@@ -455,20 +459,21 @@ class Trainer:
 
         return ChangeModel(models=models)
 
-    def train_ml(self, n_samples=1000, poly_degree=2, regularization=1, dv0=1e-6,
+    def train_ml(self, n_samples=1000, poly_degree=2, alpha=1, dv0=1e-6,
                  verbose=True, parallel=True, train_sigma=True):
         """
         Train change models (estimates w_mu and w_l) using forward model simulation
 
         :param n_samples: number simulated samples to estimate forward model
-        :param k: nearest neighbours parameter
         :param dv0: the amount perturbation in parameter to estimate derivatives
         :param poly_degree: polynomial degree for regression
-        :param regularization: ridge regression alpha
-        :param model_name: name of the model.
+        :param alpha: ridge regression regularization weight
+        :param parallel: train models in parallel (on thread per model of change)
+        :param train_sigma: flag for training models for sigma
+        :param verbose: flag for printing steps.
         """
         print('Generating training samples...')
-        y_1, y_2 = self.generate_train_samples(n_samples, dv0, old=True)
+        y_1, y_2 = self.generate_train_samples(n_samples, dv0, old=False)
         dy = (y_2 - y_1) / dv0
 
         feature_extractor = lambda y: PolynomialFeatures(degree=poly_degree).fit_transform(y)
@@ -481,14 +486,14 @@ class Trainer:
 
             init_weights = np.random.randn(self.n_dim * n_features) / n_features
             weights = optimize.minimize(neg_log_likelihood, init_weights,
-                                           args=(yf, dy[idx], regularization, True))
+                                           args=(yf, dy[idx], alpha, True))
             if train_sigma:
                 init_weights = np.concatenate(
                     [weights.x, np.random.randn(
                         (self.n_dim * (self.n_dim + 1) // 2) * n_features) / n_features])
 
                 weights = optimize.minimize(neg_log_likelihood, init_weights,
-                                            args=(yf, dy[idx], regularization, False))
+                                            args=(yf, dy[idx], alpha, False))
 
             models = []
             w_mu, w_sig = reshape_weights(weights.x, n_features, self.n_dim)
@@ -691,11 +696,12 @@ def l_to_sigma(l_vec):
            :param l_vec: (..., dim(dim+1)/2) vectors
            :return: mu sigma (... , dim, dim)
        """
+
     t = l_vec.shape[-1]
     dim = int((np.sqrt(8 * t + 1) - 1) / 2)  # t = dim*(dim+1)/2
     idx = np.tril_indices(dim)
     diag_idx = np.argwhere(idx[0] == idx[1])
-    l_vec[..., diag_idx] = 1 / (1 + np.exp(-l_vec[..., diag_idx]))
+    l_vec[..., diag_idx] = np.exp(l_vec[..., diag_idx])
     l_mat = np.zeros((*l_vec.shape[:-1], dim, dim))
     l_mat[..., idx[0], idx[1]] = l_vec
     sigma = l_mat @ l_mat.swapaxes(-2, -1)  # transpose last two dimensions
@@ -785,26 +791,27 @@ def performance_measures(posteriors, true_change, set_names):
 def neg_log_likelihood(weights, yf, dy, alpha=0.1, fixed_sigma=False):
     """
      Computes the negative log-liklihood for a set of weights given y and dy
-    :param weights: all weights for mu and sigma (d + d(d+1)/2)
-    :param y: measurements (n, d)
+    :param weights: vectorized weights (d * n_features), if fixed sigma is False + d(d+1)/2 * n_features
+    :param yf: features extracted from summary measurements (n, n_features)
     :param dy: derivatives (n, d)
     :param alpha: regularization weight
-    :param fixed_sigma: flag for optimizing for sigma az well
-    :return:
+    :param fixed_sigma: flag for fixing sigma
+    :return: -log(P(dy | yf, weights)) + alpha * |weights|^2
     """
     n_dim = dy.shape[-1]
     n_samples, n_features = yf.shape
 
     w_mu, w_sig = reshape_weights(weights, n_features, n_dim)
-    mu, sigma_inv = estimate_derivatives(yf, w_mu, w_sig)
+    mu, sigma = estimate_derivatives(yf, w_mu, w_sig)
     offset = dy - mu
     if fixed_sigma:
-        ll = np.linalg.norm(offset) ** 2 + alpha * np.sum(weights[:n_dim * n_features] ** 2)
+        nll = np.linalg.norm(offset) ** 2 \
+              + alpha * np.sum(weights[:n_dim * n_features] ** 2)
     else:
-        ll = np.sum(-np.log(np.linalg.det(sigma_inv)) +
-                    np.einsum('ij,ijk,ik->i', offset, sigma_inv, offset)) + \
-             alpha * np.sum(weights ** 2)
-    return ll
+        nll = np.sum(np.log(np.linalg.det(sigma)) +
+                     np.einsum('ij,ijk,ik->i', offset, np.linalg.inv(sigma), offset)) + \
+              alpha * np.sum(weights ** 2)
+    return nll
 
 
 def reshape_weights(weight_vec, n_features, n_dim):
@@ -816,7 +823,15 @@ def reshape_weights(weight_vec, n_features, n_dim):
     return w_mu, w_sig
 
 
-def estimate_derivatives(yf, w_mu, w_sig, lam=1e-12):
+def estimate_derivatives(yf, w_mu, w_sig, lam=1e-6):
+    """
+    Given some measurements and regression weights, computes the hyperparameters of derivatives (mean and covariance)
+    :param yf: feature vector (..., n_features)
+    :param w_mu: weight matrix for mu (d , n_features)
+    :param w_sig: (d(d+1)/2 , n_features)
+    :param lam: shrinkage weight
+    :return:
+    """
     n_dim = w_mu.shape[1]
     mu = yf @ w_mu
     if w_sig is None:
