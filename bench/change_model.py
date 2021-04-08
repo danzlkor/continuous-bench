@@ -97,6 +97,7 @@ class MLChangeVector:
     vec: Mapping
     mu_weight: np.ndarray
     sig_weight: np.ndarray
+    mean_y: np.ndarray
     poly_degree: int
     lim: str
     prior: float = 1
@@ -114,7 +115,7 @@ class MLChangeVector:
         self.feature_extractor = PolynomialFeatures(degree=self.poly_degree)
 
     def estimate_change(self, y):
-        y = np.atleast_2d(y)
+        y = np.atleast_2d(y) - self.mean_y
         yf = self.feature_extractor.fit_transform(y)
         mu, sigma = estimate_derivatives(yf, self.mu_weight, self.sig_weight)
         return mu, sigma
@@ -472,12 +473,12 @@ class Trainer:
         :param train_sigma: flag for training models for sigma
         :param verbose: flag for printing steps.
         """
-        print('Generating training samples...')
+        print(f'Generating {n_samples} training samples...')
         y_1, y_2 = self.generate_train_samples(n_samples, dv0, old=False)
         dy = (y_2 - y_1) / dv0
-
+        mean_y = y_1.mean(axis=0)[np.newaxis, :]
         feature_extractor = lambda y: PolynomialFeatures(degree=poly_degree).fit_transform(y)
-        yf = feature_extractor(y_1)
+        yf = feature_extractor(y_1 - mean_y)
         n_features = yf.shape[-1]
         if verbose:
             print('Training models of change ...')
@@ -490,21 +491,23 @@ class Trainer:
 
             if train_sigma:
                 x0 = np.zeros((self.n_dim * (self.n_dim + 1) // 2) * n_features)
-                for _ in range(3):
-                    for method in [None, 'Nelder-Mead']:
-                        sigma_weights = optimize.minimize(neg_log_likelihood,
-                                                      method=method,
-                                                      x0=x0,
-                                                      options={'maxfev': 1e3 * x0.size,
-                                                               'disp': True, 'adaptive':True},
-                                                      args=(yf, dy[idx], mu_weights.x, alpha, False))
-                        x0 = sigma_weights.x
-                        print(sigma_weights.message, sigma_weights.fun, sigma_weights.nit)
+                sigma_weights = optimize.minimize(neg_log_likelihood, method='BFGS',
+                                                  x0=x0,
+                                                  args=(yf, dy[idx], mu_weights.x, alpha, False))
+                x0 = sigma_weights.x
+                sigma_weights = optimize.minimize(neg_log_likelihood, method='Nelder-Mead',
+                                                  x0=x0, options={'maxfev': np.minimum(1e3 * x0.size, 1e5),
+                                                                  'adaptive': True},
+                                                  args=(yf, dy[idx], mu_weights.x, alpha, False))
+
+                print(sigma_weights.message, sigma_weights.fun, sigma_weights.nit)
 
                 all_weights = optimize.minimize(neg_log_likelihood,
-                                                method=None,
+                                                method='Nelder-Mead',
+                                                options={'maxfev': np.minimum(1e3 * x0.size, 1e4),
+                                                         'adaptive': True},
                                                 x0=np.concatenate([mu_weights.x, sigma_weights.x]),
-                                                args=(yf, dy[idx],None, alpha, False))
+                                                args=(yf, dy[idx], None, alpha, False))
 
             models = []
             w_mu, w_sig = reshape_weights(all_weights.x, n_features, self.n_dim)
@@ -513,6 +516,7 @@ class Trainer:
                     MLChangeVector(vec=self.change_vecs[idx],
                                    mu_weight=w_mu,
                                    sig_weight=w_sig,
+                                   mean_y=mean_y,
                                    poly_degree=poly_degree,
                                    prior=self.priors[idx],
                                    lim=l,
@@ -803,7 +807,7 @@ def neg_log_likelihood(weights, yf, dy, w_mu=None, alpha=0.1, fixed_sigma=False)
             w_mu, w_sig = reshape_weights(weights, n_features, n_dim)
     else:
         w_mu = w_mu.reshape(n_features, n_dim)
-        w_sig = weights.reshape(n_features, n_dim * (n_dim + 1) //2)
+        w_sig = weights.reshape(n_features, n_dim * (n_dim + 1) // 2)
 
     mu, sigma = estimate_derivatives(yf, w_mu, w_sig)
     offset = dy - mu
@@ -812,12 +816,13 @@ def neg_log_likelihood(weights, yf, dy, w_mu=None, alpha=0.1, fixed_sigma=False)
         nll = np.linalg.norm(offset) ** 2 \
               + alpha * np.mean(weights ** 2)
     else:
-        dets = np.linalg.det(sigma)
-        if (dets == 0).any():
+
+        sign, ldet = np.linalg.slogdet(sigma)
+        if (sign == 0).any():
             return np.inf
 
-        nll = np.mean(np.log(dets) +
-                     np.einsum('ij,ijk,ik->i', offset, np.linalg.inv(sigma), offset)) + \
+        nll = np.mean(ldet +
+                      np.einsum('ij,ijk,ik->i', offset, np.linalg.inv(sigma), offset)) + \
               alpha * np.mean(weights ** 2)
     return nll
 
@@ -843,7 +848,6 @@ def neg_log_likelihood_sigma(weights, yf, dy, w_mu_vec, alpha=0.1):
 
 
 def reshape_weights(weight_vec, n_features, n_dim, fixed=2):
-
     if fixed == 0:
         w_mu = weight_vec.reshape(n_features, n_dim)
         w_sig = None

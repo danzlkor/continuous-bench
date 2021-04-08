@@ -69,7 +69,7 @@ def parse_args(argv):
     train_optional.add_argument("-p", default=2, type=int, help="polynomial degree for design matrix", required=False)
     train_optional.add_argument("-d", default=4, type=int,
                                 help=" maximum degree for summary measures (only even numbers)", required=False)
-    train_optional.add_argument("--alpha", default=0.5, type=float, help="regularization weight", required=False)
+    train_optional.add_argument("--alpha", default=0.0, type=float, help="regularization weight", required=False)
     train_optional.add_argument("--change-vecs", help="vectors of change", default=None, required=False)
     train_optional.add_argument("--summary", default='shm', type=str,
                                 help='type of summary measurements. Either shm (spherical harmonic model)'
@@ -126,11 +126,11 @@ def parse_args(argv):
 def submit_train(args):
     available_models = list(diffusion_models.prior_distributions.keys())
     if args.model in available_models:
-        print('Parameters of the forward model are:')
+        print(f'Parameters of {args.model}:')
         print(list(diffusion_models.prior_distributions[args.model].keys()))
     else:
         model_names = ', '.join(list(diffusion_models.prior_distributions.keys()))
-        raise ValueError(f'The forward model is not defined in the library. '
+        raise ValueError(f'model {args.model} is not defined in the library. '
                          f'Defined models are:\n {model_names}')
 
     funcdict = {name: f for (name, f) in diffusion_models.__dict__.items() if name in available_models}
@@ -168,7 +168,8 @@ def submit_train(args):
         print('Change models are trained using maximum likelihood.')
         ch_model = trainer.train_ml(n_samples=int(args.n),
                                     poly_degree=int(args.p),
-                                    alpha=float(args.alpha))
+                                    alpha=float(args.alpha),
+                                    parallel=True)
     else:
         raise ValueError(f'Trainer {args.trainer} is undefined. It must be either knn (default) or ml.')
 
