@@ -115,8 +115,8 @@ class MLChangeVector:
         self.feature_extractor = PolynomialFeatures(degree=self.poly_degree)
 
     def estimate_change(self, y):
-        y = np.atleast_2d(y) - self.mean_y
-        yf = self.feature_extractor.fit_transform(y)
+        y = np.atleast_2d(y)
+        yf = self.feature_extractor.fit_transform(y) - self.mean_y
         mu, sigma = estimate_derivatives(yf, self.mu_weight, self.sig_weight)
         return mu, sigma
 
@@ -476,9 +476,10 @@ class Trainer:
         print(f'Generating {n_samples} training samples...')
         y_1, y_2 = self.generate_train_samples(n_samples, dv0, old=False)
         dy = (y_2 - y_1) / dv0
-        mean_y = y_1.mean(axis=0)[np.newaxis, :]
         feature_extractor = lambda y: PolynomialFeatures(degree=poly_degree).fit_transform(y)
-        yf = feature_extractor(y_1 - mean_y)
+        yf = feature_extractor(y_1)
+        mean_yf = yf.mean(axis=0)[np.newaxis, :] * 0
+        yf = yf - mean_yf
         n_features = yf.shape[-1]
         if verbose:
             print('Training models of change ...')
@@ -516,7 +517,7 @@ class Trainer:
                     MLChangeVector(vec=self.change_vecs[idx],
                                    mu_weight=w_mu,
                                    sig_weight=w_sig,
-                                   mean_y=mean_y,
+                                   mean_y=mean_yf,
                                    poly_degree=poly_degree,
                                    prior=self.priors[idx],
                                    lim=l,
