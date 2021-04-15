@@ -116,7 +116,7 @@ class MLChangeVector:
 
     def estimate_change(self, y):
         y = np.atleast_2d(y)
-        yf = self.feature_extractor.fit_transform(y) - self.mean_y
+        yf = self.feature_extractor.fit_transform(y - self.mean_y)
         mu, sigma = estimate_derivatives(yf, self.mu_weight, self.sig_weight)
         return mu, sigma
 
@@ -477,9 +477,8 @@ class Trainer:
         y_1, y_2 = self.generate_train_samples(n_samples, dv0, old=False)
         dy = (y_2 - y_1) / dv0
         feature_extractor = lambda y: PolynomialFeatures(degree=poly_degree).fit_transform(y)
-        yf = feature_extractor(y_1)
-        mean_yf = yf.mean(axis=0)[np.newaxis, :] * 0
-        yf = yf - mean_yf
+        mean_y = y_1.mean(axis=0)[np.newaxis, :]
+        yf = feature_extractor(y_1-mean_y)
         n_features = yf.shape[-1]
         if verbose:
             print('Training models of change ...')
@@ -505,7 +504,7 @@ class Trainer:
 
                 all_weights = optimize.minimize(neg_log_likelihood,
                                                 method='Nelder-Mead',
-                                                options={'maxfev': np.minimum(1e3 * x0.size, 1e4),
+                                                options={'maxfev': np.minimum(1e3 * x0.size, 1e5),
                                                          'adaptive': True},
                                                 x0=np.concatenate([mu_weights.x, sigma_weights.x]),
                                                 args=(yf, dy[idx], None, alpha, False))
@@ -517,7 +516,7 @@ class Trainer:
                     MLChangeVector(vec=self.change_vecs[idx],
                                    mu_weight=w_mu,
                                    sig_weight=w_sig,
-                                   mean_y=mean_yf,
+                                   mean_y=mean_y,
                                    poly_degree=poly_degree,
                                    prior=self.priors[idx],
                                    lim=l,
