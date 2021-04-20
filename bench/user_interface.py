@@ -167,7 +167,8 @@ def submit_train(args):
     elif args.trainer == 'ml':
         print('Change models are trained using maximum likelihood.')
         ch_model = trainer.train_ml(n_samples=int(args.n),
-                                    poly_degree=int(args.p),
+                                    mu_poly_degree=int(args.p),
+                                    sigma_poly_degree=2,
                                     alpha=float(args.alpha),
                                     parallel=True)
     else:
