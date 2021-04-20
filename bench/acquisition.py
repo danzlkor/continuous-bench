@@ -180,6 +180,9 @@ def to_string(shells: Sequence[ShellParameters]):
 
 @dataclass
 class Acquisition:
+    """
+    Class that contains acquisition protocol
+    """
     shells: List[ShellParameters]
     idx_shells: np.ndarray
     bvecs: np.ndarray

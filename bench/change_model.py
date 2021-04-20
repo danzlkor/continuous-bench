@@ -67,12 +67,25 @@ class ChangeVector:
         return mu, sigma
 
     def log_lh(self, dv, y, dy, sigma_n):
+        """
+        Computes log likelihood (P(dy|y, dv)) for the given  measurements
+        :param dv: scalar or 1d array of the amount of change
+        :param y: the baseline measurements 1d or 2d array with last dimension beaing the measurements.
+        :param dy: chage in the meausrements , the same size as y
+        :param sigma_n: noise covariance matrix per sample
+        :return: loglikelhood per sample
+        """
         mu, sigma_p = self.estimate_change(y)
         mean = np.squeeze(dv * mu)
-        cov = (dv ** 2) * np.squeeze(sigma_p) + sigma_n
+        cov = (dv ** 2) * np.linalg.inv(np.squeeze(sigma_p)) + sigma_n
         return log_mvnpdf(x=dy, mean=mean, cov=cov)
 
     def log_prior(self, dv):
+        """
+        computes the prior probability of the amount of change
+        :param dv: the amount of change, scalar or 1d array.
+        :return: log(p(dv))
+        """
         if self.lim == 'negative':
             dv = -dv
         elif self.lim == 'twosided':
@@ -92,7 +105,7 @@ class ChangeVector:
 @dataclass
 class MLChangeVector:
     """
-    class for a single model of change
+    class for a single model of change trained by maximum likelihood approach
     """
     vec: Mapping
     mu_weight: np.ndarray
@@ -145,6 +158,9 @@ class MLChangeVector:
 
 @dataclass
 class ChangeModel:
+    """
+    Class that contains trained models of change for all of the parameters of a given forward models.
+    """
     models: List[ChangeVector]
     model_name: str = 'unnamed'
 
@@ -524,7 +540,7 @@ class Trainer:
                 )
                 if verbose:
                     print(f'Tained models for {models[-1].name}.')
-                return models
+            return models
 
         if parallel:
             models = Parallel(n_jobs=-1, verbose=True)(delayed(func)(i) for i in range(len(self.change_vecs)))
@@ -699,9 +715,11 @@ def l_to_sigma(l_vec):
     dim = int((np.sqrt(8 * t + 1) - 1) / 2)  # t = dim*(dim+1)/2
     idx = np.tril_indices(dim)
     diag_idx = np.argwhere(idx[0] == idx[1])
-    l_vec[..., diag_idx] = np.exp(l_vec[..., diag_idx])
-    l_mat = np.zeros((*l_vec.shape[:-1], dim, dim))
-    l_mat[..., idx[0], idx[1]] = l_vec
+
+    l = l_vec.copy()
+    l[..., diag_idx] = np.exp(l_vec[..., diag_idx])
+    l_mat = np.zeros((*l.shape[:-1], dim, dim))
+    l_mat[..., idx[0], idx[1]] = l
     sigma = l_mat @ l_mat.swapaxes(-2, -1)  # transpose last two dimensions
 
     return sigma
@@ -814,7 +832,7 @@ def neg_log_likelihood(weights, yf, dy, w_mu=None, alpha=0.1, fixed_sigma=False)
 
     if fixed_sigma:
         nll = np.linalg.norm(offset) ** 2 \
-              + alpha * np.mean(weights ** 2)
+              + alpha * np.mean(w_mu[1:, :] ** 2)
     else:
 
         sign, ldet = np.linalg.slogdet(sigma)
@@ -823,7 +841,7 @@ def neg_log_likelihood(weights, yf, dy, w_mu=None, alpha=0.1, fixed_sigma=False)
 
         nll = np.mean(ldet +
                       np.einsum('ij,ijk,ik->i', offset, np.linalg.inv(sigma), offset)) + \
-              alpha * np.mean(weights ** 2)
+              alpha * (np.mean(w_mu[1:, :] ** 2) + np.mean(w_sig[1:, :] ** 2))
     return nll
 
 
