@@ -22,6 +22,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import PolynomialFeatures
 from typing import Callable, List, Any, Union, Sequence, Mapping
 from scipy import optimize
+import numba
 
 BOUNDS = {'negative': (-np.inf, 0), 'positive': (0, np.inf), 'twosided': (-np.inf, np.inf)}
 INTEGRAL_LIMITS = list(BOUNDS.keys())
@@ -704,7 +705,7 @@ def knn_estimation(y, dy, k=100, lam=1e-12):
     return mu, tril
 
 
-def l_to_sigma(l_vec):
+def l_to_sigma(l_vec, numba=True):
     """
          inverse Cholesky decomposition and log transforms diagonals
            :param l_vec: (..., dim(dim+1)/2) vectors
@@ -713,6 +714,10 @@ def l_to_sigma(l_vec):
 
     t = l_vec.shape[-1]
     dim = int((np.sqrt(8 * t + 1) - 1) / 2)  # t = dim*(dim+1)/2
+    if numba:
+        sigma = np.zeros((l_vec.shape[0], dim, dim))
+        _mat_lower_diagonal(l_vec, sigma)
+        return sigma
     idx = np.tril_indices(dim)
     diag_idx = np.argwhere(idx[0] == idx[1])
 
@@ -721,8 +726,45 @@ def l_to_sigma(l_vec):
     l_mat = np.zeros((*l.shape[:-1], dim, dim))
     l_mat[..., idx[0], idx[1]] = l
     sigma = l_mat @ l_mat.swapaxes(-2, -1)  # transpose last two dimensions
-
     return sigma
+
+
+@numba.jit(nopython=True)
+def _mat_lower_diagonal(l_vec, l_sigma):
+    """Multiplies a lower diagonal matrix with its transpose.
+
+    Numba helper function used in l_to_sigma.
+    """
+    n, t = l_vec.shape
+    n2, dim, dim2 = l_sigma.shape
+    assert dim == dim2
+    assert n == n2
+    assert t == dim * (dim + 1) / 2
+    a_i = np.zeros(n)
+    a_j = np.zeros(n)
+    isum = 0
+    for i in range(dim):
+        isum += i
+        for k in range(i + 1):
+            a_i[()] = l_vec[:, isum + k]
+            if i == k:
+                a_i[()] = np.exp(a_i)
+            jsum = 0
+            for j in range(dim):
+                jsum += j
+                if i <= j:
+                    if i == j:
+                        a_j[()] = a_i
+                    else:
+                        a_j[()] = l_vec[:, jsum + k]
+                        if j == k:
+                            a_j[()] = np.exp(a_j)
+                    l_sigma[:, i, j] += a_i * a_j
+        for j in range(i):
+            l_sigma[:, i, j] = l_sigma[:, j, i]
+
+
+
 
 
 def log_mvnpdf(x, mean, cov):
@@ -839,8 +881,8 @@ def neg_log_likelihood(weights, yf, dy, w_mu=None, alpha=0.1, fixed_sigma=False)
         if (sign == 0).any():
             return np.inf
 
-        nll = np.mean(ldet +
-                      np.einsum('ij,ijk,ik->i', offset, np.linalg.inv(sigma), offset)) + \
+        nll = np.mean(-ldet +
+                      np.einsum('ij,ijk,ik->i', offset, sigma, offset)) + \
               alpha * (np.mean(w_mu[1:, :] ** 2) + np.mean(w_sig[1:, :] ** 2))
     return nll
 
