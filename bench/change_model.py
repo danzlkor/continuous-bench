@@ -22,6 +22,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import PolynomialFeatures
 from typing import Callable, List, Any, Union, Sequence, Mapping
 from scipy import optimize
+import numba
 
 BOUNDS = {'negative': (-np.inf, 0), 'positive': (0, np.inf), 'twosided': (-np.inf, np.inf)}
 INTEGRAL_LIMITS = list(BOUNDS.keys())
@@ -77,7 +78,7 @@ class ChangeVector:
         """
         mu, sigma_p = self.estimate_change(y)
         mean = np.squeeze(dv * mu)
-        cov = (dv ** 2) * np.squeeze(sigma_p) + sigma_n
+        cov = (dv ** 2) * np.linalg.inv(np.squeeze(sigma_p)) + sigma_n
         return log_mvnpdf(x=dy, mean=mean, cov=cov)
 
     def log_prior(self, dv):
@@ -481,15 +482,14 @@ class Trainer:
 
         return ChangeModel(models=models)
 
-
-    def train_ml(self, n_samples=1000, mu_poly_degree=2, sigma_poly_degree=1, alpha=.1, dv0=1e-6,
+    def train_ml(self, n_samples=1000, poly_degree=2, alpha=.1, dv0=1e-6,
                  verbose=True, parallel=True, train_sigma=True):
         """
         Train change models (estimates w_mu and w_l) using forward model simulation
 
         :param n_samples: number simulated samples to estimate forward model
         :param dv0: the amount perturbation in parameter to estimate derivatives
-        :param mu_poly_degree: polynomial degree for regression
+        :param poly_degree: polynomial degree for regression
         :param alpha: ridge regression regularization weight
         :param parallel: train models in parallel (on thread per model of change)
         :param train_sigma: flag for training models for sigma
@@ -498,43 +498,48 @@ class Trainer:
         print(f'Generating {n_samples} training samples...')
         y_1, y_2 = self.generate_train_samples(n_samples, dv0, old=False)
         dy = (y_2 - y_1) / dv0
+        feature_extractor = lambda y: PolynomialFeatures(degree=poly_degree).fit_transform(y)
         mean_y = y_1.mean(axis=0)[np.newaxis, :]
-        yf_mu = PolynomialFeatures(degree=mu_poly_degree).fit_transform(y_1 - mean_y)
-        yf_sigma = PolynomialFeatures(degree=sigma_poly_degree).fit_transform(y_1 - mean_y)
-        n_mu_features = yf_mu.shape[-1]
+        yf = feature_extractor(y_1-mean_y)
+        n_features = yf.shape[-1]
         if verbose:
             print('Training models of change ...')
 
         def func(idx):
             mu_weights = optimize.minimize(neg_log_likelihood,
-                                           x0=np.zeros(self.n_dim * n_mu_features),
+                                           x0=np.zeros(self.n_dim * n_features),
                                            method=None,
-                                           args=(dy[idx], yf_mu, yf_sigma, None, 'mu', alpha))
+                                           args=(yf, dy[idx], None, alpha, True))
 
-            x0 = np.zeros((self.n_dim * (self.n_dim + 1) // 2) * yf_sigma.shape[-1])
-            sigma_weights = optimize.minimize(neg_log_likelihood, method='BFGS',
-                                              x0=x0,
-                                              args=(dy[idx], yf_mu, yf_sigma, mu_weights.x, 'sigma', alpha))
+            if train_sigma:
+                x0 = np.zeros((self.n_dim * (self.n_dim + 1) // 2) * n_features)
+                sigma_weights = optimize.minimize(neg_log_likelihood, method='BFGS',
+                                                  x0=x0,
+                                                  args=(yf, dy[idx], mu_weights.x, alpha, False))
+                x0 = sigma_weights.x
+                sigma_weights = optimize.minimize(neg_log_likelihood, method='Nelder-Mead',
+                                                  x0=x0, options={'maxfev': np.minimum(1e3 * x0.size, 1e5),
+                                                                  'adaptive': True},
+                                                  args=(yf, dy[idx], mu_weights.x, alpha, False))
 
-            print(sigma_weights.message, sigma_weights.fun, sigma_weights.nit)
-            all_weights = optimize.minimize(neg_log_likelihood,
-                                            method='BFGS',
-                                            x0=np.concatenate([mu_weights.x, sigma_weights.x]),
-                                            args=(dy[idx], yf_mu, yf_sigma, mu_weights.x, 'both', alpha))
+                print(sigma_weights.message, sigma_weights.fun, sigma_weights.nit)
 
-            w_mu = all_weights.x[:(n_mu_features * self.n_dim)].reshape(n_mu_features, self.n_dim)
-            w_sigma = all_weights.x[n_mu_features * self.n_dim:].reshape(yf_sigma.shape[-1],
-                                                        self.n_dim * (self.n_dim + 1) // 2)
+                all_weights = optimize.minimize(neg_log_likelihood,
+                                                method='Nelder-Mead',
+                                                options={'maxfev': np.minimum(1e3 * x0.size, 1e5),
+                                                         'adaptive': True},
+                                                x0=np.concatenate([mu_weights.x, sigma_weights.x]),
+                                                args=(yf, dy[idx], None, alpha, False))
+
             models = []
-
+            w_mu, w_sig = reshape_weights(all_weights.x, n_features, self.n_dim)
             for l in self.lims[idx]:
                 models.append(
                     MLChangeVector(vec=self.change_vecs[idx],
                                    mu_weight=w_mu,
-                                   sig_weight=w_sigma,
+                                   sig_weight=w_sig,
                                    mean_y=mean_y,
-                                   mu_poly_degree=mu_poly_degree,
-                                   sigma_poly_degree=sigma_poly_degree,
+                                   poly_degree=poly_degree,
                                    prior=self.priors[idx],
                                    lim=l,
                                    name=str(self.vec_names[idx]) + '_' + l)
@@ -705,7 +710,7 @@ def knn_estimation(y, dy, k=100, lam=1e-12):
     return mu, tril
 
 
-def l_to_sigma(l_vec):
+def l_to_sigma(l_vec, numba=True):
     """
          inverse Cholesky decomposition and log transforms diagonals
            :param l_vec: (..., dim(dim+1)/2) vectors
@@ -714,6 +719,10 @@ def l_to_sigma(l_vec):
 
     t = l_vec.shape[-1]
     dim = int((np.sqrt(8 * t + 1) - 1) / 2)  # t = dim*(dim+1)/2
+    if numba:
+        sigma = np.zeros((l_vec.shape[0], dim, dim))
+        _mat_lower_diagonal(l_vec, sigma)
+        return sigma
     idx = np.tril_indices(dim)
     diag_idx = np.argwhere(idx[0] == idx[1])
 
@@ -722,8 +731,45 @@ def l_to_sigma(l_vec):
     l_mat = np.zeros((*l.shape[:-1], dim, dim))
     l_mat[..., idx[0], idx[1]] = l
     sigma = l_mat @ l_mat.swapaxes(-2, -1)  # transpose last two dimensions
-
     return sigma
+
+
+@numba.jit(nopython=True)
+def _mat_lower_diagonal(l_vec, l_sigma):
+    """Multiplies a lower diagonal matrix with its transpose.
+
+    Numba helper function used in l_to_sigma.
+    """
+    n, t = l_vec.shape
+    n2, dim, dim2 = l_sigma.shape
+    assert dim == dim2
+    assert n == n2
+    assert t == dim * (dim + 1) / 2
+    a_i = np.zeros(n)
+    a_j = np.zeros(n)
+    isum = 0
+    for i in range(dim):
+        isum += i
+        for k in range(i + 1):
+            a_i[()] = l_vec[:, isum + k]
+            if i == k:
+                a_i[()] = np.exp(a_i)
+            jsum = 0
+            for j in range(dim):
+                jsum += j
+                if i <= j:
+                    if i == j:
+                        a_j[()] = a_i
+                    else:
+                        a_j[()] = l_vec[:, jsum + k]
+                        if j == k:
+                            a_j[()] = np.exp(a_j)
+                    l_sigma[:, i, j] += a_i * a_j
+        for j in range(i):
+            l_sigma[:, i, j] = l_sigma[:, j, i]
+
+
+
 
 
 def log_mvnpdf(x, mean, cov):
@@ -865,12 +911,12 @@ def regression_model(yf_mu, yf_sigma, w_mu, w_sigma, lam=0):
     :return:
     """
     n_dim = w_mu.shape[1]
-    mu = yf_mu @ w_mu
-    if w_sigma is None:
-        sigma_inv = np.eye(n_dim)
+    mu = yf @ w_mu
+    if w_sig is None:
+        sigma = np.eye(n_dim)
     else:
-        sigma_inv = l_to_sigma(yf_sigma @ w_sigma) + lam * np.eye(n_dim)
-    return mu, sigma_inv
+        sigma = l_to_sigma(yf @ w_sig) + lam * np.eye(n_dim)
+    return mu, sigma
 
 
 def plot_conf_mat(conf_mat, param_names, f_name=None, title=None):
