@@ -740,23 +740,25 @@ def _mat_lower_diagonal(l_vec, l_sigma):
     assert dim == dim2
     assert n == n2
     assert t == dim * (dim + 1) / 2
+    a_i = np.zeros(n)
+    a_j = np.zeros(n)
     isum = 0
     for i in range(dim):
         isum += i
         for k in range(i + 1):
-            a_i = l_vec[:, isum + k]
+            a_i[()] = l_vec[:, isum + k]
             if i == k:
-                a_i = np.exp(a_i)
+                a_i[()] = np.exp(a_i)
             jsum = 0
             for j in range(dim):
                 jsum += j
                 if i <= j:
                     if i == j:
-                        a_j = a_i
+                        a_j[()] = a_i
                     else:
-                        a_j = l_vec[:, jsum + k]
+                        a_j[()] = l_vec[:, jsum + k]
                         if j == k:
-                            a_j = np.exp(a_j)
+                            a_j[()] = np.exp(a_j)
                     l_sigma[:, i, j] += a_i * a_j
         for j in range(i):
             l_sigma[:, i, j] = l_sigma[:, j, i]
