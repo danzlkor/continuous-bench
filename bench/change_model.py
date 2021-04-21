@@ -29,7 +29,7 @@ INTEGRAL_LIMITS = list(BOUNDS.keys())
 
 
 @dataclass
-class ChangeVector:
+class KNNChangeVector:
     """
     class for a single model of change
     """
@@ -63,7 +63,7 @@ class ChangeVector:
             y = y[np.newaxis, :]
 
         mu = self.mu_mdl.predict(y)
-        sigma = l_to_sigma(self.l_mdl.predict(y))
+        sigma, _ = l_to_sigma(self.l_mdl.predict(y))
 
         return mu, sigma
 
@@ -135,7 +135,7 @@ class MLChangeVector:
         y = np.atleast_2d(y)
         yf_mu = self.mu_feature_extractor.fit_transform(y - self.mean_y)
         yf_sigma = self.sigma_feature_extractor.fit_transform(y - self.mean_y)
-        mu, sigma_inv = regression_model(yf_mu, yf_sigma, self.mu_weight, self.sig_weight)
+        mu, sigma_inv, _ = regression_model(yf_mu, yf_sigma, self.mu_weight, self.sig_weight)
         sigma = np.linalg.inv(sigma_inv)
         return mu, sigma
 
@@ -167,7 +167,7 @@ class ChangeModel:
     """
     Class that contains trained models of change for all of the parameters of a given forward models.
     """
-    models: List[ChangeVector]
+    models: List[KNNChangeVector]
     model_name: str = 'unnamed'
 
     def save(self, path='./', file_name=None):
@@ -297,10 +297,10 @@ class ChangeModel:
             for i in pbar(range(n_samples)):
                 res.append(func(i))
 
-        log_prob = np.array([d[0] for d in res])
+        log_probs = np.array([d[0] for d in res])
         peaks = np.array([d[1] for d in res])
 
-        return log_prob, peaks
+        return log_probs, peaks
 
     @classmethod
     def load(cls, filename):
@@ -445,12 +445,12 @@ class Trainer:
         """
         Train change models (estimates w_mu and w_l) using forward model simulation
 
+        :param verbose:
         :param n_samples: number simulated samples to estimate forward model
         :param k: nearest neighbours parameter
         :param dv0: the amount perturbation in parameter to estimate derivatives
         :param poly_degree: polynomial degree for regression
         :param regularization: ridge regression alpha
-        :param model_name: name of the model.
         """
         print('Generating training samples...')
         y_1, y_2 = self.generate_train_samples(n_samples, dv0)
@@ -470,76 +470,72 @@ class Trainer:
             l_mdl.fit(y_1, sample_l[idx])
             for l in lims:
                 models.append(
-                    ChangeVector(vec=vec,
-                                 mu_mdl=mu_mdl,
-                                 l_mdl=l_mdl,
-                                 prior=prior,
-                                 lim=l,
-                                 name=str(name) + '_' + l)
+                    KNNChangeVector(vec=vec,
+                                    mu_mdl=mu_mdl,
+                                    l_mdl=l_mdl,
+                                    prior=prior,
+                                    lim=l,
+                                    name=str(name) + '_' + l)
                 )
                 if verbose:
                     print(models[-1].name)
 
         return ChangeModel(models=models)
 
-    def train_ml(self, n_samples=1000, poly_degree=2, alpha=.1, dv0=1e-6,
-                 verbose=True, parallel=True, train_sigma=True):
+    def train_ml(self, n_samples=1000, mu_poly_degree=2, sigma_poly_degree=1, alpha=.1, dv0=1e-6,
+                 verbose=True, parallel=True):
         """
         Train change models (estimates w_mu and w_l) using forward model simulation
 
         :param n_samples: number simulated samples to estimate forward model
         :param dv0: the amount perturbation in parameter to estimate derivatives
-        :param poly_degree: polynomial degree for regression
+        :param mu_poly_degree: polynomial degree for regressing mu
+        :param sigma_poly_degree: polynomial degree for regressing sigma
         :param alpha: ridge regression regularization weight
         :param parallel: train models in parallel (on thread per model of change)
-        :param train_sigma: flag for training models for sigma
+
         :param verbose: flag for printing steps.
         """
         print(f'Generating {n_samples} training samples...')
         y_1, y_2 = self.generate_train_samples(n_samples, dv0, old=False)
         dy = (y_2 - y_1) / dv0
-        feature_extractor = lambda y: PolynomialFeatures(degree=poly_degree).fit_transform(y)
         mean_y = y_1.mean(axis=0)[np.newaxis, :]
-        yf = feature_extractor(y_1-mean_y)
-        n_features = yf.shape[-1]
+        yf_mu = PolynomialFeatures(degree=mu_poly_degree).fit_transform(y_1 - mean_y)
+        yf_sigma = PolynomialFeatures(degree=sigma_poly_degree).fit_transform(y_1 - mean_y)
+        n_mu_features = yf_mu.shape[-1]
         if verbose:
             print('Training models of change ...')
 
         def func(idx):
             mu_weights = optimize.minimize(neg_log_likelihood,
-                                           x0=np.zeros(self.n_dim * n_features),
+                                           x0=np.zeros(self.n_dim * n_mu_features),
                                            method=None,
-                                           args=(yf, dy[idx], None, alpha, True))
+                                           args=(dy[idx], yf_mu, yf_sigma, None, 'mu', alpha))
 
-            if train_sigma:
-                x0 = np.zeros((self.n_dim * (self.n_dim + 1) // 2) * n_features)
-                sigma_weights = optimize.minimize(neg_log_likelihood, method='BFGS',
-                                                  x0=x0,
-                                                  args=(yf, dy[idx], mu_weights.x, alpha, False))
-                x0 = sigma_weights.x
-                sigma_weights = optimize.minimize(neg_log_likelihood, method='Nelder-Mead',
-                                                  x0=x0, options={'maxfev': np.minimum(1e3 * x0.size, 1e5),
-                                                                  'adaptive': True},
-                                                  args=(yf, dy[idx], mu_weights.x, alpha, False))
+            x0 = np.zeros((self.n_dim * (self.n_dim + 1) // 2) * yf_sigma.shape[-1])
+            sigma_weights = optimize.minimize(neg_log_likelihood, method='BFGS',
+                                              x0=x0,
+                                              args=(dy[idx], yf_mu, yf_sigma, mu_weights.x, 'sigma', alpha))
 
-                print(sigma_weights.message, sigma_weights.fun, sigma_weights.nit)
+            print(sigma_weights.message, sigma_weights.fun, sigma_weights.nit)
+            all_weights = optimize.minimize(neg_log_likelihood,
+                                            method='BFGS',
+                                            x0=np.concatenate([mu_weights.x, sigma_weights.x]),
+                                            args=(dy[idx], yf_mu, yf_sigma, None, 'both', alpha))
 
-                all_weights = optimize.minimize(neg_log_likelihood,
-                                                method='Nelder-Mead',
-                                                options={'maxfev': np.minimum(1e3 * x0.size, 1e5),
-                                                         'adaptive': True},
-                                                x0=np.concatenate([mu_weights.x, sigma_weights.x]),
-                                                args=(yf, dy[idx], None, alpha, False))
+            w_mu = all_weights.x[:(n_mu_features * self.n_dim)].reshape(n_mu_features, self.n_dim)
+            w_sigma = all_weights.x[n_mu_features * self.n_dim:].reshape \
+                (yf_sigma.shape[-1], self.n_dim * (self.n_dim + 1) // 2)
 
             models = []
-            w_mu, w_sig = reshape_weights(all_weights.x, n_features, self.n_dim)
             for l in self.lims[idx]:
                 models.append(
                     MLChangeVector(vec=self.change_vecs[idx],
                                    mu_weight=w_mu,
-                                   sig_weight=w_sig,
+                                   sig_weight=w_sigma,
                                    mean_y=mean_y,
-                                   poly_degree=poly_degree,
+                                   mu_poly_degree=mu_poly_degree,
+                                   sigma_poly_degree=sigma_poly_degree,
                                    prior=self.priors[idx],
                                    lim=l,
                                    name=str(self.vec_names[idx]) + '_' + l)
@@ -606,8 +602,8 @@ class Trainer:
         for idx, (vec, name, prior, lims) \
                 in enumerate(zip(self.change_vecs, self.vec_names, self.priors, self.lims)):
             for l in lims:
-                models.append(ChangeVector(vec=vec, mu_mdl=None, l_mdl=None,
-                                           prior=prior, lim=l, name=str(name) + ', ' + l))
+                models.append(KNNChangeVector(vec=vec, mu_mdl=None, l_mdl=None,
+                                              prior=prior, lim=l, name=str(name) + ', ' + l))
         if true_change is None:
             true_change = np.random.randint(0, len(models) + 1, n_samples)
         else:
@@ -714,24 +710,26 @@ def l_to_sigma(l_vec, numba=True):
     """
          inverse Cholesky decomposition and log transforms diagonals
            :param l_vec: (..., dim(dim+1)/2) vectors
-           :return: mu sigma (... , dim, dim)
+           :return: sigma (... , dim, dim) det_sigma (..., dim)
        """
 
     t = l_vec.shape[-1]
     dim = int((np.sqrt(8 * t + 1) - 1) / 2)  # t = dim*(dim+1)/2
+    tril_idx = np.tril_indices(dim)
+    diag_idx = np.argwhere(tril_idx[0] == tril_idx[1])
+
     if numba:
         sigma = np.zeros((l_vec.shape[0], dim, dim))
         _mat_lower_diagonal(l_vec, sigma)
-        return sigma
-    idx = np.tril_indices(dim)
-    diag_idx = np.argwhere(idx[0] == idx[1])
+    else:
+        l = l_vec.copy()
+        l[..., diag_idx] = np.exp(l_vec[..., diag_idx])
+        l_mat = np.zeros((*l.shape[:-1], dim, dim))
+        l_mat[..., tril_idx[0], tril_idx[1]] = l
+        sigma = l_mat @ l_mat.swapaxes(-2, -1)  # transpose last two dimensions
 
-    l = l_vec.copy()
-    l[..., diag_idx] = np.exp(l_vec[..., diag_idx])
-    l_mat = np.zeros((*l.shape[:-1], dim, dim))
-    l_mat[..., idx[0], idx[1]] = l
-    sigma = l_mat @ l_mat.swapaxes(-2, -1)  # transpose last two dimensions
-    return sigma
+    log_dets = 2 * np.squeeze(l_vec[..., diag_idx]).sum(axis=-1)
+    return sigma, log_dets
 
 
 @numba.jit(nopython=True)
@@ -767,9 +765,6 @@ def _mat_lower_diagonal(l_vec, l_sigma):
                     l_sigma[:, i, j] += a_i * a_j
         for j in range(i):
             l_sigma[:, i, j] = l_sigma[:, j, i]
-
-
-
 
 
 def log_mvnpdf(x, mean, cov):
@@ -866,7 +861,7 @@ def neg_log_likelihood(weights, dy, yf_mu, yf_sigma, w_mu, opt_param='mu', alpha
     if opt_param == 'mu':
         _, n_features = yf_mu.shape
         w_mu = weights.reshape(n_features, n_dim)
-        mu, _ = regression_model(yf_mu, yf_sigma, w_mu, None)
+        mu, _, _ = regression_model(yf_mu, yf_sigma, w_mu, None)
         offset = dy - mu
         nll = np.linalg.norm(offset) ** 2 + alpha * np.mean(w_mu[1:, :] ** 2)
 
@@ -874,13 +869,8 @@ def neg_log_likelihood(weights, dy, yf_mu, yf_sigma, w_mu, opt_param='mu', alpha
         _, n_features = yf_sigma.shape
         w_sigma = weights.reshape(n_features, n_dim * (n_dim + 1) // 2)
         w_mu_ = w_mu.reshape(yf_mu.shape[-1], n_dim)
-        mu, sigma_inv = regression_model(yf_mu, yf_sigma, w_mu_, w_sigma)
+        mu, sigma_inv, ldet = regression_model(yf_mu, yf_sigma, w_mu_, w_sigma)
         offset = dy - mu
-
-        sign, ldet = np.linalg.slogdet(sigma_inv)
-        if (sign <= 0).any():
-            return np.inf
-
         nll = np.mean(-ldet + np.einsum('ij,ijk,ik->i', offset, sigma_inv, offset)) + \
               alpha * np.mean(w_sigma[1:, :] ** 2)
 
@@ -888,16 +878,12 @@ def neg_log_likelihood(weights, dy, yf_mu, yf_sigma, w_mu, opt_param='mu', alpha
         n_mu_features = yf_mu.shape[-1]
         n_sig_features = yf_sigma.shape[-1]
         w_mu = weights[:n_mu_features * n_dim].reshape(n_mu_features, n_dim)
-        w_sigma = weights[n_mu_features *n_dim:].reshape(n_sig_features, n_dim * (n_dim + 1) // 2)
-        mu, sigma_inv = regression_model(yf_mu, yf_sigma, w_mu, w_sigma)
-        sign, ldet = np.linalg.slogdet(sigma_inv)
+        w_sigma = weights[n_mu_features * n_dim:].reshape(n_sig_features, n_dim * (n_dim + 1) // 2)
+        mu, sigma_inv, ldet = regression_model(yf_mu, yf_sigma, w_mu, w_sigma)
         offset = dy - mu
-        if (sign <= 0).any():
-            nll = np.inf
-        else:
-            nll = np.mean(-ldet +
-                          np.einsum('ij,ijk,ik->i', offset, sigma_inv, offset)) + \
-                  alpha * (np.mean(w_mu[1:, :] ** 2) + np.mean(w_sigma[1:, :] ** 2))
+        nll = np.mean(-ldet +
+                      np.einsum('ij,ijk,ik->i', offset, sigma_inv, offset)) + \
+              alpha * (np.mean(w_mu[1:, :] ** 2) + np.mean(w_sigma[1:, :] ** 2))
     return nll
 
 
@@ -911,12 +897,14 @@ def regression_model(yf_mu, yf_sigma, w_mu, w_sigma, lam=0):
     :return:
     """
     n_dim = w_mu.shape[1]
-    mu = yf @ w_mu
-    if w_sig is None:
+    mu = yf_mu @ w_mu
+    if w_sigma is None:
         sigma = np.eye(n_dim)
+        log_det = 0
     else:
-        sigma = l_to_sigma(yf @ w_sig) + lam * np.eye(n_dim)
-    return mu, sigma
+        sigma, log_det = l_to_sigma(yf_sigma @ w_sigma)
+        sigma = sigma + lam * np.eye(n_dim)
+    return mu, sigma, log_det
 
 
 def plot_conf_mat(conf_mat, param_names, f_name=None, title=None):
