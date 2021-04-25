@@ -15,6 +15,7 @@ from fsl.transform import fnirt
 from fsl.wrappers import convertwarp
 from bench import summary_measures
 from typing import List
+from joblib import Parallel, delayed
 
 
 def read_summary_images(summary_dir: str, mask: str, normalize=True):
@@ -57,7 +58,7 @@ def read_summary_images(summary_dir: str, mask: str, normalize=True):
     return all_summaries, invalid_voxs, names
 
 
-def convert_warp_to_deformation_field(warp_field, std_image, def_field, overwrite=False):
+def convert_warp_to_deformation_field(warp_field, std_image, def_field, overwrite=True):
     """
     Converts a warp wield to a deformation field
 
@@ -114,7 +115,7 @@ def sample_from_native_space(image, xfm, mask, def_field=None):
     return data_vox, valid_vox
 
 
-def read_glm(glm_dir, mask_add=None):
+def read_glm_results(glm_dir, mask_add=None):
     """
     :param glm_dir: path to the glm dir, it must contain data.nii.gz, delta_data.nii.gz, variance.nii.gz,
     and valid_mask.nii.gz
@@ -141,7 +142,7 @@ def read_glm(glm_dir, mask_add=None):
     return data, delta_data, sigma_n
 
 
-def read_glm_weights(data: List[str], xfm: List[str],  mask: str, save_xfm_path:str):
+def read_glm_weights(data: List[str], xfm: List[str],  mask: str, save_xfm_path:str, parallel=True):
     """
     reads voxelwise glm weights for each subject in an arbitrary space and a transformation from that space to standard,
     then takes voxels that lie within the mask (that is in standard space).
@@ -163,10 +164,22 @@ def read_glm_weights(data: List[str], xfm: List[str],  mask: str, save_xfm_path:
     weights = np.zeros((n_subj, n_vox)) + np.nan
     print('Reading GLM weights:')
 
-    for subj_idx, (d, x) in enumerate(zip(data, xfm)):
-        data, valid_vox = sample_from_native_space(d, x, mask, f"{save_xfm_path}/def_field_{subj_idx}.nii.gz")
-        weights[subj_idx, valid_vox] = data
-        print(subj_idx, end=' ', flush=True)
+    def func(subj_idx):
+        subjdata, valid_vox = sample_from_native_space(
+            data[subj_idx], xfm[subj_idx], mask, f"{save_xfm_path}/def_field_{subj_idx}.nii.gz")
+        print('weights for', subj_idx,'loaded.')
+        return subjdata, valid_vox
+
+    if parallel:
+        res = Parallel(n_jobs=-1, verbose=True)(delayed(func)(i) for i in range(n_subj))
+    else:
+        res = []
+        for i in range(n_subj):
+            res.append(func(i))
+
+    for subj_idx in range(n_subj):
+        weights[subj_idx, res[subj_idx][1]] = res[subj_idx][0]
+
     return weights
 
 

@@ -131,11 +131,15 @@ class MLChangeVector:
         self.mu_feature_extractor = PolynomialFeatures(degree=self.mu_poly_degree)
         self.sigma_feature_extractor = PolynomialFeatures(degree=self.sigma_poly_degree)
 
+        if self.mean_y is not None:
+            tril_idx = np.tril_indices(self.mean_y.shape[-1])
+            self.diag_idx = np.argwhere(tril_idx[0] == tril_idx[1])
+
     def derivative_distribution(self, y):
         y = np.atleast_2d(y)
         yf_mu = self.mu_feature_extractor.fit_transform(y - self.mean_y)
         yf_sigma = self.sigma_feature_extractor.fit_transform(y - self.mean_y)
-        mu, sigma_inv, _ = regression_model(yf_mu, yf_sigma, self.mu_weight, self.sig_weight)
+        mu, sigma_inv, _ = regression_model(yf_mu, yf_sigma, self.mu_weight, self.sig_weight, self.diag_idx)
         sigma = np.linalg.inv(sigma_inv)
         return mu, sigma
 
@@ -429,6 +433,9 @@ class Trainer:
         params_test = {p: v.mean() for p, v in self.param_prior_dists.items()}
         try:
             self.n_dim = self.forward_model(**self.args, **params_test).size
+            tril_idx = np.tril_indices(self.n_dim)
+            self.diag_idx = np.argwhere(tril_idx[0] == tril_idx[1])
+
         except Exception as ex:
             print("The provided function does not work with the given parameters and args.")
             raise ex
@@ -510,18 +517,26 @@ class Trainer:
             mu_weights = optimize.minimize(neg_log_likelihood,
                                            x0=np.zeros(self.n_dim * n_mu_features),
                                            method=None,
-                                           args=(dy[idx], yf_mu, yf_sigma, None, 'mu', alpha))
+                                           args=(dy[idx], yf_mu, yf_sigma, None, self.diag_idx, 'mu', alpha))
+
+            print(f' mu optimization for {self.vec_names[idx]}: {mu_weights.message}\n '
+                  f'function value:{mu_weights.fun}, {mu_weights.nit}')
 
             x0 = np.zeros((self.n_dim * (self.n_dim + 1) // 2) * yf_sigma.shape[-1])
             sigma_weights = optimize.minimize(neg_log_likelihood, method='BFGS',
                                               x0=x0,
-                                              args=(dy[idx], yf_mu, yf_sigma, mu_weights.x, 'sigma', alpha))
+                                              args=(dy[idx], yf_mu, yf_sigma, mu_weights.x, self.diag_idx, 'sigma', alpha))
 
-            print(sigma_weights.message, sigma_weights.fun, sigma_weights.nit)
+            print(f' sigma optimization for {self.vec_names[idx]}: {sigma_weights.message}\n '
+                  f'function value:{sigma_weights.fun}, {sigma_weights.nit}')
+
             all_weights = optimize.minimize(neg_log_likelihood,
                                             method='BFGS',
                                             x0=np.concatenate([mu_weights.x, sigma_weights.x]),
-                                            args=(dy[idx], yf_mu, yf_sigma, None, 'both', alpha))
+                                            args=(dy[idx], yf_mu, yf_sigma, None, self.diag_idx, 'both', alpha))
+
+            print(f' mu+sigma optimization for {self.vec_names[idx]}: {all_weights.message}\n '
+                  f'function value:{all_weights.fun}, {all_weights.nit}')
 
             w_mu = all_weights.x[:(n_mu_features * self.n_dim)].reshape(n_mu_features, self.n_dim)
             w_sigma = all_weights.x[n_mu_features * self.n_dim:].reshape \
@@ -590,25 +605,30 @@ class Trainer:
         """
         Important note: for this feature the forward model needs to have an internal noise model t
         hat accepts the parameter 'noise_level'. Otherwise, gaussian white noise is added to the measurements.
-        :param base_params:
-        :param n_samples:
-        :param effect_size:
-        :param noise_level:
-        :param n_repeats:
+        :param true_change: index of true parameter change for each sample (0 for no change), array or list
+        :param base_params: parameter values for the baseline
+        :param n_samples: number of samples
+        :param effect_size: the amount of change
+        :param noise_level: level of measurement noise
+        :param n_repeats: number of repeats to estimate noise covariance.
         :return:
         """
 
         models = []
+
         for idx, (vec, name, prior, lims) \
                 in enumerate(zip(self.change_vecs, self.vec_names, self.priors, self.lims)):
             for l in lims:
-                models.append(KNNChangeVector(vec=vec, mu_mdl=None, l_mdl=None,
-                                              prior=prior, lim=l, name=str(name) + ', ' + l))
+                models.append(MLChangeVector(vec=vec, prior=prior, lim=l, mu_weight=None, sig_weight=None,
+                                             mean_y=None, mu_poly_degree=None, sigma_poly_degree=None,
+                                             name=str(name) + ', ' + l))
         if true_change is None:
             true_change = np.random.randint(0, len(models) + 1, n_samples)
         else:
             n_samples = len(true_change)
 
+        if np.isscalar(effect_size):
+            effect_size  = np.ones(n_samples) * effect_size
         args = self.args.copy()
         has_noise_model = 'noise_level' in inspect.getfullargspec(self.forward_model).args
 
@@ -635,13 +655,13 @@ class Trainer:
             else:
                 lim = models[tc - 1].lim
                 sign = {'positive': 1, 'negative': -1, 'twosided': 1}[lim]
-                params_2 = {k: v + models[tc - 1].vec.get(k, 0) * effect_size * sign
+                params_2 = {k: v + models[tc - 1].vec.get(k, 0) * effect_size[s_idx] * sign
                             for k, v in params_1.items()}
 
                 valid = np.all([self.param_prior_dists[k].pdf(params_2[k]) > 0 for k in params_2.keys()])
                 if not valid:  # then swap param 1 and param 2
                     params_2 = params_1.copy()
-                    params_1 = {k: v - models[tc - 1].vec.get(k, 0) * effect_size * sign
+                    params_1 = {k: v - models[tc - 1].vec.get(k, 0) * effect_size[s_idx] * sign
                                 for k, v in params_1.items()}
 
             if has_noise_model:
@@ -706,7 +726,7 @@ def knn_estimation(y, dy, k=100, lam=1e-12):
     return mu, tril
 
 
-def l_to_sigma(l_vec, numba=True):
+def l_to_sigma(l_vec, diag_idx, numba=True):
     """
          inverse Cholesky decomposition and log transforms diagonals
            :param l_vec: (..., dim(dim+1)/2) vectors
@@ -715,19 +735,11 @@ def l_to_sigma(l_vec, numba=True):
 
     t = l_vec.shape[-1]
     dim = int((np.sqrt(8 * t + 1) - 1) / 2)  # t = dim*(dim+1)/2
-    tril_idx = np.tril_indices(dim)
-    diag_idx = np.argwhere(tril_idx[0] == tril_idx[1])
 
     if numba:
         sigma = np.zeros((l_vec.shape[0], dim, dim))
         _mat_lower_diagonal(l_vec, sigma)
-    else:
-        l = l_vec.copy()
-        l[..., diag_idx] = np.exp(l_vec[..., diag_idx])
-        l_mat = np.zeros((*l.shape[:-1], dim, dim))
-        l_mat[..., tril_idx[0], tril_idx[1]] = l
-        sigma = l_mat @ l_mat.swapaxes(-2, -1)  # transpose last two dimensions
-
+     # transpose last two dimensions:
     log_dets = 2 * np.squeeze(l_vec[..., diag_idx]).sum(axis=-1)
     return sigma, log_dets
 
@@ -846,7 +858,7 @@ def performance_measures(posteriors, true_change, set_names):
     return accuracy, true_posteriors
 
 
-def neg_log_likelihood(weights, dy, yf_mu, yf_sigma, w_mu, opt_param='mu', alpha=0.1):
+def neg_log_likelihood(weights, dy, yf_mu, yf_sigma, w_mu, diag_idx, opt_param='mu', alpha=0.1):
     """
      Computes the negative log-liklihood for a set of weights given y and dy
     :param weights: vectorized weights (d * n_features), if fixed sigma is False + d(d+1)/2 * n_features
@@ -861,7 +873,7 @@ def neg_log_likelihood(weights, dy, yf_mu, yf_sigma, w_mu, opt_param='mu', alpha
     if opt_param == 'mu':
         _, n_features = yf_mu.shape
         w_mu = weights.reshape(n_features, n_dim)
-        mu, _, _ = regression_model(yf_mu, yf_sigma, w_mu, None)
+        mu, _, _ = regression_model(yf_mu, yf_sigma, w_mu, None, diag_idx)
         offset = dy - mu
         nll = np.linalg.norm(offset) ** 2 + alpha * np.mean(w_mu[1:, :] ** 2)
 
@@ -869,7 +881,7 @@ def neg_log_likelihood(weights, dy, yf_mu, yf_sigma, w_mu, opt_param='mu', alpha
         _, n_features = yf_sigma.shape
         w_sigma = weights.reshape(n_features, n_dim * (n_dim + 1) // 2)
         w_mu_ = w_mu.reshape(yf_mu.shape[-1], n_dim)
-        mu, sigma_inv, ldet = regression_model(yf_mu, yf_sigma, w_mu_, w_sigma)
+        mu, sigma_inv, ldet = regression_model(yf_mu, yf_sigma, w_mu_, w_sigma, diag_idx)
         offset = dy - mu
         nll = np.mean(-ldet + np.einsum('ij,ijk,ik->i', offset, sigma_inv, offset)) + \
               alpha * np.mean(w_sigma[1:, :] ** 2)
@@ -879,7 +891,7 @@ def neg_log_likelihood(weights, dy, yf_mu, yf_sigma, w_mu, opt_param='mu', alpha
         n_sig_features = yf_sigma.shape[-1]
         w_mu = weights[:n_mu_features * n_dim].reshape(n_mu_features, n_dim)
         w_sigma = weights[n_mu_features * n_dim:].reshape(n_sig_features, n_dim * (n_dim + 1) // 2)
-        mu, sigma_inv, ldet = regression_model(yf_mu, yf_sigma, w_mu, w_sigma)
+        mu, sigma_inv, ldet = regression_model(yf_mu, yf_sigma, w_mu, w_sigma, diag_idx)
         offset = dy - mu
         nll = np.mean(-ldet +
                       np.einsum('ij,ijk,ik->i', offset, sigma_inv, offset)) + \
@@ -887,7 +899,7 @@ def neg_log_likelihood(weights, dy, yf_mu, yf_sigma, w_mu, opt_param='mu', alpha
     return nll
 
 
-def regression_model(yf_mu, yf_sigma, w_mu, w_sigma, lam=0):
+def regression_model(yf_mu, yf_sigma, w_mu, w_sigma, diag_idx, lam=0):
     """
     Given some measurements and regression weights, computes the hyperparameters of derivatives (mean and covariance)
     :param yf: feature vector (..., n_features)
@@ -902,7 +914,7 @@ def regression_model(yf_mu, yf_sigma, w_mu, w_sigma, lam=0):
         sigma = np.eye(n_dim)
         log_det = 0
     else:
-        sigma, log_det = l_to_sigma(yf_sigma @ w_sigma)
+        sigma, log_det = l_to_sigma(yf_sigma @ w_sigma, diag_idx)
         sigma = sigma + lam * np.eye(n_dim)
     return mu, sigma, log_det
 

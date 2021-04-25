@@ -11,6 +11,7 @@ from warnings import warn
 import numpy as np
 from fsl.utils.run import run
 from bench import change_model, glm, summary_measures, diffusion_models, acquisition, image_io
+from joblib import Parallel, delayed
 
 
 def main(argv=None):
@@ -66,7 +67,8 @@ def parse_args(argv):
                                 help="training method either of knn (K nearest neighbour) or ml (maximum likelihood)")
     train_optional.add_argument("-k", default=100, type=int, help="number of nearest neighbours", required=False)
     train_optional.add_argument("-n", default=1000, type=int, help="number of training samples", required=False)
-    train_optional.add_argument("-p", default=2, type=int, help="polynomial degree for design matrix", required=False)
+    train_optional.add_argument("-p", default=2, type=int, help="polynomial degree for mu design matrix", required=False)
+    train_optional.add_argument("-ps", default=2, type=int, help="polynomial degree for sigma design matrix", required=False)
     train_optional.add_argument("-d", default=4, type=int,
                                 help=" maximum degree for summary measures (only even numbers)", required=False)
     train_optional.add_argument("--alpha", default=0.0, type=float, help="regularization weight", required=False)
@@ -168,9 +170,9 @@ def submit_train(args):
         print('Change models are trained using maximum likelihood.')
         ch_model = trainer.train_ml(n_samples=int(args.n),
                                     mu_poly_degree=int(args.p),
-                                    sigma_poly_degree=1,
+                                    sigma_poly_degree=int(args.ps),
                                     alpha=float(args.alpha),
-                                    parallel=False)
+                                    parallel=True)
     else:
         raise ValueError(f'Trainer {args.trainer} is undefined. It must be either knn (default) or ml.')
 
@@ -227,20 +229,31 @@ def submit_summary(args):
             task_list.append(cmd)
         # main(cmd.split()[1:]) # for debugging.
 
-        if 'SGE_ROOT' in os.environ.keys():
+        if 'SGE_ROOT1' in os.environ.keys():
             with open(f'{args.study_dir}/summary_tasklist.txt', 'w') as f:
                 for t in task_list:
                     f.write("%s\n" % t)
                 f.close()
 
-                job_id = run(f'fsl_sub -t {args.study_dir}/summary_tasklist.txt'
-                             f'-T 200 -R 4 -N bench_summary -l {args.study_dir}/log', env=os.environ)
-
+                job_id = run(f'fsl_sub -t {args.study_dir}/summary_tasklist.txt ' 
+                             f'-T 200 -R 4 -N bench_summary -l {args.study_dir}/log',
+                             env=os.environ, exitcode=True, stderr=True)
+                print(job_id)
                 print(f'Jobs were submitted to SGE with job id {job_id}.')
         else:
             print(f'No clusters were found. The jobs are running locally.')
-            processes = [subprocess.Popen(t.split(), shell=False) for t in task_list]
-            [p.wait() for p in processes]
+            # processes = [subprocess.Popen(t.split(), shell=False, env=os.environ) for t in task_list]
+            # [p.wait() for p in processes]
+
+            def func(subj_idx):
+                x, d, bval, bvec = args.xfm[subj_idx], args.data[subj_idx], args.bval[subj_idx], args.bvecs[subj_idx]
+                summary_measures.fit_summary_single_subject(
+                    subj_idx, d, x, bvec, bval, args.mask, args.shm_degree, f'{args.study_dir}/SummaryMeasurements')
+
+            # res = Parallel(n_jobs=-1, verbose=True)(delayed(func)(i) for i in range(len(args.data)))
+            for i in range(len(args.data)):
+                func(i)
+
             job_id = 0
 
     return job_id

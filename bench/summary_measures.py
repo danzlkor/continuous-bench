@@ -8,6 +8,7 @@ import nibabel as nib
 import numpy as np
 from dipy.reconst.shm import real_sym_sh_basis
 from bench import acquisition, image_io
+import os
 
 
 def summary_names(acq, shm_degree, cg=False):
@@ -147,6 +148,11 @@ def fit_summary_single_subject(subj_idx: str, diff_add: str, xfm_add: str, bvec_
         :param output_add: path to output directory
         :return:
         """
+    fname = f"{output_add}/subj_{subj_idx}.nii.gz"
+    if os.path.exists(fname):
+        print(f'Summary measurements for subject {subj_idx} alredy exists.')
+        return 2
+    
     print('diffusion data address:' + diff_add)
     print('xfm address:' + xfm_add)
     print('bvec address: ' + bvec_add)
@@ -162,16 +168,16 @@ def fit_summary_single_subject(subj_idx: str, diff_add: str, xfm_add: str, bvec_
     summaries = fit_shm(data, acq, shm_degree=shm_degree)
 
     # write to nifti:
-    fname = f"{output_add}/subj_{subj_idx}.nii.gz"
     image_io.write_nifti(summaries, mask_add, fname, np.logical_not(valid_vox))
-    if subj_idx == '0':  # write summary names to a text file in the folder.
+    if not os.path.exists(f'{output_add}/summary_names.txt'):  # write summary names to a text file in the folder.
         names = summary_names(acq, shm_degree)
         with open(f'{output_add}/summary_names.txt', 'w') as f:
             for t in names:
                 f.write("%s\n" % t)
             f.close()
-
+           
     print(f'Summary measurements for subject {subj_idx} computed')
+    return 1
 
 
 def normalize_summaries(summaries, names):
