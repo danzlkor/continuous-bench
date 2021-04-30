@@ -463,7 +463,7 @@ class Trainer:
             raise ("priors must be either a scalar (same for all change models) "
                    "or a sequence with size of number of change models.")
 
-        params_test = {p: v.mean() for p, v in self.param_prior_dists.items()}
+        params_test = sample_params(self.param_prior_dists)
         try:
             self.n_dim = self.forward_model(**self.args, **params_test).size
             tril_idx = np.tril_indices(self.n_dim)
@@ -662,11 +662,14 @@ class Trainer:
                                              name=str(name) + ', ' + l, summary_names=summary_names))
         if true_change is None:
             true_change = np.random.randint(0, len(models) + 1, n_samples)
-        else:
+        elif n_samples is None:
             n_samples = len(true_change)
+        else:
+            assert n_samples == len(true_change)
 
         if np.isscalar(effect_size):
-            effect_size  = np.ones(n_samples) * effect_size
+            effect_size = np.ones(n_samples) * effect_size
+
         args = self.args.copy()
         has_noise_model = 'noise_level' in inspect.getfullargspec(self.forward_model).args
 
@@ -678,7 +681,7 @@ class Trainer:
 
         print(f'Generating {n_samples} test samples:')
         if base_params is None:
-            all_params = {p: v.rvs(n_samples) for p, v in self.param_prior_dists.items()}
+            all_params = sample_params(self.param_prior_dists, n_samples)
         else:  # assumes base params is a single parameter setting
             all_params = {p: v * np.ones(n_samples) for p, v in base_params.items()}
 
@@ -689,14 +692,16 @@ class Trainer:
             params_1 = {k: v[s_idx] for (k, v) in all_params.items()}
             tc = true_change[s_idx]
             if tc == 0:
-                params_2 = params_1
+                params_2 = params_1.copy()
             else:
                 lim = models[tc - 1].lim
                 sign = {'positive': 1, 'negative': -1, 'twosided': 1}[lim]
                 params_2 = {k: v + models[tc - 1].vec.get(k, 0) * effect_size[s_idx] * sign
                             for k, v in params_1.items()}
 
-                valid = np.all([self.param_prior_dists[k].pdf(params_2[k]) > 0 for k in params_2.keys()])
+                valid = np.all([self.param_prior_dists[k].pdf(params_2[k]) > 0 for k in params_2.keys()
+                                if k in self.param_prior_dists and hasattr(self.param_prior_dists[k], 'pdf')])
+
                 if not valid:  # then swap param 1 and param 2
                     params_2 = params_1.copy()
                     params_1 = {k: v - models[tc - 1].vec.get(k, 0) * effect_size[s_idx] * sign
