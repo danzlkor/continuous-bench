@@ -983,3 +983,18 @@ def plot_conf_mat(conf_mat, param_names, f_name=None, title=None):
     plt.show()
 
 
+def sample_params(param_prior_dists, n_samples=1):
+    """Sample from the prior distributions
+
+    Prior distributions are given by a dictionary from parameter names to a sampling function or scipy distribution.
+    Independent parameters can map to a 1D prior distribution or we can map from a list of dependent parameters to a multi-dimensional distribution.
+    """
+    params = {}
+    for p, dist in param_prior_dists.items():
+        func = getattr(dist, 'rvs', dist)
+        if isinstance(p, str):
+            params[p] = func(n_samples)
+        else:
+            for single_p, samples in zip(p, func(n_samples)):
+                params[single_p] = samples
+    return params
