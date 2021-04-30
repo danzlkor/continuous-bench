@@ -19,7 +19,7 @@ def forward_model(x, a, b, c) -> np.ndarray:
 def stupid_trainer():
     return Trainer(
         forward_model, 
-        args={'x': np.array([-1, 1])},
+        kwargs={'x': np.array([-1, 1])},
         param_prior_dists={name: distributions.norm(loc=idx, scale=0.) for idx, name in enumerate('abc')},
         )
 
