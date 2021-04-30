@@ -619,13 +619,14 @@ class Trainer:
         :param old:
         :return: M(V) , M(V+\Delta V).
         """
-        all_params = {p: v.rvs(n_samples) for p, v in self.param_prior_dists.items()}
+        all_params = sample_params(self.param_prior_dists)
 
         for vec in self.change_vecs:
             for (k, v) in all_params.items():
                 params_2 = v + vec.get(k, 0) * dv0
-                invalid = self.param_prior_dists[k].pdf(params_2) == 0
-                all_params[k][invalid] -= vec.get(k, 0) * dv0
+                if k in self.param_prior_dists and hasattr(self.param_prior_dists[k], 'pdf'):
+                    invalid = self.param_prior_dists[k].pdf(params_2) == 0
+                    all_params[k][invalid] -= vec.get(k, 0) * dv0
 
         y1 = self.forward_model(**self.args, **all_params)
         y2 = []
