@@ -18,7 +18,7 @@ from typing import List
 from joblib import Parallel, delayed
 
 
-def read_summary_images(summary_dir: str, mask: str, normalize=True):
+def read_summary_images(summary_dir: str, mask: str):
     """
     Reads summary measure images
     :param summary_dir: path to the summary measurements
@@ -51,9 +51,6 @@ def read_summary_images(summary_dir: str, mask: str, normalize=True):
              f'outside of the image in at least one subject.')
     with open(f'{summary_dir}/summary_names.txt', 'r') as reader:
         names = [line.rstrip() for line in reader]
-
-    if normalize:
-        all_summaries = summary_measures.normalize_summaries(all_summaries, names)
 
     return all_summaries, invalid_voxs, names
 

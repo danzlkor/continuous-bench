@@ -4,7 +4,6 @@
 This module contains functions for fitting spherical harmonics to diffusion data.
 """
 
-import nibabel as nib
 import numpy as np
 from dipy.reconst.shm import real_sym_sh_basis
 from bench import acquisition, image_io
@@ -180,29 +179,31 @@ def fit_summary_single_subject(subj_idx: str, diff_add: str, xfm_add: str, bvec_
     return 1
 
 
-def normalize_summaries(summaries, names):
+def normalize_summaries(y1, y2, names):
     """
     Normalises summary measures for all subjects. (divide by average attenuation)
-    :param names: name of summaries, needed for knowing how to normalize
-    :param summaries: array of summaries for all subjects
+    :param names: name of summaries, is required for knowing how to normalize
+    :param y1: array of summaries for baseline measurements
+    :param y2: array of summaries for second group, or the change
     :return: normalised summaries
     """
-    if not len(names) == summaries.shape[2]:
-        raise ValueError(f'Number of summary measurements doesnt match with the trained model.'
-                         f'\n Expected {len(names)} measures but got {summaries.shape[2]}.')
+    if not len(names) == y1.shape[-1]:
+        raise ValueError(f'Number of summary measurements doesnt match.'
+                         f'\n Expected {len(names)} measures but got {y1.shape[2]}.')
 
     b0_idx = names.index('b0_mean')
     summary_type = [l.split('_')[1] for l in names]
-    mean_b0 = np.nanmean(summaries[:, :, b0_idx], axis=0)
-    summaries_norm = np.zeros_like(summaries)
+    mean_b0 = y1[..., b0_idx]
+    y1_norm = np.zeros_like(y1)
+    y2_norm = np.zeros_like(y2)
+
     for smm_idx, l in enumerate(summary_type):
-        data = summaries[:, :, smm_idx]
         if l == 'mean':
-            data = data / mean_b0.T
+            y1_norm[..., smm_idx] = y1[..., smm_idx] / mean_b0
+            y2_norm[..., smm_idx] = y2[..., smm_idx] / mean_b0
         else:
-            data = data / (mean_b0.T ** 2)
-        summaries_norm[:, :, smm_idx] = data
+            y1_norm[..., smm_idx] = y1[..., smm_idx] / (mean_b0 ** 2)
+            y2_norm[..., smm_idx] = y2[..., smm_idx] / (mean_b0 ** 2)
 
-    return summaries_norm
-
-
+    y1_norm = np.delete(y1_norm, b0_idx, axis=-1)
+    return y1_norm, y2_norm

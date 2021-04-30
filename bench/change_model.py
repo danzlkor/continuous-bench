@@ -23,6 +23,7 @@ from sklearn.preprocessing import PolynomialFeatures
 from typing import Callable, List, Any, Union, Sequence, Mapping
 from scipy import optimize
 import numba
+from bench import summary_measures
 
 BOUNDS = {'negative': (-np.inf, 0), 'positive': (0, np.inf), 'twosided': (-np.inf, np.inf)}
 INTEGRAL_LIMITS = list(BOUNDS.keys())
@@ -114,7 +115,7 @@ class MLChangeVector:
     mean_y: np.ndarray
     mu_poly_degree: int
     sigma_poly_degree: int
-
+    summary_names: List
     lim: str
     prior: float = 1
     scale: float = 0.1
@@ -144,6 +145,8 @@ class MLChangeVector:
         return mu, sigma
 
     def log_lh(self, dv, y, dy, sigma_n):
+        if not y.shape[-1] == self.mean_y.shape[-1]:
+            y, dy = summary_measures.normalize_summaries(y, dy, self.summary_names)
         mu, sigma_p = self.derivative_distribution(y)
         mean = np.squeeze(dv * mu)
         cov = (dv ** 2) * np.squeeze(sigma_p) + sigma_n
@@ -167,12 +170,30 @@ class MLChangeVector:
 
 
 @dataclass
+class NoChangeModel:
+    name: str = 'No change'
+    prior: float = 1.0
+
+    def derivative_distribution(self, y):
+        return np.zeros_like(y), np.zeros((y.shape[-1], y.shape[-1]))
+
+    def log_posterior(self, y, dy, sigma_n):
+        return log_mvnpdf(x=dy, mean=np.zeros_like(y), cov=sigma_n)
+
+
+@dataclass
 class ChangeModel:
     """
     Class that contains trained models of change for all of the parameters of a given forward models.
     """
-    models: List[KNNChangeVector]
+    models: List[MLChangeVector]
     model_name: str = 'unnamed'
+
+    def __post_init__(self):
+        null_model = NoChangeModel(prior=1,
+                                   name='[]')
+
+        self.models.insert(0, null_model)
 
     def save(self, path='./', file_name=None):
         """
@@ -198,8 +219,8 @@ class ChangeModel:
         """
 
         print(f'running inference for {data.shape[0]} samples ...')
-        lls, peaks = self.compute_log_likelihood(data, delta_data, sigma_n, parallel=True, integral_bound=10)
-        priors = np.array([1.] + [m.prior for m in self.models])  # the 1 is for empty set
+        lls, peaks = self.compute_log_likelihood(data, delta_data, sigma_n, parallel=False, integral_bound=10)
+        priors = np.array([m.prior for m in self.models])  # the 1 is for empty set
         priors = priors / priors.sum()
         model_log_posteriors = lls + np.log(priors)
         posteriors = np.exp(model_log_posteriors)
@@ -227,7 +248,7 @@ class ChangeModel:
         """
 
         n_samples, n_dim = y.shape
-        n_models = len(self.models) + 1
+        n_models = len(self.models)
 
         def func(sam_idx):
             log_prob = np.zeros(n_models)
@@ -244,7 +265,7 @@ class ChangeModel:
             else:
                 log_prob[0] = log_mvnpdf(x=dy_s, mean=np.zeros(n_dim), cov=sigma_n_s)
 
-                for vec_idx, ch_mdl in enumerate(self.models, 1):
+                for vec_idx, ch_mdl in enumerate(self.models[1:], 1):
                     try:
                         log_post_pdf = lambda dv: ch_mdl.log_posterior(dv, y_s, dy_s, sigma_n_s)
                         post_pdf = lambda dv: np.exp(log_post_pdf(dv))
@@ -305,6 +326,18 @@ class ChangeModel:
         peaks = np.array([d[1] for d in res])
 
         return log_probs, peaks
+
+    def estimate_quality_of_fit(self, y1, y2, sigma_n, predictions, peaks):
+        dv = np.array([p[i] for i, p in zip(predictions, peaks)])
+        dists = [self.models[p].derivative_distribution(y) for p, y in zip(predictions, y1)]
+        mu = np.stack([np.squeeze(d[0]) for d in dists], axis=0)
+        sigma = np.stack([np.squeeze(d[1]) for d in dists], axis=0)
+
+        offset = y2 - (y1 + mu * dv[:, np.newaxis])
+        sigma_inv = np.linalg.inv(sigma_n + sigma * dv[:, np.newaxis, np.newaxis] ** 2)
+        deviation = np.einsum('ij,ijk,ik->i', offset, sigma_inv, offset)
+
+        return dv, offset, deviation
 
     @classmethod
     def load(cls, filename):
@@ -490,10 +523,11 @@ class Trainer:
         return ChangeModel(models=models)
 
     def train_ml(self, n_samples=1000, mu_poly_degree=2, sigma_poly_degree=1, alpha=.1, dv0=1e-6,
-                 verbose=True, parallel=True):
+                 verbose=True, summary_names=None, parallel=True):
         """
         Train change models (estimates w_mu and w_l) using forward model simulation
 
+        :param summary_names: name of summary measure, only for diffusion training.
         :param n_samples: number simulated samples to estimate forward model
         :param dv0: the amount perturbation in parameter to estimate derivatives
         :param mu_poly_degree: polynomial degree for regressing mu
@@ -506,6 +540,9 @@ class Trainer:
         print(f'Generating {n_samples} training samples...')
         y_1, y_2 = self.generate_train_samples(n_samples, dv0, old=False)
         dy = (y_2 - y_1) / dv0
+        if summary_names is not None:
+            y_1, dy = summary_measures.normalize_summaries(y_1, dy, summary_names)
+
         mean_y = y_1.mean(axis=0)[np.newaxis, :]
         yf_mu = PolynomialFeatures(degree=mu_poly_degree).fit_transform(y_1 - mean_y)
         yf_sigma = PolynomialFeatures(degree=sigma_poly_degree).fit_transform(y_1 - mean_y)
@@ -539,7 +576,7 @@ class Trainer:
                   f'function value:{all_weights.fun}, {all_weights.nit}')
 
             w_mu = all_weights.x[:(n_mu_features * self.n_dim)].reshape(n_mu_features, self.n_dim)
-            w_sigma = all_weights.x[n_mu_features * self.n_dim:].reshape \
+            w_sigma = all_weights.x[n_mu_features * self.n_dim:].reshape\
                 (yf_sigma.shape[-1], self.n_dim * (self.n_dim + 1) // 2)
 
             models = []
@@ -553,6 +590,7 @@ class Trainer:
                                    sigma_poly_degree=sigma_poly_degree,
                                    prior=self.priors[idx],
                                    lim=l,
+                                   summary_names=summary_names,
                                    name=str(self.vec_names[idx]) + '_' + l)
                 )
                 if verbose:
@@ -601,7 +639,7 @@ class Trainer:
         return y1, y2
 
     def generate_test_samples(self, n_samples=1000, effect_size=0.1, noise_level=0.0, n_repeats=1,
-                              base_params=None, true_change=None):
+                              base_params=None, true_change=None, summary_names=None):
         """
         Important note: for this feature the forward model needs to have an internal noise model t
         hat accepts the parameter 'noise_level'. Otherwise, gaussian white noise is added to the measurements.
@@ -621,7 +659,7 @@ class Trainer:
             for l in lims:
                 models.append(MLChangeVector(vec=vec, prior=prior, lim=l, mu_weight=None, sig_weight=None,
                                              mean_y=None, mu_poly_degree=None, sigma_poly_degree=None,
-                                             name=str(name) + ', ' + l))
+                                             name=str(name) + ', ' + l, summary_names=summary_names))
         if true_change is None:
             true_change = np.random.randint(0, len(models) + 1, n_samples)
         else:
@@ -902,9 +940,9 @@ def neg_log_likelihood(weights, dy, yf_mu, yf_sigma, w_mu, diag_idx, opt_param='
 def regression_model(yf_mu, yf_sigma, w_mu, w_sigma, diag_idx, lam=0):
     """
     Given some measurements and regression weights, computes the hyperparameters of derivatives (mean and covariance)
-    :param yf: feature vector (..., n_features)
+    :param yf_mu: feature vector (..., n_features)
     :param w_mu: weight matrix for mu (d , n_features)
-    :param w_sig: (d(d+1)/2 , n_features)
+    :param w_sigma: (d(d+1)/2 , n_features)
     :param lam: shrinkage weight
     :return:
     """
@@ -924,14 +962,13 @@ def plot_conf_mat(conf_mat, param_names, f_name=None, title=None):
     import seaborn as sns
     plt.rcParams['font.size'] = 16
 
-    sets = ['[]'] + param_names
     plt.figure(figsize=(7, 6))
     ax = sns.heatmap(conf_mat.T, annot=True, fmt="2.2f", vmin=0, vmax=1,
                      annot_kws={'size': 12})
 
     plt.tight_layout()
-    ax.set_xticklabels(labels=sets, rotation=45, fontdict={'size': 12})
-    ax.set_yticklabels(labels=sets, rotation=45, fontdict={'size': 12})
+    ax.set_xticklabels(labels=param_names, rotation=45, fontdict={'size': 12})
+    ax.set_yticklabels(labels=param_names, rotation=45, fontdict={'size': 12})
     ax.set_xlabel('Actual change', fontdict={'size': 16})
     ax.set_ylabel('Predicted Change', fontdict={'size': 16})
     if title is not None:
@@ -939,3 +976,5 @@ def plot_conf_mat(conf_mat, param_names, f_name=None, title=None):
     if f_name is not None:
         plt.savefig(f_name, bbox_inches='tight')
     plt.show()
+
+

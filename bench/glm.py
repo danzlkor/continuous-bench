@@ -15,7 +15,8 @@ def group_glm(data, design_mat, design_con):
 
     :param data: 3d numpy array (n_subj, n_vox, n_dim) 
     :param design_mat: path to design.mat file
-    :param design_con: path to design.con file, the first contrast must be first group mean, the second the second group mean (not used for now),
+    :param design_con: path to design.con file, the first contrast must be first group mean, the second the second group
+     mean (not used for now),
     3rd contrast is the difference between two groups.
     change across groups contrast
     :return: data1, delta_data and noise covariance matrices.
@@ -71,7 +72,7 @@ def loadcontrast(design_con):
             elif line == '/Matrix':
                 break
 
-        contrasts = np.loadtxt(f, ndmin=2)
+        contrasts = np.loadtxt(str(f), ndmin=2)
 
     names = [names[c + 1] for c in range(n_contrasts)]
 
@@ -92,7 +93,7 @@ def voxelwise_group_glm(data, weights, design_con):
     c_names, c = loadcontrast(design_con)
 
     if data.shape[:2] == weights.shape:
-        print(f'running glm for {data.shape[0]} subjects and {data.shape[1]}')
+        print(f'running glm for {data.shape[0]} subjects and {data.shape[1]} voxels.')
     else:
         raise ValueError(f' glm weights and data are not matched')
     if data.ndim == 2:
@@ -118,5 +119,3 @@ def voxelwise_group_glm(data, weights, design_con):
     sigma_n = varcopes[..., 1]
 
     return data1, delta_data, sigma_n
-
-

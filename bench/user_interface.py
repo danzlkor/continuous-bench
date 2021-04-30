@@ -76,6 +76,8 @@ def parse_args(argv):
     train_optional.add_argument("--summary", default='shm', type=str,
                                 help='type of summary measurements. Either shm (spherical harmonic model)'
                                      ' or dtm (diffusion tensor model)', required=False)
+    train_optional.add_argument("--normalize", default=False, action='store_true',
+                                help='normalize the summary measures', required=False)
 
     # fit summary arguments:
     diff_summary_parser.add_argument("--mask",
@@ -160,6 +162,10 @@ def submit_train(args):
         change_vecs=args.change_vecs,
         param_prior_dists=param_dist)
 
+    summary_names = summary_measures.summary_names(acq, shm_degree=args.d)
+    if args.normalize is not True:
+        summary_names = None
+
     if args.trainer == 'knn':
         print('Change models are trained using KNN approximation.')
         ch_model = trainer.train_knn(n_samples=int(args.n), k=int(args.k),
@@ -172,6 +178,7 @@ def submit_train(args):
                                     mu_poly_degree=int(args.p),
                                     sigma_poly_degree=int(args.ps),
                                     alpha=float(args.alpha),
+                                    summary_names=summary_names,
                                     parallel=True)
     else:
         raise ValueError(f'Trainer {args.trainer} is undefined. It must be either knn (default) or ml.')
@@ -295,7 +302,7 @@ def submit_glm(args):
         os.makedirs(glm_dir)
 
     summaries, invalid_vox, _ = image_io.read_summary_images(
-        summary_dir=summary_dir, mask=args.mask, normalize=True)
+        summary_dir=summary_dir, mask=args.mask)
 
     summaries = summaries[:, invalid_vox == 0, :]
     # perform glm:
