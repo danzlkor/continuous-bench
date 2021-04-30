@@ -429,8 +429,6 @@ class Trainer:
 
     def __post_init__(self):
 
-        self.param_names = list(self.param_prior_dists.keys())
-
         if self.args is None:
             self.args = dict()
 
@@ -474,6 +472,11 @@ class Trainer:
             raise ex
         if self.n_dim == 1:
             raise ValueError('The forward model must produce at least two dimensional output.')
+
+    @property
+    def param_names(self, ):
+        return [i for p in self.param_prior_dists.keys()
+                for i in ([p] if isinstance(p, str) else p)]
 
     def vec_to_dict(self, vec: np.ndarray):
         return {p: v for p, v in zip(self.param_names, vec) if v != 0}
