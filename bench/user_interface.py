@@ -158,7 +158,7 @@ def submit_train(args):
 
     trainer = change_model.Trainer(
         forward_model=diffusion_models.bench_decorator(forward_model, summary_type=args.summary),
-        args=func_args,
+        kwargs=func_args,
         change_vecs=args.change_vecs,
         param_prior_dists=param_dist)
 
