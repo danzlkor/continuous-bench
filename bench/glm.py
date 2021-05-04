@@ -45,7 +45,6 @@ def group_glm(data, design_mat, design_con):
 
     return data1, data2, delta_data, sigma_n
 
-
 def loadcontrast(design_con):
     """
     Reads design.con file. This function adopted from fslpy.data.loadContrasts with some minor changes
@@ -72,14 +71,14 @@ def loadcontrast(design_con):
             elif line == '/Matrix':
                 break
 
-        contrasts = np.loadtxt(str(f), ndmin=2)
+        contrasts = np.loadtxt(f, ndmin=2)
 
     names = [names[c + 1] for c in range(n_contrasts)]
 
     return names, contrasts
 
 
-def voxelwise_group_glm(data, weights, design_con):
+def voxelwise_group_glm(data, weights, design_con, equal_samples=False):
     """
     Performs voxel-wise group glm on the given data with weights
 
@@ -104,10 +103,17 @@ def voxelwise_group_glm(data, weights, design_con):
     varcopes = np.zeros((n_vox, n_dim, n_dim, 2))
     for vox in range(n_vox):
         y = data[:, vox, :].T
-        x = np.zeros((n_subj, 2))
-        x[:, 0] = weights[:, vox] == 0
-        x[:, 1] = weights[:, vox] == 1
-        beta = y @ np.linalg.pinv(x).T
+        if equal_samples:
+            n_wmh = weights[:, vox].sum().astype(int)
+            all_0_idx = np.argwhere(weights[:, vox] == 0)
+            c_idx = all_0_idx[np.random.randint(0, len(all_0_idx), n_wmh)]
+            y = np.hstack([np.squeeze(y[:, c_idx]), y[:, weights[:, vox] == 1]])
+            x = np.array([[1, 0]] * n_wmh + [[0, 1]] * n_wmh)
+        else:
+            x = np.zeros((n_subj, 2))
+            x[:, 0] = weights[:, vox] == 0
+            x[:, 1] = weights[:, vox] == 1
+        beta = y @ np.linalg.pinv(x.T)
         copes[vox] = beta @ c.T
 
         r = y - beta @ x.T

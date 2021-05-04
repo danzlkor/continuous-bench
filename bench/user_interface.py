@@ -130,8 +130,9 @@ def parse_args(argv):
 def submit_train(args):
     available_models = list(diffusion_models.prior_distributions.keys())
     if args.model in available_models:
-        print(f'Parameters of {args.model}:')
-        print(list(diffusion_models.prior_distributions[args.model].keys()))
+        param_prior_dists = diffusion_models.prior_distributions[args.model]
+        p_names = [i for p in param_prior_dists.keys() for i in ([p] if isinstance(p, str) else p)]
+        print(f'Parameters of {args.model}:{p_names}')
     else:
         model_names = ', '.join(list(diffusion_models.prior_distributions.keys()))
         raise ValueError(f'model {args.model} is not defined in the library. '

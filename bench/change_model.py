@@ -146,8 +146,7 @@ class MLChangeVector:
         return mu, sigma
 
     def log_lh(self, dv, y, dy, sigma_n):
-        if not y.shape[-1] == self.mean_y.shape[-1]:
-            y, dy = summary_measures.normalize_summaries(y, dy, self.summary_names)
+        y, dy, sigma_n = summary_measures.normalize_summaries(y, dy, sigma_n, self.summary_names)
         mu, sigma_p = self.derivative_distribution(y)
         mean = np.squeeze(dv * mu)
         cov = (dv ** 2) * np.squeeze(sigma_p) + sigma_n
@@ -172,13 +171,17 @@ class MLChangeVector:
 
 @dataclass
 class NoChangeModel:
+    summary_names: list
     name: str = 'No change'
     prior: float = 1.0
 
     def derivative_distribution(self, y):
-        return np.zeros_like(y), np.zeros((y.shape[-1], y.shape[-1]))
+        y = np.atleast_2d(y)
+        return np.zeros((y.shape[0], len(self.summary_names))), \
+               np.zeros((y.shape[0], len(self.summary_names), len(self.summary_names)))
 
     def log_posterior(self, y, dy, sigma_n):
+        y, dy, sigma_n = summary_measures.normalize_summaries(y, dy, sigma_n, self.summary_names)
         return log_mvnpdf(x=dy, mean=np.zeros_like(y), cov=sigma_n)
 
 
@@ -192,7 +195,8 @@ class ChangeModel:
 
     def __post_init__(self):
         null_model = NoChangeModel(prior=1,
-                                   name='[]')
+                                   name='[]',
+                                   summary_names= self.models[0].summary_names)
 
         self.models.insert(0, null_model)
 
@@ -209,25 +213,27 @@ class ChangeModel:
         with open(path + file_name, 'wb') as f:
             pickle.dump(self, f)
 
-    def predict(self, data, delta_data, sigma_n):
+    def predict(self, data, delta_data, sigma_n, parallel=True):
         """
         Computes the posterior probabilities for each model of change
 
         :param data: numpy array (..., n_dim) containing the first group average
         :param delta_data: numpy array (..., n_dim) containing the change between groups.
         :param sigma_n: numpy array or list (..., n_dim, n_dim)
+        :param parallel: flag to run infrence in parallel
         :return: posterior probabilities for each voxel (..., n_vecs)
         """
 
         print(f'running inference for {data.shape[0]} samples ...')
-        lls, peaks = self.compute_log_likelihood(data, delta_data, sigma_n, parallel=False, integral_bound=10)
+        lls, peaks = self.compute_log_likelihood(data, delta_data, sigma_n, parallel=parallel, integral_bound=10)
         priors = np.array([m.prior for m in self.models])  # the 1 is for empty set
         priors = priors / priors.sum()
         model_log_posteriors = lls + np.log(priors)
         posteriors = np.exp(model_log_posteriors)
-
         posteriors[posteriors.sum(axis=1) == 0, 0] = 1  # in case all integrals were zeros accept the null model.
-
+        print('samples with nan posterior:', np.argwhere(np.isnan(posteriors).any(axis=1)))
+        posteriors[np.isnan(posteriors)] = 0
+        posteriors[np.isposinf(posteriors)] = np.nanmax(posteriors[np.isfinite(posteriors)]) + 1
         posteriors = posteriors / posteriors.sum(axis=1)[:, np.newaxis]
         predictions = np.argmax(posteriors, axis=1)
         return posteriors, predictions, peaks
@@ -312,7 +318,8 @@ class ChangeModel:
                                           f'with variances {np.diag(sigma_n_s)}')
                         else:
                             raise
-
+            if np.isnan(log_prob).any():
+                print(sam_idx, np.argwhere(np.isnan(log_prob)))
             return log_prob, peaks
 
         if parallel:
@@ -328,13 +335,14 @@ class ChangeModel:
 
         return log_probs, peaks
 
-    def estimate_quality_of_fit(self, y1, y2, sigma_n, predictions, peaks):
+    def estimate_quality_of_fit(self, y1, dy, sigma_n, predictions, peaks):
         dv = np.array([p[i] for i, p in zip(predictions, peaks)])
+        y1, dy, sigma_n = summary_measures.normalize_summaries(y1, dy, sigma_n, self.models[1].summary_names)
         dists = [self.models[p].derivative_distribution(y) for p, y in zip(predictions, y1)]
         mu = np.stack([np.squeeze(d[0]) for d in dists], axis=0)
         sigma = np.stack([np.squeeze(d[1]) for d in dists], axis=0)
 
-        offset = y2 - (y1 + mu * dv[:, np.newaxis])
+        offset = dy - mu * dv[:, np.newaxis]
         sigma_inv = np.linalg.inv(sigma_n + sigma * dv[:, np.newaxis, np.newaxis] ** 2)
         deviation = np.einsum('ij,ijk,ik->i', offset, sigma_inv, offset)
 
@@ -542,11 +550,8 @@ class Trainer:
         :param verbose: flag for printing steps.
         """
         print(f'Generating {n_samples} training samples...')
-        y_1, y_2 = self.generate_train_samples(n_samples, dv0, old=False)
+        y_1, y_2 = self.generate_train_samples(n_samples, dv0)
         dy = (y_2 - y_1) / dv0
-        if summary_names is not None:
-            y_1, dy = summary_measures.normalize_summaries(y_1, dy, summary_names)
-
         mean_y = y_1.mean(axis=0)[np.newaxis, :]
         yf_mu = PolynomialFeatures(degree=mu_poly_degree).fit_transform(y_1 - mean_y)
         yf_sigma = PolynomialFeatures(degree=sigma_poly_degree).fit_transform(y_1 - mean_y)
@@ -611,7 +616,7 @@ class Trainer:
 
         return ChangeModel(models=models)
 
-    def generate_train_samples(self, n_samples: int, dv0: float = 1e-6, parallel=False, old=False) -> tuple:
+    def generate_train_samples(self, n_samples: int, dv0: float = 1e-6) -> tuple:
         """
         generate samples to estimate derivatives.
         :param n_samples:
@@ -620,7 +625,7 @@ class Trainer:
         :param old:
         :return: M(V) , M(V+\Delta V).
         """
-        all_params = sample_params(self.param_prior_dists)
+        all_params = sample_params(self.param_prior_dists, n_samples=n_samples)
 
         for vec in self.change_vecs:
             for (k, v) in all_params.items():
@@ -682,6 +687,8 @@ class Trainer:
 
         if np.isscalar(effect_size):
             effect_size = np.ones(n_samples) * effect_size
+        else:
+            assert n_samples == len(effect_size)
 
         kwargs = self.kwargs.copy()
         has_noise_model = 'noise_level' in inspect.getfullargspec(self.forward_model).args
