@@ -16,7 +16,7 @@ from scipy.integrate import quad
 from scipy.optimize import minimize_scalar, root_scalar
 from scipy.spatial import KDTree
 from scipy.cluster.vq import whiten
-from scipy.stats import rv_continuous, lognorm
+from scipy.stats import rv_continuous, lognorm, gaussian_kde
 from sklearn import linear_model
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import PolynomialFeatures
@@ -116,7 +116,6 @@ class MLChangeVector:
     mean_y: np.ndarray
     mu_poly_degree: int
     sigma_poly_degree: int
-    summary_names: List
     lim: str
     prior: float = 1
     scale: float = 0.1
@@ -137,17 +136,27 @@ class MLChangeVector:
             tril_idx = np.tril_indices(self.mean_y.shape[-1])
             self.diag_idx = np.argwhere(tril_idx[0] == tril_idx[1])
 
-    def derivative_distribution(self, y):
+    def distribution(self, y, lam=1e-6):
+        """
+        estimate mu and sigma from y using the trained regression models.
+        :param y: normalized baseline measurements
+        :param lam: regularization factor in case the regressed inverse matrix is singular.
+        :return: mu and sigma
+        """
         y = np.atleast_2d(y)
         yf_mu = self.mu_feature_extractor.fit_transform(y - self.mean_y)
         yf_sigma = self.sigma_feature_extractor.fit_transform(y - self.mean_y)
         mu, sigma_inv, _ = regression_model(yf_mu, yf_sigma, self.mu_weight, self.sig_weight, self.diag_idx)
-        sigma = np.linalg.inv(sigma_inv)
+
+        if np.linalg.cond(sigma_inv) < 1 / np.sys.float_info.epsilon:
+            sigma = np.linalg.inv(sigma_inv)
+        else:
+            sigma = np.linalg.inv(sigma_inv + lam * np.eye(sigma_inv.shape[-1]))
+            warnings.warn('estimated inverse matrix is singular.')
         return mu, sigma
 
     def log_lh(self, dv, y, dy, sigma_n):
-        y, dy, sigma_n = summary_measures.normalize_summaries(y, dy, sigma_n, self.summary_names)
-        mu, sigma_p = self.derivative_distribution(y)
+        mu, sigma_p = self.distribution(y)
         mean = np.squeeze(dv * mu)
         cov = (dv ** 2) * np.squeeze(sigma_p) + sigma_n
         return log_mvnpdf(x=dy, mean=mean, cov=cov)
@@ -171,18 +180,15 @@ class MLChangeVector:
 
 @dataclass
 class NoChangeModel:
-    summary_names: list
     name: str = 'No change'
     prior: float = 1.0
 
-    def derivative_distribution(self, y):
+    def distribution(self, y):
         y = np.atleast_2d(y)
-        return np.zeros((y.shape[0], len(self.summary_names))), \
-               np.zeros((y.shape[0], len(self.summary_names), len(self.summary_names)))
+        return np.zeros((y.shape[0], y.shape[1] + 1)), np.zeros((y.shape[0], y.shape[1] + 1, y.shape[1]+1))
 
     def log_posterior(self, y, dy, sigma_n):
-        y, dy, sigma_n = summary_measures.normalize_summaries(y, dy, sigma_n, self.summary_names)
-        return log_mvnpdf(x=dy, mean=np.zeros_like(y), cov=sigma_n)
+        return log_mvnpdf(x=dy, mean=np.zeros_like(dy), cov=sigma_n)
 
 
 @dataclass
@@ -191,12 +197,13 @@ class ChangeModel:
     Class that contains trained models of change for all of the parameters of a given forward models.
     """
     models: List[MLChangeVector]
+    summary_names: List
+    baseline_kde: Any # scipy or sklearn kde class.
     model_name: str = 'unnamed'
 
     def __post_init__(self):
         null_model = NoChangeModel(prior=1,
-                                   name='[]',
-                                   summary_names= self.models[0].summary_names)
+                                   name='[]')
 
         self.models.insert(0, null_model)
 
@@ -213,7 +220,7 @@ class ChangeModel:
         with open(path + file_name, 'wb') as f:
             pickle.dump(self, f)
 
-    def predict(self, data, delta_data, sigma_n, parallel=True):
+    def infer(self, data, delta_data, sigma_n, parallel=True):
         """
         Computes the posterior probabilities for each model of change
 
@@ -225,18 +232,20 @@ class ChangeModel:
         """
 
         print(f'running inference for {data.shape[0]} samples ...')
-        lls, peaks = self.compute_log_likelihood(data, delta_data, sigma_n, parallel=parallel, integral_bound=10)
+        y, dy, sn = summary_measures.normalize_summaries(data, delta_data, sigma_n, self.summary_names)
+        lls, peaks = self.compute_log_likelihood(y, dy, sn, parallel=parallel, integral_bound=10)
         priors = np.array([m.prior for m in self.models])  # the 1 is for empty set
         priors = priors / priors.sum()
         model_log_posteriors = lls + np.log(priors)
         posteriors = np.exp(model_log_posteriors)
         posteriors[posteriors.sum(axis=1) == 0, 0] = 1  # in case all integrals were zeros accept the null model.
-        print('samples with nan posterior:', np.argwhere(np.isnan(posteriors).any(axis=1)))
+        bad_samples = np.argwhere(np.isnan(posteriors).any(axis=1))
+        print('number of samples with nan posterior:', len(bad_samples))
         posteriors[np.isnan(posteriors)] = 0
         posteriors[np.isposinf(posteriors)] = np.nanmax(posteriors[np.isfinite(posteriors)]) + 1
         posteriors = posteriors / posteriors.sum(axis=1)[:, np.newaxis]
-        predictions = np.argmax(posteriors, axis=1)
-        return posteriors, predictions, peaks
+        infered_change = np.argmax(posteriors, axis=1)
+        return posteriors, infered_change, peaks, bad_samples
 
     # warnings.filterwarnings("ignore", category=RuntimeWarning)
 
@@ -270,7 +279,7 @@ class ChangeModel:
                 warnings.warn("Received nan inputs at inference.")
 
             else:
-                log_prob[0] = log_mvnpdf(x=dy_s, mean=np.zeros(n_dim), cov=sigma_n_s)
+                log_prob[0] = self.models[0].log_posterior(y_s, dy_s, sigma_n_s)
 
                 for vec_idx, ch_mdl in enumerate(self.models[1:], 1):
                     try:
@@ -279,7 +288,7 @@ class ChangeModel:
 
                         if ch_mdl.lim == 'positive':
                             neg_int = 0
-                        else:
+                        else:  # either negative or two-sided:
                             neg_peak, lower, upper = find_range(log_post_pdf, (-integral_bound, 0))
                             if check_exp_underflow(log_post_pdf(neg_peak)):
                                 neg_int = 0
@@ -288,7 +297,7 @@ class ChangeModel:
 
                         if ch_mdl.lim == 'negative':
                             pos_int = 0
-                        else:
+                        else:  # either positive or two-sided
                             pos_peak, lower, upper = find_range(log_post_pdf, (0, integral_bound))
                             if check_exp_underflow(pos_peak):
                                 pos_int = 0
@@ -337,8 +346,8 @@ class ChangeModel:
 
     def estimate_quality_of_fit(self, y1, dy, sigma_n, predictions, peaks):
         dv = np.array([p[i] for i, p in zip(predictions, peaks)])
-        y1, dy, sigma_n = summary_measures.normalize_summaries(y1, dy, sigma_n, self.models[1].summary_names)
-        dists = [self.models[p].derivative_distribution(y) for p, y in zip(predictions, y1)]
+        y1, dy, sigma_n = summary_measures.normalize_summaries(y1, dy, sigma_n, self.summary_names)
+        dists = [self.models[p].distribution(y) for p, y in zip(predictions, y1)]
         mu = np.stack([np.squeeze(d[0]) for d in dists], axis=0)
         sigma = np.stack([np.squeeze(d[1]) for d in dists], axis=0)
 
@@ -552,9 +561,10 @@ class Trainer:
         print(f'Generating {n_samples} training samples...')
         y_1, y_2 = self.generate_train_samples(n_samples, dv0)
         dy = (y_2 - y_1) / dv0
-        mean_y = y_1.mean(axis=0)[np.newaxis, :]
-        yf_mu = PolynomialFeatures(degree=mu_poly_degree).fit_transform(y_1 - mean_y)
-        yf_sigma = PolynomialFeatures(degree=sigma_poly_degree).fit_transform(y_1 - mean_y)
+        kde = gaussian_kde(y_1[:, 1:].T)
+        mean_y = y_1.mean(axis=0)[np.newaxis, :][:, 1:]
+        yf_mu = PolynomialFeatures(degree=mu_poly_degree).fit_transform(y_1[:, 1:] - mean_y)
+        yf_sigma = PolynomialFeatures(degree=sigma_poly_degree).fit_transform(y_1[:, 1:] - mean_y)
         n_mu_features = yf_mu.shape[-1]
         if verbose:
             print('Training models of change ...')
@@ -599,7 +609,6 @@ class Trainer:
                                    sigma_poly_degree=sigma_poly_degree,
                                    prior=self.priors[idx],
                                    lim=l,
-                                   summary_names=summary_names,
                                    name=str(self.vec_names[idx]) + '_' + l)
                 )
                 if verbose:
@@ -614,15 +623,13 @@ class Trainer:
             for i in range(len(self.change_vecs)):
                 models.extend(func(i))
 
-        return ChangeModel(models=models)
+        return ChangeModel(models=models, summary_names=summary_names, baseline_kde=kde)
 
     def generate_train_samples(self, n_samples: int, dv0: float = 1e-6) -> tuple:
         """
         generate samples to estimate derivatives.
-        :param n_samples:
-        :param dv0:
-        :param parallel:
-        :param old:
+        :param n_samples: number of samples
+        :param dv0: the amount of change
         :return: M(V) , M(V+\Delta V).
         """
         all_params = sample_params(self.param_prior_dists, n_samples=n_samples)
@@ -649,7 +656,7 @@ class Trainer:
         return y1, y2
 
     def generate_test_samples(self, n_samples=1000, effect_size=0.1, noise_level=0.0, n_repeats=1,
-                              base_params=None, true_change=None, summary_names=None):
+                              base_params=None, true_change=None):
         """
         Generate signal and covariance matrix for baseline parameters and parameters shifted across change vector
 
@@ -676,7 +683,7 @@ class Trainer:
             for l in lims:
                 models.append(MLChangeVector(vec=vec, prior=prior, lim=l, mu_weight=None, sig_weight=None,
                                              mean_y=None, mu_poly_degree=None, sigma_poly_degree=None,
-                                             name=str(name) + ', ' + l, summary_names=summary_names))
+                                             name=str(name) + ', ' + l))
         if true_change is None:
             # randomly choose what to change
             true_change = np.random.randint(0, len(models) + 1, n_samples)
@@ -803,7 +810,7 @@ def l_to_sigma(l_vec, diag_idx, numba=True):
     if numba:
         sigma = np.zeros((l_vec.shape[0], dim, dim))
         _mat_lower_diagonal(l_vec, sigma)
-     # transpose last two dimensions:
+    #  transpose last two dimensions:
     log_dets = 2 * np.squeeze(l_vec[..., diag_idx]).sum(axis=-1)
     return sigma, log_dets
 
@@ -846,14 +853,19 @@ def _mat_lower_diagonal(l_vec, l_sigma):
 def log_mvnpdf(x, mean, cov):
     """
     log of multivariate normal distribution. identical output to scipy.stats.multivariate_normal(mean, cov).logpdf(x) but faster.
-    :param x: input numpy array
-    :param mean: mean of the distribution numpy array same size of x
-    :param cov: covariance of distribution, numpy array or scalar
+    :param x: input numpy array (n, d)
+    :param mean: mean of the distribution numpy array same size of x (n, d)
+    :param cov: covariance of distribution, numpy array or scalar (n, d, d)
     :return scalar
     """
     cov = np.atleast_2d(cov)
     d = mean.shape[-1]
-    expo = -0.5 * (x - mean).T @ np.linalg.inv(cov) @ (x - mean)
+    offset = np.atleast_2d(x - mean)
+    if cov.ndim == 2:
+        cov = cov[np.newaxis, :, :]
+
+    expo = -0.5 * np.einsum('ij,ijk,ik->i', offset, np.linalg.inv(cov), offset)
+    # expo = -0.5 * (x - mean) @ np.linalg.inv(cov) @ (x - mean).T
     nc = -0.5 * np.log(((2 * np.pi) ** d) * abs(np.linalg.det(cov.astype(float))))
 
     # var2 = np.log(multivariate_normal(mean=mean, cov=cov).pdf(x))
@@ -1019,3 +1031,16 @@ def sample_params(param_prior_dists, n_samples=1):
             for single_p, samples in zip(p, func(n_samples)):
                 params[single_p] = samples
     return params
+
+
+def estimate_observation_likelihood(forward_model, kwargs, param_priors, n_samples=1000):
+    """
+    :param forward_model:
+    :param kwargs:
+    :param param_priors:
+    :param n_samples:
+    :return:
+    """
+    all_params = sample_params(param_priors, n_samples=n_samples)
+    y1 = forward_model(kwargs, **all_params)
+    return gaussian_kde(y1)
