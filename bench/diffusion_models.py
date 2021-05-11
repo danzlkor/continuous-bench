@@ -47,7 +47,7 @@ prior_distributions = dict(
                   'd_a_in': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
                   'd_a_ex': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
                   'tortuosity': stats.uniform(loc=0.01, scale=.98),
-                  'odi': stats.uniform(loc=.01, scale=.98),
+                  'odi': stats.uniform(loc=0, scale=1),
                   },
 
     bingham_noddi={'s_iso': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
@@ -205,20 +205,20 @@ def bingham_zeppelin(bval=0., bvec=np.array([[0, 0, 1]]), d_a=1., d_r=0.,
     k1 = 1 / np.tan(odi * np.pi / 2)
     k2 = 1 / np.tan(odi2 * np.pi / 2)
     b_diag = np.zeros(k1.shape + (3, 3))
-    b_diag[..., 0, 0] = k1
-    b_diag[..., 1, 1] = k2
+    b_diag[..., 0, 0] = -k1
+    b_diag[..., 1, 1] = -k2
 
     if r.shape[0] == 1:
         bing_mat = np.array([r[0].T @ b_diag[i] @ r[0] for i in range(b_diag.shape[0])])
     elif r.shape[0] == n_samples:
         bing_mat = np.array([r[i].T @ b_diag[i] @ r[i] for i in range(b_diag.shape[0])])
 
-    denom = hyp_sapprox(np.linalg.eigvalsh(bing_mat)[..., ::-1])
+    denom = hyp_sapprox(np.stack([np.zeros_like(k1), -k2, -k1], -1))  # np.linalg.eigvalsh(bing_mat)[..., ::-1])
     q = bing_mat[:, np.newaxis, :, :] - (bval * (d_a - d_r)[..., np.newaxis])[..., np.newaxis, np.newaxis] * \
         ((bvec[:, np.newaxis, :] * bvec[:, :, np.newaxis])[np.newaxis, ...])
     num = hyp_sapprox(np.linalg.eigvalsh(q)[..., ::-1]) * np.exp(-d_r[..., np.newaxis] * bval)
 
-    #for bval_, g in zip(bval, bvec):
+    # for bval_, g in zip(bval, bvec):
     #    q = bing_mat - bval_ * (d_a - d_r) * g[:, np.newaxis].dot(g[np.newaxis, :])
     #    num = hyp_sapprox(np.linalg.eigvalsh(q)[::-1]) * np.exp(-d_r * bval_)
     #    s.append(num)
@@ -243,11 +243,11 @@ def watson_zeppelin_numerical(bval=0, bvec=np.array([[0, 0, 1]]), d_a=1., d_r=0.
     """
     assert odi > 0, 'odis must be positive'
 
-    if np.isscalar(bval):
-        bval = bval * np.ones(bvec.shape[0])
-
     if bvec.ndim == 1:
         bvec = bvec[np.newaxis, :]
+
+    if np.isscalar(bval):
+        bval = bval * np.ones(bvec.shape[0])
 
     k = 1 / np.tan(odi * np.pi / 2)
     mu = np.array(spherical2cart(theta, phi))
@@ -632,7 +632,7 @@ def simulate_signal(model, acq, model_params):
 
     :param model: function object from diffusion models
     :param acq: Acquisition object containing acquisition parameters
-    :param params: dictionary of model parameter with shape S
+    :param model_params: dictionary of model parameter with shape S
     :return: diffusion signal (S..., ndirs)
     """
     bvals = np.array([s.bval for s in acq.shells])

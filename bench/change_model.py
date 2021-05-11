@@ -136,7 +136,7 @@ class MLChangeVector:
             tril_idx = np.tril_indices(self.mean_y.shape[-1])
             self.diag_idx = np.argwhere(tril_idx[0] == tril_idx[1])
 
-    def distribution(self, y, lam=1e-6):
+    def distribution(self, y, lam=1e-12):
         """
         estimate mu and sigma from y using the trained regression models.
         :param y: normalized baseline measurements
@@ -147,12 +147,12 @@ class MLChangeVector:
         yf_mu = self.mu_feature_extractor.fit_transform(y - self.mean_y)
         yf_sigma = self.sigma_feature_extractor.fit_transform(y - self.mean_y)
         mu, sigma_inv, _ = regression_model(yf_mu, yf_sigma, self.mu_weight, self.sig_weight, self.diag_idx)
-
-        if np.linalg.cond(sigma_inv) < 1 / np.sys.float_info.epsilon:
-            sigma = np.linalg.inv(sigma_inv)
-        else:
-            sigma = np.linalg.inv(sigma_inv + lam * np.eye(sigma_inv.shape[-1]))
-            warnings.warn('estimated inverse matrix is singular.')
+        sigma = np.linalg.inv(sigma_inv)
+        # if np.linalg.cond(sigma_inv) < 1 / np.sys.float_info.epsilon:
+        #     sigma = np.linalg.inv(sigma_inv)
+        # else:
+        #     sigma = np.linalg.inv(sigma_inv + lam * np.eye(sigma_inv.shape[-1]))
+        #     warnings.warn('estimated inverse matrix is singular.')
         return mu, sigma
 
     def log_lh(self, dv, y, dy, sigma_n):
@@ -232,7 +232,7 @@ class ChangeModel:
         """
 
         print(f'running inference for {data.shape[0]} samples ...')
-        y, dy, sn = summary_measures.normalize_summaries(data, delta_data, sigma_n, self.summary_names)
+        y, dy, sn = summary_measures.normalize_summaries(data, self.summary_names, delta_data, sigma_n)
         lls, peaks = self.compute_log_likelihood(y, dy, sn, parallel=parallel, integral_bound=10)
         priors = np.array([m.prior for m in self.models])  # the 1 is for empty set
         priors = priors / priors.sum()
@@ -346,7 +346,7 @@ class ChangeModel:
 
     def estimate_quality_of_fit(self, y1, dy, sigma_n, predictions, peaks):
         dv = np.array([p[i] for i, p in zip(predictions, peaks)])
-        y1, dy, sigma_n = summary_measures.normalize_summaries(y1, dy, sigma_n, self.summary_names)
+        y1, dy, sigma_n = summary_measures.normalize_summaries(y1, self.summary_names, dy, sigma_n)
         dists = [self.models[p].distribution(y) for p, y in zip(predictions, y1)]
         mu = np.stack([np.squeeze(d[0]) for d in dists], axis=0)
         sigma = np.stack([np.squeeze(d[1]) for d in dists], axis=0)
@@ -1008,7 +1008,7 @@ def plot_conf_mat(conf_mat, param_names, f_name=None, title=None):
     ax.set_xticklabels(labels=param_names, rotation=45, fontdict={'size': 12})
     ax.set_yticklabels(labels=param_names, rotation=45, fontdict={'size': 12})
     ax.set_xlabel('Actual change', fontdict={'size': 16})
-    ax.set_ylabel('Predicted Change', fontdict={'size': 16})
+    ax.set_ylabel('Inferred Change', fontdict={'size': 16})
     if title is not None:
         plt.title(title)
     if f_name is not None:

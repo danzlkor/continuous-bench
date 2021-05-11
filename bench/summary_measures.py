@@ -151,7 +151,7 @@ def fit_summary_single_subject(subj_idx: str, diff_add: str, xfm_add: str, bvec_
     if os.path.exists(fname):
         print(f'Summary measurements for subject {subj_idx} alredy exists.')
         return 2
-    
+
     print('diffusion data address:' + diff_add)
     print('xfm address:' + xfm_add)
     print('bvec address: ' + bvec_add)
@@ -174,12 +174,12 @@ def fit_summary_single_subject(subj_idx: str, diff_add: str, xfm_add: str, bvec_
             for t in names:
                 f.write("%s\n" % t)
             f.close()
-           
+
     print(f'Summary measurements for subject {subj_idx} computed')
     return 1
 
 
-def normalize_summaries(y1, dy, sigma_n, names):
+def normalize_summaries(y1: np.ndarray, names, dy=None, sigma_n=None):
     """
     Normalises summary measures for all subjects. (divide by average attenuation)
     :param names: name of summaries, is required for knowing how to normalize
@@ -188,29 +188,44 @@ def normalize_summaries(y1, dy, sigma_n, names):
     :param sigma_n: array or list of covariance matrices
     :return: normalised summaries
     """
-    if not len(names) == y1.shape[-1]:
-        raise ValueError(f'Number of summary measurements doesnt match.'
-                         f'\n Expected {len(names)} measures but got {y1.shape[2]}.')
-
-    y1, dy, sigma_n = [np.array(v) for v in (y1, dy, sigma_n)]
+    assert len(names) == y1.shape[-1], f'Number of summary measurements doesnt match. ' \
+                                       f'Expected {len(names)} measures but got {y1.shape[-1]}.'
+    y1 = np.array(y1)
     b0_idx = names.index('b0_mean')
     summary_type = [l.split('_')[1] for l in names]
     mean_b0 = np.atleast_1d(y1[..., b0_idx])
     y1_norm = np.zeros_like(y1)
-    dy_norm = np.zeros_like(dy)
-    sigma_n_norm = sigma_n.copy()
 
     for smm_idx, l in enumerate(summary_type):
         if l == 'mean':
             y1_norm[..., smm_idx] = y1[..., smm_idx] / mean_b0
-            dy_norm[..., smm_idx] = dy[..., smm_idx] / mean_b0
-            sigma_n_norm[..., smm_idx, :] = sigma_n_norm[..., smm_idx, :] / mean_b0[:, np.newaxis]
-            sigma_n_norm[..., :, smm_idx] = sigma_n_norm[..., :, smm_idx] / mean_b0[:, np.newaxis]
         else:
             y1_norm[..., smm_idx] = y1[..., smm_idx] / (mean_b0 ** 2)
-            dy_norm[..., smm_idx] = dy[..., smm_idx] / (mean_b0 ** 2)
-            sigma_n_norm[..., smm_idx, :] = sigma_n_norm[..., smm_idx, :] / (mean_b0[:, np.newaxis] ** 2)
-            sigma_n_norm[..., :, smm_idx] = sigma_n_norm[..., :, smm_idx] / (mean_b0[:, np.newaxis] ** 2)
-
     y1_norm = np.delete(y1_norm, b0_idx, axis=-1)
-    return y1_norm, dy_norm, sigma_n_norm
+    res = [y1_norm]
+    if dy is not None:
+        dy=np.array(dy)
+        dy_norm = np.zeros_like(dy)
+        for smm_idx, l in enumerate(summary_type):
+            if l == 'mean':
+                dy_norm[..., smm_idx] = dy[..., smm_idx] / mean_b0
+            else:
+                dy_norm[..., smm_idx] = dy[..., smm_idx] / (mean_b0 ** 2)
+        res.append(dy_norm)
+
+    if sigma_n is not None:
+        sigma_n = np.array(sigma_n)
+        sigma_n_norm = sigma_n.copy()
+        for smm_idx, l in enumerate(summary_type):
+            if l == 'mean':
+                sigma_n_norm[..., smm_idx, :] = sigma_n_norm[..., smm_idx, :] / mean_b0[:, np.newaxis]
+                sigma_n_norm[..., :, smm_idx] = sigma_n_norm[..., :, smm_idx] / mean_b0[:, np.newaxis]
+            else:
+                sigma_n_norm[..., smm_idx, :] = sigma_n_norm[..., smm_idx, :] / (mean_b0[:, np.newaxis] ** 2)
+                sigma_n_norm[..., :, smm_idx] = sigma_n_norm[..., :, smm_idx] / (mean_b0[:, np.newaxis] ** 2)
+        res.append(sigma_n_norm)
+
+    if dy is None and sigma_n is None:
+        return y1_norm
+    else:
+        return tuple(res)
