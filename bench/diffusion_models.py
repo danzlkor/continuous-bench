@@ -13,6 +13,28 @@ from bench import summary_measures, dti
 
 dif_coeff = 1.7  # unit: um^2/ms
 
+
+def sample_signal(n_samples):
+    """
+    samples signal fraction parameters for 3 compartment models.
+    :param n_samples: number of required samples
+    :return: samples (n_samples, 3)
+    """
+    tissue_type = np.random.choice(3, n_samples, p=[.1, .2, .7])
+    s_iso = stats.uniform(loc=0, scale=1).rvs(n_samples)
+    s_in = stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf).rvs(n_samples)
+    s_ex = stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf).rvs(n_samples)
+
+    # CSF:
+    s_iso[tissue_type == 0] = 1 - 1e-5
+
+    # inside brain (no CSF partial volume)
+    s_iso[tissue_type == 2] = 1e-5
+
+    norm = (1 - s_iso) / (s_in + s_ex)
+    return s_iso, s_in * norm, s_ex * norm
+
+
 prior_distributions = dict(
     ball={'d_iso': stats.truncnorm(loc=3, scale=.1, a=-3 / 0.1, b=np.Inf)},
     stick={'d_a': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf)},
@@ -40,9 +62,7 @@ prior_distributions = dict(
                 'd_a': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
                 },
 
-    watson_noddi={'s_iso': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
-                  's_in': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
-                  's_ex': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
+    watson_noddi={('s_iso', 's_in', 's_ex'): sample_signal,
                   'd_iso': stats.truncnorm(loc=3, scale=.1, a=-3 / .1, b=np.Inf),
                   'd_a_in': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
                   'd_a_ex': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
@@ -50,9 +70,7 @@ prior_distributions = dict(
                   'odi': stats.uniform(loc=0, scale=1),
                   },
 
-    bingham_noddi={'s_iso': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
-                   's_in': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
-                   's_ex': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
+    bingham_noddi={('s_iso', 's_in', 's_ex'): sample_signal,
                    'd_iso': stats.truncnorm(loc=3, scale=.1, a=-3 / .1, b=np.Inf),
                    'd_a_in': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
                    'd_a_ex': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
@@ -61,15 +79,11 @@ prior_distributions = dict(
                    'odi_ratio': stats.uniform(loc=.01, scale=.98),
                    },
 
-    watson_noddi_constrained={'s_iso': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
-                              's_in': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
-                              's_ex': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
+    watson_noddi_constrained={('s_iso', 's_in', 's_ex'): sample_signal,
                               'odi': stats.uniform(loc=.01, scale=.98),
                               },
 
-    bingham_noddi_constrained={'s_iso': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
-                               's_in': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
-                               's_ex': stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf),
+    bingham_noddi_constrained={('s_iso', 's_in', 's_ex'): sample_signal,
                                'odi': stats.uniform(loc=.01, scale=.98),
                                'odi_ratio': stats.uniform(loc=.01, scale=.98),
                                },
