@@ -220,7 +220,7 @@ class ChangeModel:
         with open(path + file_name, 'wb') as f:
             pickle.dump(self, f)
 
-    def change_vectors(self, data):
+    def estimated_change_vectors(self, data):
         """
             Returns the change vectors given the baseline measurement (mu, sigma)
         :param data: un-normalized baseline measurements.(n, d) n= number of samples, d= number of measurements
@@ -466,7 +466,9 @@ class Trainer:
     kwargs: Mapping[str, Any] = None
     change_vecs: List[Mapping] = None
     lims: List = None
-    priors: Union[float, Sequence] = 1
+    summary_names: List[str] = None
+
+    priors: Union[float, Sequence] = 1  # model priors (different from param/change priors)
 
     def __post_init__(self):
 
@@ -567,11 +569,10 @@ class Trainer:
         return ChangeModel(models=models)
 
     def train_ml(self, n_samples=1000, mu_poly_degree=2, sigma_poly_degree=1, alpha=.1, dv0=1e-6,
-                 verbose=True, summary_names=None, parallel=True):
+                 verbose=True, parallel=True):
         """
         Train change models (estimates w_mu and w_l) using forward model simulation
 
-        :param summary_names: name of summary measure, only for diffusion training.
         :param n_samples: number simulated samples to estimate forward model
         :param dv0: the amount perturbation in parameter to estimate derivatives
         :param mu_poly_degree: polynomial degree for regressing mu
@@ -646,7 +647,7 @@ class Trainer:
             for i in range(len(self.change_vecs)):
                 models.extend(func(i))
 
-        return ChangeModel(models=models, summary_names=summary_names, baseline_kde=kde)
+        return ChangeModel(models=models, summary_names=self.summary_names, baseline_kde=kde)
 
     def generate_train_samples(self, n_samples: int, dv0: float = 1e-6) -> tuple:
         """
