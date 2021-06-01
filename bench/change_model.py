@@ -198,8 +198,12 @@ class ChangeModel:
     """
     models: List[MLChangeVector]
     summary_names: List
-    baseline_kde: Any # scipy or sklearn kde class.
+    baseline_kde: Any  # scipy or sklearn kde class.
     model_name: str = 'unnamed'
+
+    @property
+    def model_names(self, ):
+        return [m.name for m in self.models]
 
     def __post_init__(self):
         null_model = NoChangeModel(prior=1,
@@ -429,6 +433,14 @@ def dict_to_string(dict_):
 
 
 def parse_change_vecs(vec_texts: List[str]):
+    """
+    Parses change vectors from strings, the string format must be like this:
+      p1: 1, two_sided
+      p2: 1, positive
+
+    :param vec_texts:
+    :return:
+    """
     vecs = list()
     lims = list()
     for txt in vec_texts:
@@ -478,6 +490,8 @@ class Trainer:
         if self.change_vecs is None:
             self.change_vecs = [{p: 1} for p in self.param_names]
 
+        if np.all([[k in self.param_names for k in p] for p in self.change_vecs]):
+            self.change_vecs = self.change_vecs
         elif np.all([isinstance(p, str) for p in self.change_vecs]):
             self.change_vecs, self.lims = parse_change_vecs(self.change_vecs)
         else:
