@@ -220,6 +220,25 @@ class ChangeModel:
         with open(path + file_name, 'wb') as f:
             pickle.dump(self, f)
 
+    def change_vectors(self, data):
+        """
+            Returns the change vectors given the baseline measurement (mu, sigma)
+        :param data: un-normalized baseline measurements.(n, d) n= number of samples, d= number of measurements
+        :return: mu (n, m, d) , sigma_p(n, m, d,d) m=number of change vecs.
+        """
+        data = np.atleast_2d(data)
+        n_samples, d = data.shape
+        assert d == len(self.summary_names)
+        n_models = len(self.models)
+        y_norm = summary_measures.normalize_summaries(data, self.summary_names)
+        mu = np.zeros((n_samples, n_models, d))
+        sigma_p = np.zeros((n_samples, n_models, d, d))
+
+        for i, y in enumerate(y_norm):
+            for j, mdl in enumerate(self.models):
+                mu[i, j], sigma_p[i, j] = mdl.distribution(y)
+        return mu, sigma_p
+
     def infer(self, data, delta_data, sigma_n, parallel=True):
         """
         Computes the posterior probabilities for each model of change
@@ -436,6 +455,10 @@ def parse_change_vecs(vec_texts: List[str]):
 class Trainer:
     """
         A class for training models of change
+        Required arguments for init:
+        a callable function that maps parameters to measurements. must be callable like this m=f(kwargs, params)
+        param priors should define the prior distribution for all parameters.
+        change_vecs: list of change vectors.
     """
     forward_model: Callable
     """ The forward model, it must be function of the form f(args, **params) that returns a numpy array. """

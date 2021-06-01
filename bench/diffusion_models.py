@@ -640,6 +640,13 @@ def simulate_signal(model, acq, model_params):
 
 
 def bench_decorator(model, summary_type='shm'):
+    """
+    Decorates a diffusion model with a summary measure type. The return function can
+    be used for training models of change in bench. it still requires acq, (shm degree), noise
+    :param model: a diffusion model (function)
+    :param summary_type: either 'shm' or 'dti'
+    :return:
+    """
     if summary_type == 'shm':
         def func(acq, shm_degree, noise_level, **params):
             sig = simulate_signal(model, acq, params)
