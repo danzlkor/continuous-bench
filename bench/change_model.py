@@ -203,7 +203,7 @@ class ChangeModel:
 
     @property
     def model_names(self, ):
-        return [m.name.replace('two_sided', '') for m in self.models]
+        return [m.name.replace('twosided', '') for m in self.models]
 
     def __post_init__(self):
         null_model = NoChangeModel(prior=1,
@@ -211,7 +211,7 @@ class ChangeModel:
 
         self.models.insert(0, null_model)
 
-    def save(self, path='./', file_name=None):
+    def save(self, file_name=None, path=''):
         """
         Writes the change model to disk
 
@@ -537,8 +537,8 @@ class Trainer:
                     raise KeyError(f"parameter {pname} is not defined as a free parameters of the forward model."
                                    f"The parameters are {self.param_names}")
             # normalize change vectors to have a unit L2 norm:
-            scale = np.linalg.norm(list(self.change_vecs[idx].values()))
-            self.change_vecs[idx] = {k: v / scale for k, v in self.change_vecs[idx].items()}
+            # scale = np.linalg.norm(list(self.change_vecs[idx].values()))
+            # self.change_vecs[idx] = {k: v / scale for k, v in self.change_vecs[idx].items()}
 
         if np.isscalar(self.priors):
             self.priors = [self.priors] * self.n_vecs
@@ -558,6 +558,7 @@ class Trainer:
         if self.n_dim == 1:
             raise ValueError('The forward model must produce at least two dimensional output.')
 
+        self.training_done = False
     @property
     def param_names(self, ):
         return [i for p in self.param_prior_dists.keys()
@@ -568,47 +569,6 @@ class Trainer:
 
     def dict_to_vec(self, dict_: Mapping):
         return np.array([dict_.get(p, 0) for p in self.param_names])
-
-    def train_knn(self, n_samples=1000, poly_degree=2, regularization=1, k=100, dv0=1e-6, verbose=True):
-        """
-        Train change models (estimates w_mu and w_l) using forward model simulation
-
-        :param verbose:
-        :param n_samples: number simulated samples to estimate forward model
-        :param k: nearest neighbours parameter
-        :param dv0: the amount perturbation in parameter to estimate derivatives
-        :param poly_degree: polynomial degree for regression
-        :param regularization: ridge regression alpha
-        """
-        print('Generating training samples...')
-        y_1, y_2 = self.generate_train_samples(n_samples, dv0)
-        dy = (y_2 - y_1) / dv0
-
-        sample_mu, sample_l = knn_estimation(y_1, dy, k=k)
-
-        models = []
-        if verbose:
-            print('Training the models...')
-        for idx, (vec, name, prior, lims) \
-                in enumerate(zip(self.change_vecs, self.vec_names, self.priors, self.lims)):
-
-            mu_mdl = make_pipeline(poly_degree, regularization)
-            l_mdl = make_pipeline(poly_degree, regularization)
-            mu_mdl.fit(y_1, sample_mu[idx])
-            l_mdl.fit(y_1, sample_l[idx])
-            for l in lims:
-                models.append(
-                    KNNChangeVector(vec=vec,
-                                    mu_mdl=mu_mdl,
-                                    l_mdl=l_mdl,
-                                    prior=prior,
-                                    lim=l,
-                                    name=str(name) + '_' + l)
-                )
-                if verbose:
-                    print(models[-1].name)
-
-        return ChangeModel(models=models)
 
     def train_ml(self, n_samples=1000, mu_poly_degree=2, sigma_poly_degree=1, alpha=.1, dv0=1e-6,
                  verbose=True, parallel=True):
@@ -688,7 +648,7 @@ class Trainer:
             models = []
             for i in range(len(self.change_vecs)):
                 models.extend(func(i))
-
+        self.training_done=True
         return ChangeModel(models=models, summary_names=self.summary_names, baseline_kde=kde)
 
     def generate_train_samples(self, n_samples: int, dv0: float = 1e-6) -> tuple:
@@ -743,15 +703,16 @@ class Trainer:
             - (N, M, M) or (1, M, M) array with noise matrix for each sample
         """
 
-        models = []
+        if self.training_done is False:
+            models = []
 
-        for vec, name, prior, lims in zip(self.change_vecs, self.vec_names, self.priors, self.lims):
-            for l in lims:
-                models.append(MLChangeVector(vec=vec, prior=prior, lim=l, mu_weight=None, sig_weight=None,
-                                             mean_y=None, mu_poly_degree=None, sigma_poly_degree=None,
-                                             name=str(name) + ', ' + l))
+            for vec, name, prior, lims in zip(self.change_vecs, self.vec_names, self.priors, self.lims):
+                for l in lims:
+                    models.append(MLChangeVector(vec=vec, prior=prior, lim=l, mu_weight=None, sig_weight=None,
+                                                 mean_y=None, mu_poly_degree=None, sigma_poly_degree=None,
+                                                 name=str(name) + ', ' + l))
         if true_change is None:
-            # randomly choose what to change
+            # draw random samples for true change from the models.
             true_change = np.random.randint(0, len(models) + 1, n_samples)
         elif n_samples is None:
             n_samples = len(true_change)
