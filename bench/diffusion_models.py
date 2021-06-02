@@ -26,10 +26,10 @@ def sample_signal(n_samples):
     s_ex = stats.truncnorm(loc=.5, scale=.2, a=-.5 / .2, b=np.Inf).rvs(n_samples)
 
     # CSF:
-    s_iso[tissue_type == 0] = 1 - 1e-5
+    s_iso[tissue_type == 0] = 1 - 1e-4
 
     # inside brain (no CSF partial volume)
-    s_iso[tissue_type == 2] = 1e-5
+    s_iso[tissue_type == 2] = 1e-4
 
     norm = (1 - s_iso) / (s_in + s_ex)
     return s_iso, s_in * norm, s_ex * norm

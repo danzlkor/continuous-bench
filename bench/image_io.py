@@ -13,7 +13,6 @@ import numpy as np
 from fsl.data.image import Image
 from fsl.transform import fnirt
 from fsl.wrappers import convertwarp
-from bench import summary_measures
 from typing import List
 from joblib import Parallel, delayed
 
@@ -110,6 +109,32 @@ def sample_from_native_space(image, xfm, mask, def_field=None):
     subj_indices, valid_vox = transform_indices(data_img, mask_img, def_field)
     data_vox = data_img.data[tuple(subj_indices[valid_vox, :].T)].astype(float)
     return data_vox, valid_vox
+
+
+def write_glm_results(data, delta_data, sigma_n, mask, invalid_vox, glm_dir):
+    """
+    Writes the results of GLM into files,
+    :param data: baseline measurement matrix (n_vox, n_sm)
+    :param delta_data:  change matrix (n_vox, n_sm)
+    :param sigma_n noise covariance of change (n_vox, n_sm, n_sm)
+    :param glm_dir: path to the glm dir, it write data.nii.gz, delta_data.nii.gz, variance.nii.gz,
+    and valid_mask.nii.gz in the address.
+    :param mask: path to the mask file.
+    :param invalid_vox: should be of size of mask voxels, contains 0 for valid voxels and 1 for invalid ones.
+    This is used for droping voxels that are not valid.
+
+    """
+    os.makedirs(glm_dir, exist_ok=True)
+    tril_idx = np.tril_indices(sigma_n.shape[-1])
+    covariances = np.stack([s[tril_idx] for s in sigma_n], axis=0)
+
+    os.makedirs(glm_dir, exist_ok=True)
+    write_nifti(data, mask, glm_dir + '/data', invalid_vox)
+    write_nifti(delta_data, mask, glm_dir + '/delta_data', invalid_vox)
+    write_nifti(covariances, mask, glm_dir + '/variances', invalid_vox)
+
+    valid_mask = np.ones((data.shape[0], 1))
+    write_nifti(valid_mask, mask, glm_dir + '/valid_mask', invalid_vox)
 
 
 def read_glm_results(glm_dir, mask_add=None):

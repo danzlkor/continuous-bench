@@ -308,17 +308,8 @@ def submit_glm(args):
     summaries = summaries[:, invalid_vox == 0, :]
     # perform glm:
     data, _, delta_data, sigma_n = glm.group_glm(summaries, args.design_mat, args.design_con)
-    tril_idx = np.tril_indices(sigma_n.shape[-1])
-    covariances = np.stack([s[tril_idx] for s in sigma_n], axis=0)
-
     glm_dir = f'{args.study_dir}/Glm/'
-    os.makedirs(glm_dir, exist_ok=True)
-    image_io.write_nifti(data, args.mask, glm_dir + '/data', invalid_vox)
-    image_io.write_nifti(delta_data, args.mask, glm_dir + '/delta_data', invalid_vox)
-    image_io.write_nifti(covariances, args.mask, glm_dir + '/variances', invalid_vox)
-
-    valid_mask = np.ones((data.shape[0], 1))
-    image_io.write_nifti(valid_mask, args.mask, glm_dir + '/valid_mask', invalid_vox)
+    image_io.write_glm_results(data, delta_data, sigma_n, args.mask, invalid_vox, glm_dir)
 
 
 def submit_inference(args):
