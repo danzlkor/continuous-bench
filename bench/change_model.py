@@ -203,7 +203,7 @@ class ChangeModel:
 
     @property
     def model_names(self, ):
-        return [m.name for m in self.models]
+        return [m.name.replace('two_sided', '') for m in self.models]
 
     def __post_init__(self):
         null_model = NoChangeModel(prior=1,
@@ -241,7 +241,7 @@ class ChangeModel:
         for i, y in enumerate(y_norm):
             for j, mdl in enumerate(self.models):
                 mu[i, j], sigma_p[i, j] = mdl.distribution(y)
-        return mu, sigma_p
+        return np.squeeze(mu), np.squeeze(sigma_p)
 
     def infer(self, data, delta_data, sigma_n, parallel=True):
         """
@@ -366,6 +366,34 @@ class ChangeModel:
         peaks = np.array([d[1] for d in res])
 
         return log_probs, peaks
+
+    def estimate_confusion_matrix(self, data, sigma_n, effect_size, n_samples=1000):
+        """
+        given a baseline measurement, a noise covariance, and an effect size( the amount of change in eahc parameter)
+        computes the expected confusion between change vectors.
+        :param data: (1, d) un normalized baseline summary measurements
+        :param sigma_n: (d, d) noise covariance matrix for the change.
+        :param effect_size: (m,) or a scalar on the amount of change.
+        :return: (m, m) confusion matrix.
+
+        """
+        mu, sigma_p = self.estimated_change_vectors(data)
+        n_models = len(self.models)
+        if np.isscalar(effect_size):
+            effect_size = np.ones(n_models) * effect_size
+
+        conf_mat = np.zeros((n_models, n_models))
+        for m1 in range(n_models):
+            y = np.random.multivariate_normal(mean=mu[m1] * effect_size[m1],
+                                              cov=sigma_n + effect_size[m1] ** 2 * sigma_p[m1],
+                                              size=n_samples)
+            pdfs = np.zeros((n_models, n_samples))
+            for m2 in range(n_models):
+                pdfs[m2] = log_mvnpdf(x=y, mean=mu[m2] * effect_size[m2],
+                                  cov=sigma_n + effect_size[m2] ** 2 * sigma_p[m2])
+            winner = np.argmax(pdfs, axis=0)
+            conf_mat[m1] = np.array([(winner == m).mean() for m in range(n_models)])
+        return conf_mat
 
     def estimate_quality_of_fit(self, y1, dy, sigma_n, predictions, peaks):
         dv = np.array([p[i] for i, p in zip(predictions, peaks)])
