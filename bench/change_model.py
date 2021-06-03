@@ -203,7 +203,7 @@ class ChangeModel:
 
     @property
     def model_names(self, ):
-        return [m.name.replace('twosided', '') for m in self.models]
+        return [m.name.replace('_twosided', '') for m in self.models]
 
     def __post_init__(self):
         null_model = NoChangeModel(prior=1,
@@ -559,6 +559,7 @@ class Trainer:
             raise ValueError('The forward model must produce at least two dimensional output.')
 
         self.training_done = False
+
     @property
     def param_names(self, ):
         return [i for p in self.param_prior_dists.keys()
@@ -682,7 +683,7 @@ class Trainer:
         return y1, y2
 
     def generate_test_samples(self, n_samples=1000, effect_size=0.1, noise_level=0.0, n_repeats=1,
-                              base_params=None, true_change=None):
+                              base_params=None, true_change=None, parallel=False):
         """
         Generate signal and covariance matrix for baseline parameters and parameters shifted across change vector
 
@@ -703,14 +704,13 @@ class Trainer:
             - (N, M, M) or (1, M, M) array with noise matrix for each sample
         """
 
-        if self.training_done is False:
-            models = []
+        models = []
+        for vec, name, prior, lims in zip(self.change_vecs, self.vec_names, self.priors, self.lims):
+            for l in lims:
+                models.append(MLChangeVector(vec=vec, prior=prior, lim=l, mu_weight=None, sig_weight=None,
+                                             mean_y=None, mu_poly_degree=None, sigma_poly_degree=None,
+                                             name=str(name) + ', ' + l))
 
-            for vec, name, prior, lims in zip(self.change_vecs, self.vec_names, self.priors, self.lims):
-                for l in lims:
-                    models.append(MLChangeVector(vec=vec, prior=prior, lim=l, mu_weight=None, sig_weight=None,
-                                                 mean_y=None, mu_poly_degree=None, sigma_poly_degree=None,
-                                                 name=str(name) + ', ' + l))
         if true_change is None:
             # draw random samples for true change from the models.
             true_change = np.random.randint(0, len(models) + 1, n_samples)
@@ -729,16 +729,10 @@ class Trainer:
 
         if has_noise_model:
             kwargs['noise_level'] = noise_level
-            sigma_n = np.zeros((n_samples, self.n_dim, self.n_dim))
-        else:
-            sigma_n = np.eye(self.n_dim)[None, :, :] * noise_level ** 2
 
         print(f'Generating {n_samples} test samples:')
 
-        y_1 = np.zeros((n_samples, self.n_dim))
-        y_2 = np.zeros_like(y_1)
-        pbar = ProgressBar()
-        for s_idx in pbar(range(n_samples)):
+        def generator_func(s_idx):
             valid = False
             while not valid:
                 if base_params is None:
@@ -768,14 +762,30 @@ class Trainer:
                 for r in range(n_repeats):
                     y_1_r[r] = self.forward_model(**kwargs, **params_1)
                     y_2_r[r] = self.forward_model(**kwargs, **params_2)
-                y_1[s_idx] = y_1_r[0]  # a random sample.
-                y_2[s_idx] = y_2_r[0]
-                sigma_n[s_idx] = np.cov((y_2_r - y_1_r).T)
+                y_1 = y_1_r[0]  # a random sample.
+                y_2 = y_2_r[0]
+                sigma_n = np.cov((y_2_r - y_1_r).T)
             else:
-                y_1[s_idx] = self.forward_model(**kwargs, **params_1) + np.random.randn(self.n_dim) * noise_level
-                y_2[s_idx] = self.forward_model(**kwargs, **params_2) + np.random.randn(self.n_dim) * noise_level
+                y_1 = self.forward_model(**kwargs, **params_1) + np.random.randn(self.n_dim) * noise_level
+                y_2 = self.forward_model(**kwargs, **params_2) + np.random.randn(self.n_dim) * noise_level
+                sigma_n = np.eye(self.n_dim)[None, :, :] * noise_level ** 2
 
-        # data = Parallel(n_jobs=-1, verbose=True)(delayed(generator_func)(i) for i in range(n_samples))
+            return y_1, y_2, sigma_n
+
+        if parallel:
+            res = Parallel(n_jobs=-1, verbose=True)(delayed(generator_func)(i) for i in range(n_samples))
+        else:
+            pbar = ProgressBar()
+            res = []
+            for i in pbar(range(n_samples)):
+                res.append(generator_func(i))
+
+        y_1 = np.stack([d[0] for d in res], 0)
+        y_2 = np.stack([d[1] for d in res], 0)
+        if has_noise_model:
+            sigma_n = np.stack([d[2] for d in res], 0)
+        else:
+            sigma_n = None
 
         return true_change, y_1, y_2, sigma_n
 
