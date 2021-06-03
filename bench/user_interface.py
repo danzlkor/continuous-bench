@@ -324,15 +324,8 @@ def submit_inference(args):
     posteriors, predictions, peaks = ch_mdl.predict(data, delta_data, sigma_n)
 
     # save the results:
-    vec_names = ['no_change'] + [m.name for m in ch_mdl.models]
-    maps_dir = f'{args.study_dir}/PosteriorMaps/{ch_mdl.model_name}'
-    os.makedirs(maps_dir, exist_ok=True)
-    image_io.write_nifti(predictions[:, np.newaxis], args.mask, f'{maps_dir}/predictions')
-    for i, m in enumerate(vec_names):
-        image_io.write_nifti(posteriors[:, i][:, np.newaxis], args.mask, f'{maps_dir}/{m}_posterior')
-        if i > 0:
-            image_io.write_nifti(peaks[:, i - 1][:, np.newaxis], args.mask, f'{maps_dir}/{m}_peaks')
-
+    maps_dir = f'{args.study_dir}/Posterior_maps/{ch_mdl.model_name}'
+    image_io.write_inference_results(maps_dir, ch_mdl.model_names, predictions, posteriors, peaks, args.mask)
     print(f'Analysis completed successfully, the posterior probability maps are stored in {maps_dir}')
 
 

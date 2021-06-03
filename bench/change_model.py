@@ -768,7 +768,7 @@ class Trainer:
             else:
                 y_1 = self.forward_model(**kwargs, **params_1) + np.random.randn(self.n_dim) * noise_level
                 y_2 = self.forward_model(**kwargs, **params_2) + np.random.randn(self.n_dim) * noise_level
-                sigma_n = np.eye(self.n_dim)[None, :, :] * noise_level ** 2
+                sigma_n = None
 
             return y_1, y_2, sigma_n
 
@@ -780,12 +780,12 @@ class Trainer:
             for i in pbar(range(n_samples)):
                 res.append(generator_func(i))
 
-        y_1 = np.stack([d[0] for d in res], 0)
-        y_2 = np.stack([d[1] for d in res], 0)
+        y_1 = np.squeeze(np.stack([d[0] for d in res], 0))
+        y_2 = np.squeeze(np.stack([d[1] for d in res], 0))
         if has_noise_model:
             sigma_n = np.stack([d[2] for d in res], 0)
         else:
-            sigma_n = None
+            sigma_n = np.eye(self.n_dim)[None, :, :] * noise_level ** 2
 
         return true_change, y_1, y_2, sigma_n
 

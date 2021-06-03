@@ -230,3 +230,22 @@ def write_nifti(data: np.ndarray, mask_add: str, fname: str, invalids=None):
     img[tuple(std_indices_invalid.T)] = np.nan
 
     nib.Nifti1Image(img, mask.nibImage.affine).to_filename(fname)
+
+
+def write_inference_results(path, model_names, predictions, posteriors, peaks, mask):
+    """
+    Writes the results of inference to nifti files
+    :param path: full path to write the files.
+    :param model_names: name of the change vectors. (m, )
+    :param predictions: index of the winning model (n,)
+    :param posteriors: estimated posterior probability for each model(n, m)
+    :param peaks: etimated amount of change for each model (n, m)
+    :param mask: mask file that hass the information about the voxel locations.
+    :return: Nothing.
+    """
+    os.makedirs(path, exist_ok=True)
+    write_nifti(predictions[:, np.newaxis], mask, f'{path}/inferred_change')
+    for i, m in enumerate(model_names):
+        write_nifti(posteriors[:, i][:, np.newaxis], mask, f'{path}/{m}_probability')
+        if i > 0:
+            write_nifti(peaks[:, i - 1][:, np.newaxis], mask, f'{path}/{m}_amount')
