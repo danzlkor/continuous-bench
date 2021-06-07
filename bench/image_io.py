@@ -22,7 +22,6 @@ def read_summary_images(summary_dir: str, mask: str):
     Reads summary measure images
     :param summary_dir: path to the summary measurements
     :param mask: roi mask file name
-    :param normalize: normalize the data by group average
     :return: 3d numpy array containing summary measurements, inclusion mask
     """
     mask_img = Image(mask)
@@ -131,7 +130,7 @@ def write_glm_results(data, delta_data, sigma_n, mask, invalid_vox, glm_dir):
     os.makedirs(glm_dir, exist_ok=True)
     write_nifti(data, mask, glm_dir + '/data', invalid_vox)
     write_nifti(delta_data, mask, glm_dir + '/delta_data', invalid_vox)
-    write_nifti(covariances, mask, glm_dir + '/variances', invalid_vox)
+    write_nifti(covariances, mask, glm_dir + '/covariances', invalid_vox)
 
     valid_mask = np.ones((data.shape[0], 1))
     write_nifti(valid_mask, mask, glm_dir + '/valid_mask', invalid_vox)
@@ -170,10 +169,10 @@ def read_glm_weights(data: List[str], xfm: List[str],  mask: str, save_xfm_path:
     reads voxelwise glm weights for each subject in an arbitrary space and a transformation from that space to standard,
     then takes voxels that lie within the mask (that is in standard space).
 
-    :param output: output directory to save intermediate transformation files
     :param data: list of nifti files one per subject
     :param xfm: list of transformations from the native space to standad space
     :param mask: address of roi mask in standard space
+    :param parallel: flag for computing transformations in parallel.
     :returns: weights matrix (n_subj , n_vox). For the voxels that lie outside of image boundaries it places nans.
 
     """
