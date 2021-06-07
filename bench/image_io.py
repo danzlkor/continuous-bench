@@ -142,8 +142,9 @@ def read_glm_results(glm_dir, mask_add=None):
     :param glm_dir: path to the glm dir, it must contain data.nii.gz, delta_data.nii.gz, variance.nii.gz,
     and valid_mask.nii.gz
     :param mask_add: address of mask file, by default it uses the mask in glm dir.
-    :return:
+    :return: tuple (data (n, d), delta_data (n, d), sigma_n(n, d, d) )
     """
+
     if mask_add is None:
         mask_add = glm_dir + '/valid_mask.nii'
 

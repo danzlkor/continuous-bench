@@ -314,10 +314,7 @@ def submit_glm(args):
 
 def submit_inference(args):
     glm_dir = f'{args.study_dir}/Glm/'
-    if args.mask is None:
-        args.mask = glm_dir + '/valid_mask.nii'
-
-    data, delta_data, sigma_n = image_io.read_glm(glm_dir, args.mask)
+    data, delta_data, sigma_n = image_io.read_glm_results(glm_dir)
 
     # perform inference:
     ch_mdl = change_model.ChangeModel.load(args.model)
@@ -325,7 +322,8 @@ def submit_inference(args):
 
     # save the results:
     maps_dir = f'{args.study_dir}/Posterior_maps/{ch_mdl.model_name}'
-    image_io.write_inference_results(maps_dir, ch_mdl.model_names, predictions, posteriors, peaks, args.mask)
+    image_io.write_inference_results(maps_dir, ch_mdl.model_names, predictions, posteriors, peaks,
+                                     f'{args.study_dir}/Glm/valid_mask')
     print(f'Analysis completed successfully, the posterior probability maps are stored in {maps_dir}')
 
 

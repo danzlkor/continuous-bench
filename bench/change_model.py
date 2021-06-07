@@ -199,7 +199,7 @@ class ChangeModel:
     models: List[MLChangeVector]
     summary_names: List
     baseline_kde: Any  # scipy or sklearn kde class.
-    model_name: str = 'unnamed'
+    forward_model: str = 'unnamed'
 
     @property
     def model_names(self, ):
@@ -219,7 +219,7 @@ class ChangeModel:
         :param file_name: filename (defaults to model name)
         """
         if file_name is None:
-            file_name = self.model_name
+            file_name = self.forward_model
 
         with open(path + file_name, 'wb') as f:
             pickle.dump(self, f)
@@ -649,8 +649,10 @@ class Trainer:
             models = []
             for i in range(len(self.change_vecs)):
                 models.extend(func(i))
-        self.training_done=True
-        return ChangeModel(models=models, summary_names=self.summary_names, baseline_kde=kde)
+
+        self.training_done = True
+        return ChangeModel(models=models, summary_names=self.summary_names,
+                           baseline_kde=kde, forward_model=self.forward_model.__name__)
 
     def generate_train_samples(self, n_samples: int, dv0: float = 1e-6) -> tuple:
         """
