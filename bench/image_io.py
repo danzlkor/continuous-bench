@@ -164,7 +164,7 @@ def read_glm_results(glm_dir, mask_add=None):
     return data, delta_data, sigma_n
 
 
-def read_glm_weights(data: List[str], xfm: List[str],  mask: str, save_xfm_path:str, parallel=True):
+def read_glm_weights(data: List[str], xfm: List[str],  mask: str, save_xfm_path: str, parallel=True):
     """
     reads voxelwise glm weights for each subject in an arbitrary space and a transformation from that space to standard,
     then takes voxels that lie within the mask (that is in standard space).
@@ -173,6 +173,7 @@ def read_glm_weights(data: List[str], xfm: List[str],  mask: str, save_xfm_path:
     :param xfm: list of transformations from the native space to standad space
     :param mask: address of roi mask in standard space
     :param parallel: flag for computing transformations in parallel.
+    :param save_xfm_path: path to save computed xfms
     :returns: weights matrix (n_subj , n_vox). For the voxels that lie outside of image boundaries it places nans.
 
     """
@@ -186,10 +187,10 @@ def read_glm_weights(data: List[str], xfm: List[str],  mask: str, save_xfm_path:
     weights = np.zeros((n_subj, n_vox)) + np.nan
     print('Reading GLM weights:')
 
-    def func(subj_idx):
+    def func(s_idx):
         subjdata, valid_vox = sample_from_native_space(
-            data[subj_idx], xfm[subj_idx], mask, f"{save_xfm_path}/def_field_{subj_idx}.nii.gz")
-        print('weights for', subj_idx,'loaded.')
+            data[s_idx], xfm[s_idx], mask, f"{save_xfm_path}/def_field_{s_idx}.nii.gz")
+        print('weights for', s_idx, 'loaded.')
         return subjdata, valid_vox
 
     if parallel:

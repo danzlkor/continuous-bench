@@ -156,6 +156,15 @@ class MLChangeVector:
         return mu, sigma
 
     def log_lh(self, dv, y, dy, sigma_n):
+        """
+        computes the log likelihood function for the amount of change
+        P(dy | y, sigma_n, dv) for the vector of change
+        :param dv: the amount of change in the parameters (scalar)
+        :param y: the baseline measurement.
+        :param dy: the amount of change in the measurements
+        :param sigma_n: noise covaraince in the measurements
+        :return: log of likelihood function (scalar)
+        """
         mu, sigma_p = self.distribution(y)
         mean = np.squeeze(dv * mu)
         cov = (dv ** 2) * np.squeeze(sigma_p) + sigma_n
@@ -299,7 +308,7 @@ class ChangeModel:
 
             if np.isnan(y_s).any() or np.isnan(dy_s).any() or np.isnan(sigma_n_s).any():
                 log_prob = np.ones(n_models) / n_models
-                warnings.warn("Received nan inputs at inference.")
+                warnings.warn("Received nan inputs for inference.")
 
             else:
                 log_prob[0] = self.models[0].log_posterior(y_s, dy_s, sigma_n_s)
@@ -338,10 +347,8 @@ class ChangeModel:
                         if ch_mdl.lim == 'negative':
                             peaks[vec_idx] = neg_peak
                         else:
-                            if log_post_pdf(neg_peak) < log_post_pdf(pos_peak):
-                                peaks[vec_idx] = pos_peak
-                            else:
-                                peaks[vec_idx] = neg_peak
+                            peaks[vec_idx] = pos_peak if log_post_pdf(neg_peak) <= log_post_pdf(pos_peak)\
+                                else neg_peak
 
                     except np.linalg.LinAlgError as err:
                         if 'Singular matrix' in str(err):
