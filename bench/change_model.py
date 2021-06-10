@@ -184,6 +184,14 @@ class MLChangeVector:
         return p
 
     def log_posterior(self, dv, y, dy, sigma_n):
+        """
+                Computes log posterior for the change vector
+                :param dv: the amount of change (only scalar)
+                :param y: normalized baseline measurement
+                :param dy: the vector of change in the measuremnts
+                :param sigma_n: noise covariance
+                :return: P(dv|y, dy, sigma_n)
+                """
         return self.log_prior(dv) + self.log_lh(dv, y, dy, sigma_n)
 
 
@@ -193,6 +201,11 @@ class NoChangeModel:
     prior: float = 1.0
 
     def distribution(self, y):
+        """
+        returns mu and sigma for the null model given baseline measurements
+        :param y:
+        :return:
+        """
         y = np.atleast_2d(y)
         return np.zeros((y.shape[0], y.shape[1] + 1)), np.zeros((y.shape[0], y.shape[1] + 1, y.shape[1]+1))
 
@@ -296,7 +309,7 @@ class ChangeModel:
         Compares the observed data with the result from :func:`predict`.
 
         :param parallel: flag to run inference in parallel
-        :param y: (n_samples, n_dim) array of data
+        :param y: (n_samples, n_dim) array of normalized baseline measurements
         :param delta_y: (n_samples, n_dim) array of delta data
         :param sigma_n: (n_samples, n_dim, n_dim) noise covariance per sample
         :param integral_bound
@@ -319,7 +332,7 @@ class ChangeModel:
                 warnings.warn("Received nan inputs for inference.")
 
             else:
-                log_prob[0] = self.models[0].log_posterior(y_s, dy_s, sigma_n_s)
+                log_prob[0] = self.models[0].log_posterior(0, y_s, dy_s, sigma_n_s)
 
                 for vec_idx, ch_mdl in enumerate(self.models[1:], 1):
                     try:
