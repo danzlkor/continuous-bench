@@ -196,7 +196,15 @@ class NoChangeModel:
         y = np.atleast_2d(y)
         return np.zeros((y.shape[0], y.shape[1] + 1)), np.zeros((y.shape[0], y.shape[1] + 1, y.shape[1]+1))
 
-    def log_posterior(self, y, dy, sigma_n):
+    def log_posterior(self, dv, y, dy, sigma_n):
+        """
+        Computes log posterior for the null model
+        :param dv: not used, to be consistent with the full model signature.
+        :param y: not used, to be consistent with the full model signature.
+        :param dy: the vector of change in the measuremnts
+        :param sigma_n: noise covariance
+        :return:
+        """
         return log_mvnpdf(x=dy, mean=np.zeros_like(dy), cov=sigma_n)
 
 
