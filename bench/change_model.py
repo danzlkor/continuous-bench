@@ -342,7 +342,8 @@ class ChangeModel:
                         if ch_mdl.lim == 'positive':
                             neg_int = 0
                         else:  # either negative or two-sided:
-                            neg_peak, lower, upper, neg_expected = find_range(log_post_pdf, (-integral_bound, 0))
+                            neg_peak, lower, upper, _ = find_range(log_post_pdf, (-integral_bound, 0))
+                            neg_expected = estimate_amount(ch_mdl.log_lh, [lower, upper])
                             if check_exp_underflow(log_post_pdf(neg_peak)):
                                 neg_int = 0
                             else:
@@ -351,7 +352,8 @@ class ChangeModel:
                         if ch_mdl.lim == 'negative':
                             pos_int = 0
                         else:  # either positive or two-sided
-                            pos_peak, lower, upper, pos_expected = find_range(log_post_pdf, (0, integral_bound))
+                            pos_peak, lower, upper, _ = find_range(log_post_pdf, (0, integral_bound))
+                            pos_expected = estimate_amount(ch_mdl.log_lh, [lower, upper])
                             if check_exp_underflow(pos_peak):
                                 pos_int = 0
                             else:
@@ -368,9 +370,8 @@ class ChangeModel:
                         if ch_mdl.lim == 'negative':
                             amount[vec_idx] = neg_expected
                         else:
-                            amount[vec_idx] = pos_expected if abs(neg_expected) * log_post_pdf(neg_expected) <= \
-                                                         abs(pos_expected) * log_post_pdf(pos_expected) \
-                                else neg_expected
+                            amount[vec_idx] = pos_expected if ch_mdl.lh(neg_expected, y_s, dy_s, sigma_n_s) <= \
+                                                              ch_mdl.lh(pos_expected, y_s, dy_s, sigma_n_s) else neg_expected
 
                     except np.linalg.LinAlgError as err:
                         if 'Singular matrix' in str(err):
@@ -977,6 +978,12 @@ def find_range(f: Callable, bounds, scale=1e-3):
     expected = minimize_scalar(xpx, bounds=bounds, method='bounded').x
 
     return peak, lower, upper, expected
+
+
+def estimate_amount(log_lh: Callable, bounds):
+    xpx = lambda dv: -log_lh(dv)
+    expected = minimize_scalar(xpx, bounds=bounds, method='bounded').x
+    return expected
 
 
 def check_exp_underflow(x):
