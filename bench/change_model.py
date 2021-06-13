@@ -338,12 +338,14 @@ class ChangeModel:
                     try:
                         log_post_pdf = lambda dv: ch_mdl.log_posterior(dv, y_s, dy_s, sigma_n_s)
                         post_pdf = lambda dv: np.exp(log_post_pdf(dv))
+                        log_lh = lambda dv: ch_mdl.log_lh(dv, y_s, dy_s, sigma_n_s)
 
                         if ch_mdl.lim == 'positive':
                             neg_int = 0
                         else:  # either negative or two-sided:
                             neg_peak, lower, upper, _ = find_range(log_post_pdf, (-integral_bound, 0))
-                            neg_expected = estimate_amount(ch_mdl.log_lh, [lower, upper])
+
+                            neg_expected = estimate_amount(log_lh, [lower, upper])
                             if check_exp_underflow(log_post_pdf(neg_peak)):
                                 neg_int = 0
                             else:
@@ -353,7 +355,7 @@ class ChangeModel:
                             pos_int = 0
                         else:  # either positive or two-sided
                             pos_peak, lower, upper, _ = find_range(log_post_pdf, (0, integral_bound))
-                            pos_expected = estimate_amount(ch_mdl.log_lh, [lower, upper])
+                            pos_expected = estimate_amount(log_lh, [lower, upper])
                             if check_exp_underflow(pos_peak):
                                 pos_int = 0
                             else:
