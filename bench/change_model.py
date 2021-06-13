@@ -340,7 +340,6 @@ class ChangeModel:
                         post_pdf = lambda dv: np.exp(log_post_pdf(dv))
                         post_pdf_dv = lambda dv: np.exp(log_post_pdf(dv)) * dv
 
-
                         if ch_mdl.lim == 'positive':
                             neg_int = 0
                             neg_expected = 0
@@ -375,8 +374,11 @@ class ChangeModel:
                         if ch_mdl.lim == 'negative':
                             amount[vec_idx] = neg_expected
                         else:
-                            amount[vec_idx] = (pos_expected * pos_int + neg_expected * neg_int) /\
+                            if integral > 0:
+                                amount[vec_idx] = (pos_expected * pos_int + neg_expected * neg_int) /\
                                               (pos_int + neg_int)
+                            else:
+                                amount[vec_idx] = 0
 
                     except np.linalg.LinAlgError as err:
                         if 'Singular matrix' in str(err):
