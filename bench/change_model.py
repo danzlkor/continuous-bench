@@ -866,17 +866,18 @@ def knn_estimation(y, dy, k=100, lam=1e-12):
     return mu, tril
 
 
-def l_to_sigma(l_vec, diag_idx, numba=True):
+def l_to_sigma(l_vec, diag_idx, use_numba=True):
     """
          inverse Cholesky decomposition and log transforms diagonals
            :param l_vec: (..., dim(dim+1)/2) vectors
+           :param use_numba: use numba to compute the sigma (faster for large n)
            :return: sigma (... , dim, dim) det_sigma (..., dim)
        """
 
     t = l_vec.shape[-1]
     dim = int((np.sqrt(8 * t + 1) - 1) / 2)  # t = dim*(dim+1)/2
 
-    if numba:
+    if use_numba:
         sigma = np.zeros((l_vec.shape[0], dim, dim))
         _mat_lower_diagonal(l_vec, sigma)
     #  transpose last two dimensions:
