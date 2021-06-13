@@ -207,7 +207,7 @@ class NoChangeModel:
         :return:
         """
         y = np.atleast_2d(y)
-        return np.zeros((y.shape[0], y.shape[1] + 1)), np.zeros((y.shape[0], y.shape[1] + 1, y.shape[1]+1))
+        return np.zeros((y.shape[0], y.shape[1] + 1)), np.zeros((y.shape[0], y.shape[1] + 1, y.shape[1] + 1))
 
     def log_posterior(self, dv, y, dy, sigma_n):
         """
@@ -342,7 +342,7 @@ class ChangeModel:
                         if ch_mdl.lim == 'positive':
                             neg_int = 0
                         else:  # either negative or two-sided:
-                            neg_peak, lower, upper = find_range(log_post_pdf, (-integral_bound, 0))
+                            neg_peak, lower, upper, neg_expected = find_range(log_post_pdf, (-integral_bound, 0))
                             if check_exp_underflow(log_post_pdf(neg_peak)):
                                 neg_int = 0
                             else:
@@ -351,7 +351,7 @@ class ChangeModel:
                         if ch_mdl.lim == 'negative':
                             pos_int = 0
                         else:  # either positive or two-sided
-                            pos_peak, lower, upper = find_range(log_post_pdf, (0, integral_bound))
+                            pos_peak, lower, upper, pos_expected = find_range(log_post_pdf, (0, integral_bound))
                             if check_exp_underflow(pos_peak):
                                 pos_int = 0
                             else:
@@ -368,7 +368,8 @@ class ChangeModel:
                         if ch_mdl.lim == 'negative':
                             peaks[vec_idx] = neg_peak
                         else:
-                            peaks[vec_idx] = pos_peak if log_post_pdf(neg_peak) <= log_post_pdf(pos_peak)\
+                            peaks[vec_idx] = pos_peak if abs(neg_peak) * log_post_pdf(neg_peak) <= \
+                                                         abs(pos_peak) * log_post_pdf(pos_peak) \
                                 else neg_peak
 
                     except np.linalg.LinAlgError as err:
@@ -418,7 +419,7 @@ class ChangeModel:
             pdfs = np.zeros((n_models, n_samples))
             for m2 in range(n_models):
                 pdfs[m2] = log_mvnpdf(x=y, mean=mu[m2] * effect_size[m2],
-                                  cov=sigma_n + effect_size[m2] ** 2 * sigma_p[m2])
+                                      cov=sigma_n + effect_size[m2] ** 2 * sigma_p[m2])
             winner = np.argmax(pdfs, axis=0)
             conf_mat[m1] = np.array([(winner == m).mean() for m in range(n_models)])
         return conf_mat
@@ -636,7 +637,8 @@ class Trainer:
             x0 = np.zeros((self.n_dim * (self.n_dim + 1) // 2) * yf_sigma.shape[-1])
             sigma_weights = optimize.minimize(neg_log_likelihood, method='BFGS',
                                               x0=x0,
-                                              args=(dy[idx], yf_mu, yf_sigma, mu_weights.x, self.diag_idx, 'sigma', alpha))
+                                              args=(
+                                              dy[idx], yf_mu, yf_sigma, mu_weights.x, self.diag_idx, 'sigma', alpha))
 
             print(f' sigma optimization for {self.vec_names[idx]}: {sigma_weights.message}\n '
                   f'function value:{sigma_weights.fun}, {sigma_weights.nit}')
@@ -650,7 +652,7 @@ class Trainer:
                   f'function value:{all_weights.fun}, {all_weights.nit}')
 
             w_mu = all_weights.x[:(n_mu_features * self.n_dim)].reshape(n_mu_features, self.n_dim)
-            w_sigma = all_weights.x[n_mu_features * self.n_dim:].reshape\
+            w_sigma = all_weights.x[n_mu_features * self.n_dim:].reshape \
                 (yf_sigma.shape[-1], self.n_dim * (self.n_dim + 1) // 2)
 
             models = []
@@ -968,7 +970,11 @@ def find_range(f: Callable, bounds, scale=1e-3):
             print(f"Error of type {e.__class__} occurred, while finding higher limit of integral."
                   f"The upper bound is used instead")
 
-    return peak, lower, upper
+    # expected value = argmax(p(x).x)
+    xpx = lambda dv: -f(dv) - np.log(abs(dv))
+    expected = minimize_scalar(xpx, bounds=bounds, method='bounded').x
+
+    return peak, lower, upper, expected
 
 
 def check_exp_underflow(x):
