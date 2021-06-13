@@ -338,28 +338,31 @@ class ChangeModel:
                     try:
                         log_post_pdf = lambda dv: ch_mdl.log_posterior(dv, y_s, dy_s, sigma_n_s)
                         post_pdf = lambda dv: np.exp(log_post_pdf(dv))
-                        log_lh = lambda dv: ch_mdl.log_lh(dv, y_s, dy_s, sigma_n_s)
+                        post_pdf_dv = lambda dv: np.exp(log_post_pdf(dv)) * dv
+
 
                         if ch_mdl.lim == 'positive':
                             neg_int = 0
+                            neg_expected = 0
                         else:  # either negative or two-sided:
                             neg_peak, lower, upper, _ = find_range(log_post_pdf, (-integral_bound, 0))
-
-                            neg_expected = estimate_amount(log_lh, [lower, upper])
                             if check_exp_underflow(log_post_pdf(neg_peak)):
                                 neg_int = 0
+                                neg_expected = 0
                             else:
                                 neg_int = quad(post_pdf, lower, upper, points=[neg_peak], epsrel=1e-3)[0]
-
+                                neg_expected = quad(post_pdf_dv, lower, upper, points=[neg_peak], epsrel=1e-3)[0]
                         if ch_mdl.lim == 'negative':
                             pos_int = 0
+                            pos_expected = 0
                         else:  # either positive or two-sided
                             pos_peak, lower, upper, _ = find_range(log_post_pdf, (0, integral_bound))
-                            pos_expected = estimate_amount(log_lh, [lower, upper])
                             if check_exp_underflow(pos_peak):
                                 pos_int = 0
+                                pos_expected = 0
                             else:
                                 pos_int = quad(post_pdf, lower, upper, points=[pos_peak], epsrel=1e-3)[0]
+                                pos_expected = quad(post_pdf_dv, lower, upper, points=[neg_peak], epsrel=1e-3)[0]
 
                         integral = pos_int + neg_int
                         if integral == 0:
@@ -372,8 +375,8 @@ class ChangeModel:
                         if ch_mdl.lim == 'negative':
                             amount[vec_idx] = neg_expected
                         else:
-                            amount[vec_idx] = pos_expected if log_lh(neg_expected) <= \
-                                                              log_lh(pos_expected) else neg_expected
+                            amount[vec_idx] = (pos_expected * pos_int + neg_expected * neg_int) /\
+                                              (pos_int + neg_int)
 
                     except np.linalg.LinAlgError as err:
                         if 'Singular matrix' in str(err):
