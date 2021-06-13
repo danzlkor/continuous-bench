@@ -286,7 +286,7 @@ class ChangeModel:
 
         print(f'running inference for {data.shape[0]} samples ...')
         y, dy, sn = summary_measures.normalize_summaries(data, self.summary_names, delta_data, sigma_n)
-        lls, peaks = self.compute_log_likelihood(y, dy, sn, parallel=parallel, integral_bound=10)
+        lls, amounts = self.compute_log_likelihood(y, dy, sn, parallel=parallel, integral_bound=10)
         priors = np.array([m.prior for m in self.models])  # the 1 is for empty set
         priors = priors / priors.sum()
         model_log_posteriors = lls + np.log(priors)
@@ -298,7 +298,7 @@ class ChangeModel:
         posteriors[np.isposinf(posteriors)] = np.nanmax(posteriors[np.isfinite(posteriors)]) + 1
         posteriors = posteriors / posteriors.sum(axis=1)[:, np.newaxis]
         infered_change = np.argmax(posteriors, axis=1)
-        return posteriors, infered_change, peaks, bad_samples
+        return posteriors, infered_change, amounts, bad_samples
 
     # warnings.filterwarnings("ignore", category=RuntimeWarning)
 
@@ -321,7 +321,7 @@ class ChangeModel:
 
         def func(sam_idx):
             log_prob = np.zeros(n_models)
-            peaks = np.zeros(n_models)
+            amount = np.zeros(n_models)
 
             y_s = y[sam_idx].T
             dy_s = delta_y[sam_idx]
@@ -364,13 +364,13 @@ class ChangeModel:
                             log_prob[vec_idx] = np.log(integral)
 
                         if ch_mdl.lim == 'positive':
-                            peaks[vec_idx] = pos_peak
+                            amount[vec_idx] = pos_expected
                         if ch_mdl.lim == 'negative':
-                            peaks[vec_idx] = neg_peak
+                            amount[vec_idx] = neg_expected
                         else:
-                            peaks[vec_idx] = pos_peak if abs(neg_peak) * log_post_pdf(neg_peak) <= \
-                                                         abs(pos_peak) * log_post_pdf(pos_peak) \
-                                else neg_peak
+                            amount[vec_idx] = pos_expected if abs(neg_expected) * log_post_pdf(neg_expected) <= \
+                                                         abs(pos_expected) * log_post_pdf(pos_expected) \
+                                else neg_expected
 
                     except np.linalg.LinAlgError as err:
                         if 'Singular matrix' in str(err):
@@ -381,7 +381,7 @@ class ChangeModel:
                             raise
             if np.isnan(log_prob).any():
                 print(sam_idx, np.argwhere(np.isnan(log_prob)))
-            return log_prob, peaks
+            return log_prob, amount
 
         if parallel:
             res = Parallel(n_jobs=-1, verbose=True)(delayed(func)(i) for i in range(n_samples))
@@ -392,9 +392,9 @@ class ChangeModel:
                 res.append(func(i))
 
         log_probs = np.array([d[0] for d in res])
-        peaks = np.array([d[1] for d in res])
+        amounts = np.array([d[1] for d in res])
 
-        return log_probs, peaks
+        return log_probs, amounts
 
     def estimate_confusion_matrix(self, data, sigma_n, effect_size, n_samples=1000):
         """
@@ -424,8 +424,8 @@ class ChangeModel:
             conf_mat[m1] = np.array([(winner == m).mean() for m in range(n_models)])
         return conf_mat
 
-    def estimate_quality_of_fit(self, y1, dy, sigma_n, predictions, peaks):
-        dv = np.array([p[i] for i, p in zip(predictions, peaks)])
+    def estimate_quality_of_fit(self, y1, dy, sigma_n, predictions, amounts):
+        dv = np.array([p[i] for i, p in zip(predictions, amounts)])
         y1, dy, sigma_n = summary_measures.normalize_summaries(y1, self.summary_names, dy, sigma_n)
         dists = [self.models[p].distribution(y) for p, y in zip(predictions, y1)]
         mu = np.stack([np.squeeze(d[0]) for d in dists], axis=0)
@@ -728,6 +728,7 @@ class Trainer:
         :param effect_size: the amount of change
         :param noise_level: level of measurement noise
         :param n_repeats: number of repeats to estimate noise covariance.
+        :param parallel: use joblib to make the process parallel.
         :return: for N samples and M observational parameters returns tuple with
 
             - (N, ) index array with which change vector was applied
@@ -949,7 +950,7 @@ def find_range(f: Callable, bounds, scale=1e-3):
     :param bounds:
     :param scale: the ratio of limits to peak
     :param search_rad: radious to search for limits
-    :return: peak, lower limit and higher limit of the function
+    :return: peak, lower limit and higher limit, and the expected change.
     """
     neg_f = lambda dv: -f(dv)
     np.seterr(invalid='raise')
