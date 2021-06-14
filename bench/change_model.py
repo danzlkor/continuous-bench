@@ -995,16 +995,16 @@ def estimate_mode(pdf: Callable, bounds):
     return expected
 
 
-def estimate_median(pdf: Callable, bounds, n_samples=int(1e3)):
+def estimate_median(f: Callable, bounds, n_samples=int(1e3)):
     """
     estimates the median of a probability distribution
-    :param pdf: pdf
+    :param f: pdf
     :param bounds: limits
     :param n_samples: number of samples for integration.
     :return:
     """
     x = np.linspace(bounds[0], bounds[1], n_samples)
-    p = [pdf(t)[0] for t in x]
+    p = [f(t)[0] for t in x]
     p_idx = np.argwhere(np.cumsum(p) > 0.5 * np.sum(p))[0]
     return x[p_idx]
 
