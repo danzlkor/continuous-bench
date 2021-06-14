@@ -338,7 +338,7 @@ class ChangeModel:
                     try:
                         log_post_pdf = lambda dv: ch_mdl.log_posterior(dv, y_s, dy_s, sigma_n_s)
                         post_pdf = lambda dv: np.exp(log_post_pdf(dv))
-                        lh = lambda dv: np.exp(ch_mdl.log_lh(dv, y_s, dy_s, sigma_n_s))
+                        #lh = lambda dv: np.exp(ch_mdl.log_lh(dv, y_s, dy_s, sigma_n_s))
 
                         if ch_mdl.lim == 'positive':
                             neg_int = 0
@@ -349,7 +349,7 @@ class ChangeModel:
                                 neg_expected = 0
                             else:
                                 neg_int = quad(post_pdf, lower, upper, points=[neg_peak], epsrel=1e-3)[0]
-                                neg_expected = estimate_median(lh, [lower, upper])
+                                neg_expected = estimate_median(post_pdf, [lower, upper])
 
                         if ch_mdl.lim == 'negative':
                             pos_int = 0
@@ -360,7 +360,7 @@ class ChangeModel:
                                 pos_expected = 0
                             else:
                                 pos_int = quad(post_pdf, lower, upper, points=[pos_peak], epsrel=1e-3)[0]
-                                pos_expected = estimate_median(lh, [lower, upper])
+                                pos_expected = estimate_median(post_pdf, [lower, upper])
 
                         integral = pos_int + neg_int
                         if integral == 0:
@@ -373,8 +373,8 @@ class ChangeModel:
                         if ch_mdl.lim == 'negative':
                             amount[vec_idx] = neg_expected
                         else:
-                            amount[vec_idx] = pos_expected if lh(pos_expected) >\
-                                                              lh(neg_expected) else neg_expected
+                            amount[vec_idx] = pos_expected if post_pdf(pos_expected) >\
+                                                              post_pdf(neg_expected) else neg_expected
 
                     except np.linalg.LinAlgError as err:
                         if 'Singular matrix' in str(err):
