@@ -375,8 +375,7 @@ class ChangeModel:
                             amount[vec_idx] = neg_expected
                         else:
                             if integral > 0:
-                                amount[vec_idx] = (pos_expected * pos_int + neg_expected * neg_int) /\
-                                              (pos_int + neg_int)
+                                amount[vec_idx] = pos_expected + neg_expected
                             else:
                                 amount[vec_idx] = 0
 
