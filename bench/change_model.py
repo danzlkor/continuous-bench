@@ -338,7 +338,7 @@ class ChangeModel:
                     try:
                         log_post_pdf = lambda dv: ch_mdl.log_posterior(dv, y_s, dy_s, sigma_n_s)
                         post_pdf = lambda dv: np.exp(log_post_pdf(dv))
-                        log_lh = lambda dv: ch_mdl.log_lh(dv, y_s, dy_s, sigma_n_s)
+                        lh = lambda dv: np.exp(ch_mdl.log_lh(dv, y_s, dy_s, sigma_n_s))
 
                         if ch_mdl.lim == 'positive':
                             neg_int = 0
@@ -349,7 +349,7 @@ class ChangeModel:
                                 neg_expected = 0
                             else:
                                 neg_int = quad(post_pdf, lower, upper, points=[neg_peak], epsrel=1e-3)[0]
-                                neg_expected = estimate_median(log_lh, [lower, upper])
+                                neg_expected = estimate_median(lh, [lower, upper])
 
                         if ch_mdl.lim == 'negative':
                             pos_int = 0
@@ -360,7 +360,7 @@ class ChangeModel:
                                 pos_expected = 0
                             else:
                                 pos_int = quad(post_pdf, lower, upper, points=[pos_peak], epsrel=1e-3)[0]
-                                pos_expected = estimate_median(log_lh, [lower, upper])
+                                pos_expected = estimate_median(lh, [lower, upper])
 
                         integral = pos_int + neg_int
                         if integral == 0:
@@ -983,28 +983,28 @@ def find_range(f: Callable, bounds, scale=1e-3):
     return peak, lower, upper, expectedvalue
 
 
-def estimate_mode(log_lh: Callable, bounds):
+def estimate_mode(pdf: Callable, bounds):
     """
     Estimates mode of a probability distribution
     :param log_lh: pdf or log_pdf
     :param bounds: the limits
     :return:
     """
-    xpx = lambda dv: -log_lh(dv)
+    xpx = lambda dv: -pdf(dv)
     expected = minimize_scalar(xpx, bounds=bounds, method='bounded').x
     return expected
 
 
-def estimate_median(log_lh: Callable, bounds, n_samples=int(1e3)):
+def estimate_median(pdf: Callable, bounds, n_samples=int(1e3)):
     """
     estimates the median of a probability distribution
-    :param log_lh: logarithm of pdf
+    :param pdf: pdf
     :param bounds: limits
     :param n_samples: number of samples for integration.
     :return:
     """
     x = np.linspace(bounds[0], bounds[1], n_samples)
-    lh = np.stack([0.] + [np.exp(log_lh(x_)) for x_ in x])
+    lh = np.array([0.] + [np.exp(pdf(x_)) for x_ in x])
     p_idx = np.argwhere(np.cumsum(lh) / lh.sum() < 0.5)[-1]
     return x[p_idx]
 
