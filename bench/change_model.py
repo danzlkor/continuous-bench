@@ -1004,9 +1004,12 @@ def estimate_median(f: Callable, bounds, n_samples=int(1e3)):
     :return:
     """
     x = np.linspace(bounds[0], bounds[1], n_samples)
-    p = [f(t).item() for t in x]
-    p_idx = np.argwhere(np.cumsum(p) > 0.5 * np.sum(p))[0]
-    return x[p_idx]
+    p = np.array([f(t).item() for t in x])
+    if np.all(p == 0):
+        return np.mean(bounds)
+    else:
+        p_idx = np.argwhere(np.cumsum(p) > 0.5 * np.sum(p))[0]
+        return x[p_idx]
 
 
 def check_exp_underflow(x):
