@@ -361,7 +361,7 @@ class ChangeModel:
                                 pos_expected = 0
                             else:
                                 pos_int = quad(post_pdf, lower, upper, points=[pos_peak], epsrel=1e-3)[0]
-                                pos_expected = quad(post_pdf_dv, lower, upper, points=[neg_peak], epsrel=1e-3)[0]
+                                pos_expected = quad(post_pdf_dv, lower, upper, points=[pos_peak], epsrel=1e-3)[0]
 
                         integral = pos_int + neg_int
                         if integral == 0:
