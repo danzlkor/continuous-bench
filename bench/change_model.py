@@ -993,14 +993,15 @@ def estimate_mode(log_lh: Callable, bounds):
     return expected
 
 
-def estimate_median(log_lh: Callable, bounds):
+def estimate_median(log_lh: Callable, bounds, n_samples=int(1e3)):
     """
     estimates the median of a probability distribution
     :param log_lh: logarithm of pdf
     :param bounds: limits
+    :param n_samples: number of samples for integration.
     :return:
     """
-    x = np.linspace(bounds[0], bounds[1], int(1e6))
+    x = np.linspace(bounds[0], bounds[1], n_samples)
     lh = np.array([np.exp(log_lh(x_)) for x_ in x])
     p_idx = np.argwhere(np.cumsum(lh) / lh.sum() < 0.5)[-1]
     return x[p_idx]
