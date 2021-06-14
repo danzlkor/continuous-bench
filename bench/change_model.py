@@ -373,8 +373,8 @@ class ChangeModel:
                         if ch_mdl.lim == 'negative':
                             amount[vec_idx] = neg_expected
                         else:
-                            amount[vec_idx] = pos_expected if log_lh(pos_expected) >\
-                                                              log_lh(neg_expected) else neg_expected
+                            amount[vec_idx] = pos_expected if lh(pos_expected) >\
+                                                              lh(neg_expected) else neg_expected
 
                     except np.linalg.LinAlgError as err:
                         if 'Singular matrix' in str(err):
