@@ -1001,7 +1001,7 @@ def estimate_median(log_lh: Callable, bounds):
     :return:
     """
     x = np.linspace(bounds[0], bounds[1], int(1e6))
-    lh = np.exp(log_lh(x))
+    lh = np.array([np.exp(log_lh(x_)) for x_ in x])
     p_idx = np.argwhere(np.cumsum(lh) / lh.sum() < 0.5)[-1]
     return x[p_idx]
 
