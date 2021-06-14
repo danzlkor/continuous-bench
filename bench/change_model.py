@@ -1004,7 +1004,7 @@ def estimate_median(pdf: Callable, bounds, n_samples=int(1e3)):
     :return:
     """
     x = np.linspace(bounds[0], bounds[1], n_samples)
-    p = [pdf(t)[0] for t in x]
+    p = [pdf(t) for t in x]
     p_idx = np.argwhere(np.cumsum(p) > 0.5 * np.sum(p))[0]
     return x[p_idx]
 
