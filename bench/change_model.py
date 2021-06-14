@@ -1000,7 +1000,7 @@ def estimate_median(log_lh: Callable, bounds):
     :param bounds: limits
     :return:
     """
-    x = np.linspace(bounds[0], bounds[1], 1e4)
+    x = np.linspace(bounds[0], bounds[1], int(1e6))
     lh = np.exp(log_lh(x))
     p_idx = np.argwhere(np.cumsum(lh) / lh.sum() < 0.5)[-1]
     return x[p_idx]
