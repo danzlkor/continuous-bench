@@ -338,30 +338,27 @@ class ChangeModel:
                     try:
                         log_post_pdf = lambda dv: ch_mdl.log_posterior(dv, y_s, dy_s, sigma_n_s)
                         post_pdf = lambda dv: np.exp(log_post_pdf(dv))
-                        post_pdf_dv = lambda dv: np.exp(log_post_pdf(dv)) * dv
+                        log_lh = lambda dv: ch_mdl.log_lh(dv, y_s, dy_s, sigma_n_s)
 
                         if ch_mdl.lim == 'positive':
                             neg_int = 0
-                            neg_expected = 0
                         else:  # either negative or two-sided:
                             neg_peak, lower, upper, _ = find_range(log_post_pdf, (-integral_bound, 0))
                             if check_exp_underflow(log_post_pdf(neg_peak)):
                                 neg_int = 0
-                                neg_expected = 0
                             else:
                                 neg_int = quad(post_pdf, lower, upper, points=[neg_peak], epsrel=1e-3)[0]
-                                neg_expected = quad(post_pdf_dv, lower, upper, points=[neg_peak], epsrel=1e-3)[0]
+                                neg_expected = estimate_median(log_lh, [lower, upper])
+
                         if ch_mdl.lim == 'negative':
                             pos_int = 0
-                            pos_expected = 0
                         else:  # either positive or two-sided
                             pos_peak, lower, upper, _ = find_range(log_post_pdf, (0, integral_bound))
                             if check_exp_underflow(pos_peak):
                                 pos_int = 0
-                                pos_expected = 0
                             else:
                                 pos_int = quad(post_pdf, lower, upper, points=[pos_peak], epsrel=1e-3)[0]
-                                pos_expected = quad(post_pdf_dv, lower, upper, points=[pos_peak], epsrel=1e-3)[0]
+                                pos_expected = estimate_median(log_lh, [lower, upper])
 
                         integral = pos_int + neg_int
                         if integral == 0:
@@ -374,10 +371,8 @@ class ChangeModel:
                         if ch_mdl.lim == 'negative':
                             amount[vec_idx] = neg_expected
                         else:
-                            if integral > 0:
-                                amount[vec_idx] = pos_expected + neg_expected
-                            else:
-                                amount[vec_idx] = 0
+                            amount[vec_idx] = pos_expected if log_lh(pos_expected) >\
+                                                              log_lh(neg_expected) else neg_expected
 
                     except np.linalg.LinAlgError as err:
                         if 'Singular matrix' in str(err):
@@ -981,18 +976,30 @@ def find_range(f: Callable, bounds, scale=1e-3):
 
     # expected value = argmax(p(x).x)
     xpx = lambda dv: -f(dv) - np.log(abs(dv))
-    expected = minimize_scalar(xpx, bounds=bounds, method='bounded').x
+    expectedvalue = minimize_scalar(xpx, bounds=bounds, method='bounded').x
 
-    return peak, lower, upper, expected
+    return peak, lower, upper, expectedvalue
 
 
-def estimate_amount(log_lh: Callable, bounds):
+def estimate_mode(log_lh: Callable, bounds):
+    """
+    Estimates mode of a probability distribution
+    :param log_lh: pdf or log_pdf
+    :param bounds: the limits
+    :return:
+    """
     xpx = lambda dv: -log_lh(dv)
     expected = minimize_scalar(xpx, bounds=bounds, method='bounded').x
     return expected
 
 
 def estimate_median(log_lh: Callable, bounds):
+    """
+    estimates the median of a probability distribution
+    :param log_lh: logarithm of pdf
+    :param bounds: limits
+    :return:
+    """
     x = np.linspace(bounds[0], bounds[1], 1e4)
     lh = np.exp(log_lh(x))
     p_idx = np.argwhere(np.cumsum(lh) / lh.sum() < 0.5)[-1]
