@@ -992,6 +992,13 @@ def estimate_amount(log_lh: Callable, bounds):
     return expected
 
 
+def estimate_median(log_lh: Callable, bounds):
+    x = np.linspace(bounds[0], bounds[1], 1e4)
+    lh = np.exp(log_lh(x))
+    p_idx = np.argwhere(np.cumsum(lh) / lh.sum() < 0.5)[-1]
+    return x[p_idx]
+
+
 def check_exp_underflow(x):
     """
     Checks if underflow happens for calculating exp(x)
