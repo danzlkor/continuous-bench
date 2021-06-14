@@ -346,6 +346,7 @@ class ChangeModel:
                             neg_peak, lower, upper, _ = find_range(log_post_pdf, (-integral_bound, 0))
                             if check_exp_underflow(log_post_pdf(neg_peak)):
                                 neg_int = 0
+                                neg_expected = 0
                             else:
                                 neg_int = quad(post_pdf, lower, upper, points=[neg_peak], epsrel=1e-3)[0]
                                 neg_expected = estimate_median(log_lh, [lower, upper])
@@ -356,6 +357,7 @@ class ChangeModel:
                             pos_peak, lower, upper, _ = find_range(log_post_pdf, (0, integral_bound))
                             if check_exp_underflow(pos_peak):
                                 pos_int = 0
+                                pos_expected = 0
                             else:
                                 pos_int = quad(post_pdf, lower, upper, points=[pos_peak], epsrel=1e-3)[0]
                                 pos_expected = estimate_median(log_lh, [lower, upper])
