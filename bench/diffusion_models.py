@@ -63,20 +63,20 @@ prior_distributions = dict(
                 },
 
     watson_noddi={('s_iso', 's_in', 's_ex'): sample_signal,
+                  'odi': stats.uniform(loc=0, scale=1),
                   'd_iso': stats.truncnorm(loc=3, scale=.1, a=-3 / .1, b=np.Inf),
                   'd_a_in': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
                   'd_a_ex': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
                   'tortuosity': stats.uniform(loc=0.01, scale=.98),
-                  'odi': stats.uniform(loc=0, scale=1),
                   },
 
     bingham_noddi={('s_iso', 's_in', 's_ex'): sample_signal,
+                   'odi': stats.uniform(loc=.01, scale=.98),
+                   'odi_ratio': stats.uniform(loc=.01, scale=.98),
                    'd_iso': stats.truncnorm(loc=3, scale=.1, a=-3 / .1, b=np.Inf),
                    'd_a_in': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
                    'd_a_ex': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
                    'tortuosity': stats.uniform(loc=0.01, scale=.98),
-                   'odi': stats.uniform(loc=.01, scale=.98),
-                   'odi_ratio': stats.uniform(loc=.01, scale=.98),
                    },
 
     watson_noddi_constrained={('s_iso', 's_in', 's_ex'): sample_signal,

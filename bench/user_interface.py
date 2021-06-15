@@ -157,15 +157,13 @@ def submit_train(args):
         with open(args.change_vecs, 'r') as reader:
             args.change_vecs = [line.rstrip() for line in reader]
 
+    summary_names = summary_measures.summary_names(acq, shm_degree=args.d)
     trainer = change_model.Trainer(
         forward_model=diffusion_models.bench_decorator(forward_model, summary_type=args.summary),
         kwargs=func_args,
         change_vecs=args.change_vecs,
+        summary_names=summary_names,
         param_prior_dists=param_dist)
-
-    summary_names = summary_measures.summary_names(acq, shm_degree=args.d)
-    if args.normalize is not True:
-        summary_names = None
 
     if args.trainer == 'knn':
         print('Change models are trained using KNN approximation.')
@@ -179,7 +177,6 @@ def submit_train(args):
                                     mu_poly_degree=int(args.p),
                                     sigma_poly_degree=int(args.ps),
                                     alpha=float(args.alpha),
-                                    summary_names=summary_names,
                                     parallel=True)
     else:
         raise ValueError(f'Trainer {args.trainer} is undefined. It must be either knn (default) or ml.')
