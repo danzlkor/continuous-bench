@@ -199,6 +199,7 @@ class MLChangeVector:
 class NoChangeModel:
     name: str = 'No change'
     prior: float = 1.0
+    scale: float = 1.0
 
     def distribution(self, y):
         """
@@ -272,6 +273,20 @@ class ChangeModel:
             for j, mdl in enumerate(self.models):
                 mu[i, j], sigma_p[i, j] = mdl.distribution(y)
         return np.squeeze(mu), np.squeeze(sigma_p)
+
+    def set_prior_scales(self, scale):
+        """
+         Changes the scale for the prior distribution on the amount of change
+         (gamma or log normal distribution)
+        :param scale: new scales, either a scalar or list with the size of change models.
+        :return: None
+        """
+        assert np.isscalar(scale) or len(scale) == len(self.models)
+        if np.isscalar(scale):
+            scale = [scale] * len(self.models)
+        for i in range(len(self.models)):
+            self.models[i].scale = scale[i]
+
 
     def infer(self, data, delta_data, sigma_n, parallel=True):
         """
