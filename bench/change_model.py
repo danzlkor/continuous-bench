@@ -358,24 +358,24 @@ class ChangeModel:
                         if ch_mdl.lim == 'positive':
                             neg_int = 0
                         else:  # either negative or two-sided:
-                            neg_peak, lower, upper, _ = find_range(log_post_pdf, (-integral_bound, 0))
+                            neg_peak, lower, upper = find_range(log_post_pdf, (-integral_bound, 0))
                             if check_exp_underflow(log_post_pdf(neg_peak)):
                                 neg_int = 0
                                 neg_expected = 0
                             else:
                                 neg_int = quad(post_pdf, lower, upper, points=[neg_peak], epsrel=1e-3)[0]
-                                neg_expected = estimate_median(post_pdf, [lower, upper])
+                                neg_expected = estimate_mode(post_pdf, [lower, upper])
 
                         if ch_mdl.lim == 'negative':
                             pos_int = 0
                         else:  # either positive or two-sided
-                            pos_peak, lower, upper, _ = find_range(log_post_pdf, (0, integral_bound))
+                            pos_peak, lower, upper = find_range(log_post_pdf, (0, integral_bound))
                             if check_exp_underflow(pos_peak):
                                 pos_int = 0
                                 pos_expected = 0
                             else:
                                 pos_int = quad(post_pdf, lower, upper, points=[pos_peak], epsrel=1e-3)[0]
-                                pos_expected = estimate_median(post_pdf, [lower, upper])
+                                pos_expected = estimate_mode(post_pdf, [lower, upper])
 
                         integral = pos_int + neg_int
                         if integral == 0:
@@ -991,17 +991,25 @@ def find_range(f: Callable, bounds, scale=1e-3):
             print(f"Error of type {e.__class__} occurred, while finding higher limit of integral."
                   f"The upper bound is used instead")
 
-    # expected value = argmax(p(x).x)
-    xpx = lambda dv: -f(dv) - np.log(abs(dv))
-    expectedvalue = minimize_scalar(xpx, bounds=bounds, method='bounded').x
+    return peak, lower, upper
 
-    return peak, lower, upper, expectedvalue
+
+def estimate_mean(pdf: Callable, bounds):
+    """
+    Estimates expected value of a probability distribution
+    :param pdf: pdf
+    :param bounds: the limits
+    :return:
+    """
+    xpx = lambda dv: pdf(dv) * dv
+    expected = quad(xpx, bounds[0], bounds[1], epsrel=1e-3)[0]
+    return expected
 
 
 def estimate_mode(pdf: Callable, bounds):
     """
     Estimates mode of a probability distribution
-    :param log_lh: pdf or log_pdf
+    :param pdf: pdf or log_pdf
     :param bounds: the limits
     :return:
     """
