@@ -973,8 +973,9 @@ def find_range(f: Callable, bounds, scale=1e-3):
     """
     neg_f = lambda dv: -f(dv)
     np.seterr(invalid='raise')
-    np.warnings.filterwarnings('error', category=np.VisibleDeprecationWarning)
-
+    # this warning caused by minimize scalar + numpy interaction.
+    # filtered it because it clutters all other warnings
+    warnings.filterwarnings("ignore", category=np.VisibleDeprecationWarning)
     peak = minimize_scalar(neg_f, bounds=bounds, method='bounded').x
 
     f_norm = lambda dv: f(dv) - (f(peak) + np.log(scale))
