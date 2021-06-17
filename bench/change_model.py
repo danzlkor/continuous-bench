@@ -972,7 +972,7 @@ def find_range(f: Callable, bounds, scale=1e-3):
     :return: peak, lower limit and higher limit.
     """
     neg_f = lambda dv: -f(dv)
-    np.seterr(invalid='raise', all='raise')
+    np.seterr(invalid='raise')
     peak = minimize_scalar(neg_f, bounds=bounds, method='bounded').x
 
     f_norm = lambda dv: f(dv) - (f(peak) + np.log(scale))
@@ -1001,6 +1001,7 @@ def estimate_mean(pdf: Callable, bounds):
     :param bounds: the limits
     :return:
     """
+    np.seterr(invalid='raise')
     xpx = lambda dv: pdf(dv) * dv
     expected = quad(xpx, bounds[0], bounds[1], epsrel=1e-3)[0]
     return expected
