@@ -969,10 +969,10 @@ def find_range(f: Callable, bounds, scale=1e-3):
     :param bounds:
     :param scale: the ratio of limits to peak
     :param search_rad: radious to search for limits
-    :return: peak, lower limit and higher limit, and the expected change.
+    :return: peak, lower limit and higher limit.
     """
     neg_f = lambda dv: -f(dv)
-    np.seterr(invalid='raise')
+    np.seterr(invalid='raise', all='raise')
     peak = minimize_scalar(neg_f, bounds=bounds, method='bounded').x
 
     f_norm = lambda dv: f(dv) - (f(peak) + np.log(scale))
