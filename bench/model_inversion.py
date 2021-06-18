@@ -126,7 +126,7 @@ def fit_model_smm(diffusion_sig, forward_model_name, bvals, bvecs, sph_degree):
     return pe
 
 
-def fit_model_sig(diffusion_sig, noise_level, forward_model_name, bvals, bvecs):
+def fit_model_sig(diffusion_sig, noise_level, forward_model_name, bvals, bvecs, parallel=True):
     forward_model_name = forward_model_name.lower()
     available_models = list(dm.prior_distributions.keys())
     funcdict = {name: f for (name, f) in dm.__dict__.items() if name in available_models}
@@ -147,7 +147,13 @@ def fit_model_sig(diffusion_sig, noise_level, forward_model_name, bvals, bvecs):
     def tmp_func(i):
         return map_fit_sig(func, priors, diffusion_sig[i], noise_level)
 
-    res = Parallel(n_jobs=-1, verbose=True)(delayed(tmp_func)(i) for i in range(n_samples))
+    if parallel:
+        res = Parallel(n_jobs=-1, verbose=True)(delayed(tmp_func)(i) for i in range(n_samples))
+    else:
+        pbar = ProgressBar()
+        res = []
+        for i in pbar(range(n_samples)):
+            res.append(tmp_func(i))
 
     pe = np.array([item[0] for item in res])
     std = np.array([item[1] for item in res])
