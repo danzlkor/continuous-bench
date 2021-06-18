@@ -44,8 +44,8 @@ def log_posterior_sig(params, priors, model, y, noise_level):
 
 
 def map_fit_sig(model: Callable, priors: dict, y: np.ndarray, noise_level):
-    x0 = np.array([getattr(v, 'mean', lambda :0.5)() for v in priors.values()])
-    bounds = [v.support() for v in priors.values()]
+    x0 = np.array([getattr(v, 'mean', lambda:0.5)() for v in priors.values()])
+    bounds = [getattr(v, 'support', lambda:[0, 1])() for v in priors.values()]
 
     f = lambda x: -log_posterior_sig(x, priors, model, y, noise_level)
     p = optimize.minimize(f, x0=x0, bounds=bounds, options={'disp': False}, method='Nelder-mead')
