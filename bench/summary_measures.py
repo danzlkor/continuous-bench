@@ -13,12 +13,12 @@ import os
 def summary_names(acq, shm_degree, cg=False):
     names = []
     for sh in acq.shells:
-        names.append(f"b{sh.bval:1.0f}_mean")
+        names.append(f"b{sh.bval:1.1f}_mean")
         if sh.lmax > 0:
             for degree in np.arange(2, shm_degree + 1, 2):
-                names.append(f"b{sh.bval:1.0f}_l{degree}")
+                names.append(f"b{sh.bval:1.1f}_l{degree}")
             if cg:
-                names.append(f"b{sh.bval:1.0f}_l2_cg")
+                names.append(f"b{sh.bval:1.1f}_l2_cg")
     return names
 
 
@@ -133,56 +133,70 @@ def nan_mat(shape):
 
 
 #  image functions:
-def fit_summary_single_subject(subj_idx: str, diff_add: str, xfm_add: str, bvec_add: str,
-                               bval_add: str, mask_add: str, shm_degree: int, output_add: str):
+def fit_summary_single_subject(diff_add: str, bvec_add: str, bval_add: str, mask_add: str,
+                               xfm_add: str = None, shm_degree: int = 2,
+                               subj_idx: str = None, output_add: str = None, normalize=False):
     """
         the main function that fits summary measurements for a single subject
-        :param subj_idx: used to name the summary files.
         :param diff_add: path to diffusion data
-        :param xfm_add: path to transformation from native space to standard space.
         :param bvec_add: path to bvec file
         :param bval_add: path to bvec file
         :param mask_add: path to mask
-        :param shm_degree: path to the trained model of change file
-        :param output_add: path to output directory
-        :return:
+        :param xfm_add: path to transformation from native space to standard space,
+            if not provided, uses the same space as input.
+        :param shm_degree: degree for summary measuremnets (needs to be an even number)
+        :param output_fname: used to name the summary files.
+        :param output_add: path to output directory, used to save extra files (names, transformation)
+        :return: saves file to the address,
+            returns a code for the process (1: for succeed, 2: already exists)
         """
+    if output_add is None:
+        output_add = '.'
+
     if subj_idx is None:
-        subj_idx = 0
+        subj_idx = 'summary'
+        fname = f"{output_add}/{subj_idx}.nii.gz"
+    else:
+        fname = f"{output_add}/subj_{subj_idx}.nii.gz"
+        if os.path.exists(fname):
+            print(f'Summary measurements already exists for {subj_idx}.\n'
+                  f' delete the current file or use a different name.')
+            return 2
 
-    fname = f"{output_add}/subj_{subj_idx}.nii.gz"
-    if os.path.exists(fname):
-        print(f'Summary measurements for subject {subj_idx} alredy exists.')
-        return 2
-
-    print('diffusion data address:' + diff_add)
-    print('xfm address:' + xfm_add)
-    print('bvec address: ' + bvec_add)
-    print('mask address: ' + mask_add)
-    print('bval address: ' + bval_add)
-    print('shm_degree: ' + str(shm_degree))
-    print('output path: ' + output_add)
+        print('diffusion data address:' + diff_add)
+        print('bvec address: ' + bvec_add)
+        print('mask address: ' + mask_add)
+        print('bval address: ' + bval_add)
+        print('shm_degree: ' + str(shm_degree))
+        print('output path: ' + output_add)
 
     if xfm_add is None:
+        print('no transformation is provided, the results will be in the same space as the input image.')
         data = image_io.read_image(diff_add, mask_add)
         valid_vox = np.ones(data.shape[0])
     else:
+        print('xfm address:' + xfm_add)
         def_field = f"{output_add}/def_field_{subj_idx}.nii.gz"
         data, valid_vox = image_io.sample_from_native_space(diff_add, xfm_add, mask_add, def_field)
 
     acq = acquisition.Acquisition.from_bval_bvec(bval_add, bvec_add)
     summaries = fit_shm(data, acq, shm_degree=shm_degree)
+    if normalize:
+        names = summary_names(acq, shm_degree)
+        summaries = normalize_summaries(summaries, names)
+        names = [f'{n}/b0' for n in names[1:]]
+    else:
+        names = summary_names(acq, shm_degree)
 
     # write to nifti:
     image_io.write_nifti(summaries, mask_add, fname, np.logical_not(valid_vox))
     if not os.path.exists(f'{output_add}/summary_names.txt'):  # write summary names to a text file in the folder.
-        names = summary_names(acq, shm_degree)
         with open(f'{output_add}/summary_names.txt', 'w') as f:
             for t in names:
                 f.write("%s\n" % t)
             f.close()
 
-    print(f'Summary measurements for subject {subj_idx} computed')
+    print(f'Summary measurements for {diff_add} computed')
     return 1
 
 
@@ -198,7 +212,7 @@ def normalize_summaries(y1: np.ndarray, names, dy=None, sigma_n=None):
     assert len(names) == y1.shape[-1], f'Number of summary measurements doesnt match. ' \
                                        f'Expected {len(names)} measures but got {y1.shape[-1]}.'
     y1 = np.array(y1)
-    b0_idx = names.index('b0_mean')
+    b0_idx = names.index('b0.0_mean')
     summary_type = [l.split('_')[1] for l in names]
     mean_b0 = np.atleast_1d(y1[..., b0_idx])
     y1_norm = np.zeros_like(y1)
@@ -211,7 +225,7 @@ def normalize_summaries(y1: np.ndarray, names, dy=None, sigma_n=None):
     y1_norm = np.delete(y1_norm, b0_idx, axis=-1)
     res = [y1_norm]
     if dy is not None:
-        dy=np.array(dy)
+        dy = np.array(dy)
         dy_norm = np.zeros_like(dy)
         for smm_idx, l in enumerate(summary_type):
             if l == 'mean':

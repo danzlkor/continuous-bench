@@ -252,8 +252,9 @@ def submit_summary(args):
 
             def func(subj_idx):
                 x, d, bval, bvec = args.xfm[subj_idx], args.data[subj_idx], args.bval[subj_idx], args.bvecs[subj_idx]
-                summary_measures.fit_summary_single_subject(
-                    subj_idx, d, x, bvec, bval, args.mask, args.shm_degree, f'{args.study_dir}/SummaryMeasurements')
+                summary_measures.fit_summary_single_subject(d, bvec, bval, args.mask,
+                                                            x, args.shm_degree, subj_idx,
+                                                            f'{args.study_dir}/SummaryMeasurements')
 
             # res = Parallel(n_jobs=-1, verbose=True)(delayed(func)(i) for i in range(len(args.data)))
             for i in range(len(args.data)):
@@ -270,8 +271,8 @@ def submit_summary_single_subject(args):
         :param args: list of strings containing all required parameters for fit_summary_single_subj()
         """
     output_add = args.output_add + '/SummaryMeasurements'
-    summary_measures.fit_summary_single_subject(args.subj_idx, args.diff_add, args.xfm_add, args.bvec_add,
-                                                args.bval_add, args.mask_add, args.sph_degree, output_add)
+    summary_measures.fit_summary_single_subject(args.diff_add, args.bvec_add, args.bval_add, args.mask_add,
+                                                args.xfm_add, args.sph_degree, args.subj_idx, output_add)
 
 
 def submit_glm(args):
