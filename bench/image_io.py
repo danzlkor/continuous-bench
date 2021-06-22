@@ -17,6 +17,18 @@ from typing import List
 from joblib import Parallel, delayed
 
 
+def read_image(fname, mask):
+    """
+    Reads a nifti image with a provided mask
+    :param fname: adress to the image
+    :param mask: address to the mask
+    :return: data [n, d] where n is the number of voxels in the mask and d is the 4th dimension of data.
+    """
+    mask_img = Image(mask)
+    data = Image(fname).data[mask_img.data > 0, :]
+    return data
+
+
 def read_summary_images(summary_dir: str, mask: str):
     """
     Reads summary measure images

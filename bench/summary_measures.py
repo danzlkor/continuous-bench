@@ -147,6 +147,9 @@ def fit_summary_single_subject(subj_idx: str, diff_add: str, xfm_add: str, bvec_
         :param output_add: path to output directory
         :return:
         """
+    if subj_idx is None:
+        subj_idx = 0
+
     fname = f"{output_add}/subj_{subj_idx}.nii.gz"
     if os.path.exists(fname):
         print(f'Summary measurements for subject {subj_idx} alredy exists.')
@@ -160,8 +163,12 @@ def fit_summary_single_subject(subj_idx: str, diff_add: str, xfm_add: str, bvec_
     print('shm_degree: ' + str(shm_degree))
     print('output path: ' + output_add)
 
-    def_field = f"{output_add}/def_field_{subj_idx}.nii.gz"
-    data, valid_vox = image_io.sample_from_native_space(diff_add, xfm_add, mask_add, def_field)
+    if xfm_add is None:
+        data = image_io.read_image(diff_add, mask_add)
+        valid_vox = np.ones(data.shape[0])
+    else:
+        def_field = f"{output_add}/def_field_{subj_idx}.nii.gz"
+        data, valid_vox = image_io.sample_from_native_space(diff_add, xfm_add, mask_add, def_field)
 
     acq = acquisition.Acquisition.from_bval_bvec(bval_add, bvec_add)
     summaries = fit_shm(data, acq, shm_degree=shm_degree)
