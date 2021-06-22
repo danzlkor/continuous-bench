@@ -229,8 +229,8 @@ def submit_summary(args):
     else:
         task_list = list()
         for subj_idx, (x, d, bval, bvec) in enumerate(zip(args.xfm, args.data, args.bval, args.bvecs)):
-            cmd = f'bench diff-single-summary {subj_idx} {d} {x} {bvec} ' \
-                  f'{bval} {args.mask} {args.study_dir} {args.shm_degree} '
+            cmd = f'bench diff-single-summary {d} {bvec} ' \
+                  f'{bval} {args.mask} {x} {args.shm_degree} {subj_idx} {args.study_dir} '
             task_list.append(cmd)
         # main(cmd.split()[1:]) # for debugging.
 
