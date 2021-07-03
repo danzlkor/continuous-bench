@@ -281,8 +281,8 @@ def read_inference_results(maps_dir, mask_add=None):
     posteriors = dict()
     amounts = dict()
     for i, m in enumerate(model_names):
-        posteriors[m] = Image(f'{maps_dir}/{m}_probability.nii').data[mask_img.data > 0, :]
+        posteriors[m] = Image(f'{maps_dir}/{m}_probability.nii').data[mask_img.data > 0]
         if i > 0:
-            amounts[m] = Image(f'{maps_dir}/{m}_amount.nii').data[mask_img.data > 0, :]
+            amounts[m] = Image(f'{maps_dir}/{m}_amount.nii').data[mask_img.data > 0]
 
     return posteriors, amounts
