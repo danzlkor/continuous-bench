@@ -282,7 +282,9 @@ def read_inference_results(maps_dir, mask_add=None):
     amounts = dict()
     for i, m in enumerate(model_names):
         posteriors[m] = Image(f'{maps_dir}/{m}_probability.nii').data[mask_img.data > 0]
-        if i > 0:
+        if m == '[]':
+            amounts[m] = np.zeros_like(posteriors[m])
+        else:
             amounts[m] = Image(f'{maps_dir}/{m}_amount.nii').data[mask_img.data > 0]
 
     return posteriors, amounts
