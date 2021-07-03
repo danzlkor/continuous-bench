@@ -262,3 +262,27 @@ def write_inference_results(path, model_names, predictions, posteriors, peaks, m
         write_nifti(posteriors[:, i][:, np.newaxis], mask, f'{path}/{m}_probability')
         if i > 0:
             write_nifti(peaks[:, i - 1][:, np.newaxis], mask, f'{path}/{m}_amount')
+
+
+def read_inference_results(maps_dir, mask_add=None):
+    """
+    Reads the results of inference (posterior probabilities and estimated amount of change) for further analyses
+    :param maps_dir: path to the results dir that contains probability maps
+    :param mask_add: address of mask file, by default it uses the mask in the maps dir (if exists).
+    :return: tuple (dict(models > probabilities (n_vox,1 )), dict(models > amounts)
+    """
+
+    if mask_add is None:
+        mask_add = maps_dir + '/valid_mask.nii'
+    file_names = glob.glob(f'{maps_dir}/*probability*')
+    model_names = [f.split('/')[-1].replace('_probability.nii', '') for f in file_names]
+    mask_img = Image(mask_add)
+
+    posteriors = dict()
+    amounts = dict()
+    for i, m in enumerate(model_names):
+        posteriors[m] = Image(f'{maps_dir}/{m}_probability.nii').data[mask_img.data > 0, :]
+        if i > 0:
+            amounts[m] = Image(f'{maps_dir}/{m}_amount.nii').data[mask_img.data > 0, :]
+
+    return posteriors, amounts
