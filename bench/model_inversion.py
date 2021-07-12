@@ -5,13 +5,11 @@ import glob
 import os
 from warnings import warn
 
-import fsl.utils.fslsub as fslsub
 import numpy as np
 import scipy.stats as st
 import sys
 from fsl.data.featdesign import loadDesignMat
 from fsl.data.image import Image
-from fsl.utils.run import run
 from progressbar import ProgressBar
 from joblib import delayed, Parallel
 from scipy import optimize
@@ -24,30 +22,30 @@ def log_prior(params, priors):
     return np.sum([priors[k].logpdf(params[k]) for k in params.keys()])
 
 
-def log_likelihood_sig(params, model, y, noise_level):
+def log_likelihood_sig(params, model, signal, noise_level):
     expected = np.squeeze(model(params))
     d = expected.shape[0]
-    expo = -0.5 * np.linalg.norm((y - expected)/noise_level) ** 2
+    expo = -0.5 * np.linalg.norm((signal - expected)/noise_level) ** 2
     nc = -0.5 * d * np.log((2 * np.pi * noise_level ** 2))
     return expo + nc
 
 
-def log_posterior_sig(params, priors, model, y, noise_level):
+def log_posterior_sig(params, priors, model, signal, noise_level):
     param_dict = {k: v for k, v in zip(priors.keys(), params)}
     prior = log_prior(param_dict, priors)
     if np.isneginf(prior):
         ll = -np.inf
     else:
-        ll = log_likelihood_sig(param_dict, model, y, noise_level)
+        ll = log_likelihood_sig(param_dict, model, signal, noise_level)
 
     return prior + ll
 
 
-def map_fit_sig(model: Callable, priors: dict, y: np.ndarray, noise_level):
+def map_fit_sig(model: Callable, priors: dict, signal: np.ndarray, noise_level: float):
     x0 = np.array([getattr(v, 'mean', lambda:0.5)() for v in priors.values()])
     bounds = [getattr(v, 'support', lambda:[0, 1])() for v in priors.values()]
 
-    f = lambda x: -log_posterior_sig(x, priors, model, y, noise_level)
+    f = lambda x: -log_posterior_sig(x, priors, model, signal, noise_level)
     p = optimize.minimize(f, x0=x0, bounds=bounds, options={'disp': False}, method='Nelder-mead')
     h = hessian(f, p.x, bounds=bounds, dp=1e-2)
     std = np.sqrt(np.diag(abs(np.linalg.inv(h))))
