@@ -703,14 +703,15 @@ class Trainer:
         return ChangeModel(models=models, summary_names=self.summary_names,
                            baseline_kde=kde, forward_model=self.forward_model.__name__)
 
-    def generate_train_samples(self, n_samples: int, dv0: float = 1e-6) -> tuple:
+    def generate_train_samples(self, n_samples: int, dv0: float = 1e-6, all_params = None) -> tuple:
         """
         generate samples to estimate derivatives.
         :param n_samples: number of samples
         :param dv0: the amount of change
         :return: M(V) , M(V+\Delta V).
         """
-        all_params = sample_params(self.param_prior_dists, n_samples=n_samples)
+        if all_params is None:
+            all_params = sample_params(self.param_prior_dists, n_samples=n_samples)
 
         for vec in self.change_vecs:
             for (k, v) in all_params.items():
