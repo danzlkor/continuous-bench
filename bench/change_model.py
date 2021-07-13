@@ -30,82 +30,6 @@ INTEGRAL_LIMITS = list(BOUNDS.keys())
 
 
 @dataclass
-class KNNChangeVector:
-    """
-    class for a single model of change
-    """
-    vec: Mapping
-    mu_mdl: Pipeline
-    l_mdl: Pipeline
-    lim: str
-    prior: float = 1
-    scale: float = 0.1
-    name: str = None
-
-    def __post_init__(self):
-        scale = np.round(np.linalg.norm(list(self.vec.values())), 3)
-        if scale != 1:
-            warnings.warn(f'Change vector {self.name} does not have a unit length')
-
-        if self.name is None:
-            self.name = dict_to_string(self.vec)
-
-    def estimate_change(self, y: np.ndarray):
-        """
-        Computes predicted mu and sigma at the given point for this model of change
-
-        :param y: sample data (..., N) for N summary measures
-        :return: Tuple with
-
-            - `mu`: (..., N)-array with mean change
-            - `sigma`: (..., N, N)-array with covariance matrix of change
-        """
-        if y.ndim == 1:
-            y = y[np.newaxis, :]
-
-        mu = self.mu_mdl.predict(y)
-        sigma, _ = l_to_sigma(self.l_mdl.predict(y))
-
-        return mu, sigma
-
-    def log_lh(self, dv, y, dy, sigma_n):
-        """
-        Computes log likelihood (P(dy|y, dv)) for the given  measurements
-        :param dv: scalar or 1d array of the amount of change
-        :param y: the baseline measurements 1d or 2d array with last dimension beaing the measurements.
-        :param dy: chage in the meausrements , the same size as y
-        :param sigma_n: noise covariance matrix per sample
-        :return: loglikelhood per sample
-        """
-        mu, sigma_p = self.estimate_change(y)
-        mean = np.squeeze(dv * mu)
-        cov = (dv ** 2) * np.linalg.inv(np.squeeze(sigma_p)) + sigma_n
-        return log_mvnpdf(x=dy, mean=mean, cov=cov)
-
-    def log_prior(self, dv):
-        """
-        Computes the prior probability of the amount of change
-
-        :param dv: the amount of change, scalar or 1d array.
-        :return: log(p(dv))
-        """
-        if self.lim == 'negative':
-            dv = -dv
-        elif self.lim == 'twosided':
-            dv = np.abs(dv)
-
-        p = lognorm(s=np.log(10), scale=self.scale).logpdf(x=dv)  # norm(scale=scale, loc=0).pdf(x=dv)  #
-
-        if self.lim == 'twosided':
-            p -= np.log(2)
-
-        return p
-
-    def log_posterior(self, dv, y, dy, sigma_n):
-        return self.log_prior(dv) + self.log_lh(dv, y, dy, sigma_n)
-
-
-@dataclass
 class MLChangeVector:
     """
     class for a single model of change trained by maximum likelihood approach
@@ -287,7 +211,6 @@ class ChangeModel:
         for i in range(len(self.models)):
             self.models[i].scale = scale[i]
 
-
     def infer(self, data, delta_data, sigma_n, parallel=True):
         """
         Computes the posterior probabilities for each model of change
@@ -353,7 +276,7 @@ class ChangeModel:
                     try:
                         log_post_pdf = lambda dv: ch_mdl.log_posterior(dv, y_s, dy_s, sigma_n_s)
                         post_pdf = lambda dv: np.exp(log_post_pdf(dv))
-                        #lh = lambda dv: np.exp(ch_mdl.log_lh(dv, y_s, dy_s, sigma_n_s))
+                        # lh = lambda dv: np.exp(ch_mdl.log_lh(dv, y_s, dy_s, sigma_n_s))
 
                         if ch_mdl.lim == 'positive':
                             neg_int = 0
@@ -388,7 +311,7 @@ class ChangeModel:
                         if ch_mdl.lim == 'negative':
                             amount[vec_idx] = neg_expected
                         else:
-                            amount[vec_idx] = pos_expected if post_pdf(pos_expected) >\
+                            amount[vec_idx] = pos_expected if post_pdf(pos_expected) > \
                                                               post_pdf(neg_expected) else neg_expected
 
                     except np.linalg.LinAlgError as err:
@@ -419,6 +342,7 @@ class ChangeModel:
         """
         given a baseline measurement, a noise covariance, and an effect size( the amount of change in eahc parameter)
         computes the expected confusion between change vectors.
+        :param n_samples: number of samples
         :param data: (1, d) un normalized baseline summary measurements
         :param sigma_n: (d, d) noise covariance matrix for the change.
         :param effect_size: (m,) or a scalar on the amount of change.
@@ -635,7 +559,7 @@ class Trainer:
         """
         print(f'Generating {n_samples} training samples...')
         y_1, y_2 = self.generate_train_samples(n_samples, dv0)
-        dy = (y_2 - y_1) / dv0
+        dy = (y_2 / y_1) / dv0
         kde = gaussian_kde(y_1[:, 1:].T)
         mean_y = y_1.mean(axis=0)[np.newaxis, :][:, 1:]
         yf_mu = PolynomialFeatures(degree=mu_poly_degree).fit_transform(y_1[:, 1:] - mean_y)
@@ -657,7 +581,8 @@ class Trainer:
             sigma_weights = optimize.minimize(neg_log_likelihood, method='BFGS',
                                               x0=x0,
                                               args=(
-                                              dy[idx], yf_mu, yf_sigma, mu_weights.x, self.diag_idx, 'sigma', alpha))
+                                                  dy[idx], yf_mu, yf_sigma, mu_weights.x, self.diag_idx, 'sigma',
+                                                  alpha))
 
             print(f' sigma optimization for {self.vec_names[idx]}: {sigma_weights.message}\n '
                   f'function value:{sigma_weights.fun}, {sigma_weights.nit}')
@@ -703,6 +628,7 @@ class Trainer:
         return ChangeModel(models=models, summary_names=self.summary_names,
                            baseline_kde=kde, forward_model=self.forward_model.__name__)
 
+    # Todo: refactor the
     def generate_train_samples(self, n_samples: int, dv0: float = 1e-6, all_params=None) -> tuple:
         """
         generate samples to estimate derivatives.
