@@ -222,6 +222,7 @@ def normalize_summaries(y1: np.ndarray, names, dy=None, sigma_n=None):
             y1_norm[..., smm_idx] = y1[..., smm_idx] / mean_b0
         else:
             y1_norm[..., smm_idx] = y1[..., smm_idx] - 2 * np.log(mean_b0)
+
     y1_norm = np.delete(y1_norm, b0_idx, axis=-1)
     res = [y1_norm]
     if dy is not None:
@@ -231,7 +232,7 @@ def normalize_summaries(y1: np.ndarray, names, dy=None, sigma_n=None):
             if l == 'mean':
                 dy_norm[..., smm_idx] = dy[..., smm_idx] / mean_b0
             else:
-                dy_norm[..., smm_idx] = dy[..., smm_idx] / (mean_b0 ** 2)
+                dy_norm[..., smm_idx] = dy[..., smm_idx] - 2 * np.log(mean_b0)
         res.append(dy_norm)
 
     if sigma_n is not None:
@@ -242,8 +243,8 @@ def normalize_summaries(y1: np.ndarray, names, dy=None, sigma_n=None):
                 sigma_n_norm[..., smm_idx, :] = sigma_n_norm[..., smm_idx, :] / mean_b0[:, np.newaxis]
                 sigma_n_norm[..., :, smm_idx] = sigma_n_norm[..., :, smm_idx] / mean_b0[:, np.newaxis]
             else:
-                sigma_n_norm[..., smm_idx, :] = sigma_n_norm[..., smm_idx, :] / (mean_b0[:, np.newaxis] ** 2)
-                sigma_n_norm[..., :, smm_idx] = sigma_n_norm[..., :, smm_idx] / (mean_b0[:, np.newaxis] ** 2)
+                sigma_n_norm[..., smm_idx, :] = sigma_n_norm[..., smm_idx, :] - 2 * np.log(mean_b0[:, np.newaxis])
+                sigma_n_norm[..., :, smm_idx] = sigma_n_norm[..., :, smm_idx] - 2 * np.log(mean_b0[:, np.newaxis])
         res.append(sigma_n_norm)
 
     if dy is None and sigma_n is None:
