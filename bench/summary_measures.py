@@ -231,7 +231,7 @@ def normalize_summaries(y1: np.ndarray, names, dy=None, sigma_n=None):
             if l == 'mean':
                 dy_norm[..., smm_idx] = dy[..., smm_idx] / mean_b0
             else:
-                dy_norm[..., smm_idx] = dy[..., smm_idx] / (mean_b0 **2)
+                dy_norm[..., smm_idx] = dy[..., smm_idx] / (mean_b0 ** 2)
         res.append(dy_norm)
 
     if sigma_n is not None:
