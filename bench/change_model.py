@@ -68,10 +68,9 @@ class MLChangeVector:
         :return: mu and sigma
         """
         y = np.atleast_2d(y)
-        x = y - self.mean_y
-        x = np.concatenate([x, np.log(x)], axis=1)
-        yf_mu = self.mu_feature_extractor.fit_transform(x)
-        yf_sigma = self.sigma_feature_extractor.fit_transform(x)
+        x = np.concatenate([y, np.log(y)], axis=1)
+        yf_mu = self.mu_feature_extractor.fit_transform(x - self.mean_y)
+        yf_sigma = self.sigma_feature_extractor.fit_transform(x - self.mean_y)
         mu, sigma_inv, _ = regression_model(yf_mu, yf_sigma, self.mu_weight, self.sig_weight, self.diag_idx)
         sigma = np.linalg.inv(sigma_inv)
         # if np.linalg.cond(sigma_inv) < 1 / np.sys.float_info.epsilon:
