@@ -53,7 +53,7 @@ def fit_shm(signal, acq, shm_degree):
             y_inv = np.linalg.pinv(y.T)
             coeffs = shell_signal @ y_inv
             for degree in np.arange(2, shm_degree + 1, 2):
-                sum_meas.append(np.power(coeffs[..., l == degree], 2).mean(axis=-1))
+                sum_meas.append(np.log(np.power(coeffs[..., l == degree], 2).mean(axis=-1)))
 
     sum_meas = np.stack(sum_meas, axis=-1)
     return sum_meas
@@ -221,7 +221,7 @@ def normalize_summaries(y1: np.ndarray, names, dy=None, sigma_n=None):
         if l == 'mean':
             y1_norm[..., smm_idx] = y1[..., smm_idx] / mean_b0
         else:
-            y1_norm[..., smm_idx] = y1[..., smm_idx] / (mean_b0 ** 2)
+            y1_norm[..., smm_idx] = y1[..., smm_idx] - 2 * np.log(mean_b0)
     y1_norm = np.delete(y1_norm, b0_idx, axis=-1)
     res = [y1_norm]
     if dy is not None:
