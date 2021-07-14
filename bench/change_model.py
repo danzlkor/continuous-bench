@@ -55,9 +55,9 @@ class MLChangeVector:
 
         self.mu_feature_extractor = PolynomialFeatures(degree=self.mu_poly_degree)
         self.sigma_feature_extractor = PolynomialFeatures(degree=self.sigma_poly_degree)
-
-        tril_idx = np.tril_indices(self.mu_weight.shape[-1])
-        self.diag_idx = np.argwhere(tril_idx[0] == tril_idx[1])
+        if self.mu_weight is not None:
+            tril_idx = np.tril_indices(self.mu_weight.shape[-1])
+            self.diag_idx = np.argwhere(tril_idx[0] == tril_idx[1])
 
     def distribution(self, y, lam=1e-12):
         """
