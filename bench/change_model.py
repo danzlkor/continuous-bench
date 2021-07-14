@@ -56,7 +56,6 @@ class MLChangeVector:
         self.mu_feature_extractor = PolynomialFeatures(degree=self.mu_poly_degree)
         self.sigma_feature_extractor = PolynomialFeatures(degree=self.sigma_poly_degree)
 
-
         tril_idx = np.tril_indices(self.mu_weight.shape[-1])
         self.diag_idx = np.argwhere(tril_idx[0] == tril_idx[1])
 
@@ -560,7 +559,7 @@ class Trainer:
         """
         print(f'Generating {n_samples} training samples...')
         y_1, y_2 = self.generate_train_samples(n_samples, dv0)
-        dy = (y_2 - y_1) / dv0
+        dy = np.log(y_2 / y_1) / dv0
         x = np.concatenate([y_1[:, 1:], np.log(y_1[:, 1:])], axis=1)
         kde = gaussian_kde(x.T)
         mean_y = x.mean(axis=0, keepdims=True)
