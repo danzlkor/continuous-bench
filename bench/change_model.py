@@ -559,12 +559,12 @@ class Trainer:
         print(f'Generating {n_samples} training samples...')
         y_1, y_2 = self.generate_train_samples(n_samples, dv0)
         dy = (y_2 - y_1) / dv0
-        x = y_1[:, 1:]
-        kde = gaussian_kde(x.T)
-        mean_y = x.mean(axis=0, keepdims=True)
+        y = y_1[:, 1:]  # drop b0
+        kde = gaussian_kde(y.T)
+        mean_y = y.mean(axis=0, keepdims=True)
 
-        yf_mu = PolynomialFeatures(degree=mu_poly_degree).fit_transform(x - mean_y)
-        yf_sigma = PolynomialFeatures(degree=sigma_poly_degree).fit_transform(x-mean_y)
+        yf_mu = PolynomialFeatures(degree=mu_poly_degree).fit_transform(y - mean_y)
+        yf_sigma = PolynomialFeatures(degree=sigma_poly_degree).fit_transform(y - mean_y)
         n_mu_features = yf_mu.shape[-1]
         if verbose:
             print('Training models of change ...')

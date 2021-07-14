@@ -181,7 +181,7 @@ def submit_train(args):
     else:
         raise ValueError(f'Trainer {args.trainer} is undefined. It must be either knn (default) or ml.')
 
-    ch_model.model_name = forward_model.__name__
+    ch_model.forward_model_name = forward_model.__name__
     ch_model.meausrement_names = summary_measures.summary_names(acq, args.d)
     ch_model.save(path='', file_name=args.output)
     print('All change models were trained successfully')
