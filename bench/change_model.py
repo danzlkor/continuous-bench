@@ -68,8 +68,10 @@ class MLChangeVector:
         :return: mu and sigma
         """
         y = np.atleast_2d(y)
-        yf_mu = self.mu_feature_extractor.fit_transform(y - self.mean_y)
-        yf_sigma = self.sigma_feature_extractor.fit_transform(y - self.mean_y)
+        x = y - self.mean_y
+        x = np.concatenate([x, np.log(x)], axis=1)
+        yf_mu = self.mu_feature_extractor.fit_transform(x)
+        yf_sigma = self.sigma_feature_extractor.fit_transform(x)
         mu, sigma_inv, _ = regression_model(yf_mu, yf_sigma, self.mu_weight, self.sig_weight, self.diag_idx)
         sigma = np.linalg.inv(sigma_inv)
         # if np.linalg.cond(sigma_inv) < 1 / np.sys.float_info.epsilon:
@@ -560,7 +562,7 @@ class Trainer:
         print(f'Generating {n_samples} training samples...')
         y_1, y_2 = self.generate_train_samples(n_samples, dv0)
         dy = (y_2 - y_1) / dv0
-        x = y_1[:, 1:]
+        x = np.concatenate([y_1[:, 1:], np.log(y_1[:, 1:])], axis=1)
         kde = gaussian_kde(x.T)
         mean_y = x.mean(axis=0, keepdims=True)
 
