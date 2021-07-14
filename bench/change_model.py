@@ -559,7 +559,7 @@ class Trainer:
         """
         print(f'Generating {n_samples} training samples...')
         y_1, y_2 = self.generate_train_samples(n_samples, dv0)
-        dy = (y_2 / y_1) / dv0
+        dy = (y_2 - y_1) / dv0
         kde = gaussian_kde(y_1[:, 1:].T)
         mean_y = y_1.mean(axis=0)[np.newaxis, :][:, 1:]
         yf_mu = PolynomialFeatures(degree=mu_poly_degree).fit_transform(y_1[:, 1:] - mean_y)
