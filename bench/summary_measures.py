@@ -243,8 +243,8 @@ def normalize_summaries(y1: np.ndarray, names, dy=None, sigma_n=None):
                 sigma_n_norm[..., smm_idx, :] = sigma_n_norm[..., smm_idx, :] / mean_b0[:, np.newaxis]
                 sigma_n_norm[..., :, smm_idx] = sigma_n_norm[..., :, smm_idx] / mean_b0[:, np.newaxis]
             else:
-                sigma_n_norm[..., smm_idx, :] = sigma_n_norm[..., smm_idx, :] - 2 * np.log(mean_b0[:, np.newaxis])
-                sigma_n_norm[..., :, smm_idx] = sigma_n_norm[..., :, smm_idx] - 2 * np.log(mean_b0[:, np.newaxis])
+                sigma_n_norm[..., smm_idx, :] = sigma_n_norm[..., smm_idx, :] # / (mean_b0[:, np.newaxis] ** 2)
+                sigma_n_norm[..., :, smm_idx] = sigma_n_norm[..., :, smm_idx] # / (mean_b0[:, np.newaxis] ** 2)
         res.append(sigma_n_norm)
 
     if dy is None and sigma_n is None:
