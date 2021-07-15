@@ -310,8 +310,7 @@ class ChangeModel:
                         if ch_mdl.lim == 'negative':
                             amount[vec_idx] = neg_expected
                         else:
-                            amount[vec_idx] = pos_expected if post_pdf(pos_expected) > \
-                                                              post_pdf(neg_expected) else neg_expected
+                            amount[vec_idx] = pos_expected if pos_int > neg_int else neg_expected
 
                     except np.linalg.LinAlgError as err:
                         if 'Singular matrix' in str(err):
@@ -945,8 +944,8 @@ def estimate_mode(pdf: Callable, bounds):
     :param bounds: the limits
     :return:
     """
-    xpx = lambda dv: -pdf(dv)
-    expected = minimize_scalar(xpx, bounds=bounds, method='bounded').x
+    px = lambda dv: -pdf(dv)
+    expected = minimize_scalar(px, bounds=bounds, method='bounded').x
     return expected
 
 

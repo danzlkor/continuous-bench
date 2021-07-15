@@ -9,7 +9,8 @@ from dipy.reconst.shm import real_sym_sh_basis
 from bench import acquisition, image_io
 import os
 
-LOG_L= False
+Default_LOG_L = False # default flag to log transform l measures or not.
+
 
 def summary_names(acq, shm_degree, cg=False):
     names = []
@@ -30,7 +31,7 @@ def normalized_shms(bvecs, lmax):
     return y, l
 
 
-def fit_shm(signal, acq, shm_degree, log_l=LOG_L):
+def fit_shm(signal, acq, shm_degree, log_l=Default_LOG_L):
     """
     Cumputes summary measurements from spherical harmonics fit.
     :param signal: diffusion signal
@@ -204,7 +205,7 @@ def fit_summary_single_subject(diff_add: str, bvec_add: str, bval_add: str, mask
     return 1
 
 
-def normalize_summaries(y1: np.ndarray, names, dy=None, sigma_n=None, log_l=LOG_L):
+def normalize_summaries(y1: np.ndarray, names, dy=None, sigma_n=None, log_l=Default_LOG_L):
     """
     Normalises summary measures for all subjects. (divide by average attenuation)
     :param names: name of summaries, is required for knowing how to normalize
