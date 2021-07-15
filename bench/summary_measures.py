@@ -9,7 +9,7 @@ from dipy.reconst.shm import real_sym_sh_basis
 from bench import acquisition, image_io
 import os
 
-Default_LOG_L = False # default flag to log transform l measures or not.
+Default_LOG_L = True # default flag to log transform l measures or not.
 
 
 def summary_names(acq, shm_degree, cg=False):
