@@ -261,7 +261,7 @@ def write_inference_results(path, model_names, predictions, posteriors, peaks, m
     for i, m in enumerate(model_names):
         write_nifti(posteriors[:, i][:, np.newaxis], mask, f'{path}/{m}_probability')
         if i > 0:
-            write_nifti(peaks[:, i - 1][:, np.newaxis], mask, f'{path}/{m}_amount')
+            write_nifti(peaks[:, i][:, np.newaxis], mask, f'{path}/{m}_amount')
 
 
 def read_inference_results(maps_dir, mask_add=None):
