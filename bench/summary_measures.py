@@ -9,6 +9,7 @@ from dipy.reconst.shm import real_sym_sh_basis
 from bench import acquisition, image_io
 import os
 
+LOG_L= False
 
 def summary_names(acq, shm_degree, cg=False):
     names = []
@@ -29,12 +30,13 @@ def normalized_shms(bvecs, lmax):
     return y, l
 
 
-def fit_shm(signal, acq, shm_degree):
+def fit_shm(signal, acq, shm_degree, log_l=LOG_L):
     """
     Cumputes summary measurements from spherical harmonics fit.
     :param signal: diffusion signal
     :param acq: acquistion protocol
     :param shm_degree: maximum degree for summary measurements
+    :param log_l: flag for taking the logarithm of l measures or not
     :return: summary measurements
     """
     if signal.ndim == 1:
@@ -53,7 +55,10 @@ def fit_shm(signal, acq, shm_degree):
             y_inv = np.linalg.pinv(y.T)
             coeffs = shell_signal @ y_inv
             for degree in np.arange(2, shm_degree + 1, 2):
-                sum_meas.append(np.power(coeffs[..., l == degree], 2).mean(axis=-1))
+                x = np.power(coeffs[..., l == degree], 2).mean(axis=-1)
+                if log_l:
+                    x = np.log(x)
+                sum_meas.append(x)
 
     sum_meas = np.stack(sum_meas, axis=-1)
     return sum_meas
@@ -199,13 +204,14 @@ def fit_summary_single_subject(diff_add: str, bvec_add: str, bval_add: str, mask
     return 1
 
 
-def normalize_summaries(y1: np.ndarray, names, dy=None, sigma_n=None):
+def normalize_summaries(y1: np.ndarray, names, dy=None, sigma_n=None, log_l=LOG_L):
     """
     Normalises summary measures for all subjects. (divide by average attenuation)
     :param names: name of summaries, is required for knowing how to normalize
     :param y1: array of summaries for baseline measurements
     :param dy: array of summaries for second group, or the change
     :param sigma_n: array or list of covariance matrices
+    :param log_l: flag for logarithm l2
     :return: normalised summaries
     """
     assert len(names) == y1.shape[-1], f'Number of summary measurements doesnt match. ' \
@@ -220,7 +226,10 @@ def normalize_summaries(y1: np.ndarray, names, dy=None, sigma_n=None):
         if l == 'mean':
             y1_norm[..., smm_idx] = y1[..., smm_idx] / mean_b0
         else:
-            y1_norm[..., smm_idx] = y1[..., smm_idx] / (mean_b0 ** 2)
+            if log_l:
+                y1_norm[..., smm_idx] = y1[..., smm_idx] - 2 * np.log(mean_b0)
+            else:
+                y1_norm[..., smm_idx] = y1[..., smm_idx] / (mean_b0 ** 2)
 
     y1_norm = np.delete(y1_norm, b0_idx, axis=-1)
     res = [y1_norm]
@@ -231,7 +240,10 @@ def normalize_summaries(y1: np.ndarray, names, dy=None, sigma_n=None):
             if l == 'mean':
                 dy_norm[..., smm_idx] = dy[..., smm_idx] / mean_b0
             else:
-                dy_norm[..., smm_idx] = dy[..., smm_idx] / (mean_b0 ** 2)
+                if log_l:
+                    dy_norm[..., smm_idx] = dy[..., smm_idx] - 2 * np.log(mean_b0)
+                else:
+                    dy_norm[..., smm_idx] = dy[..., smm_idx] / (mean_b0 ** 2)
         res.append(dy_norm)
 
     if sigma_n is not None:
@@ -242,8 +254,10 @@ def normalize_summaries(y1: np.ndarray, names, dy=None, sigma_n=None):
                 sigma_n_norm[..., smm_idx, :] = sigma_n_norm[..., smm_idx, :] / mean_b0[:, np.newaxis]
                 sigma_n_norm[..., :, smm_idx] = sigma_n_norm[..., :, smm_idx] / mean_b0[:, np.newaxis]
             else:
-                sigma_n_norm[..., smm_idx, :] = sigma_n_norm[..., smm_idx, :] / (mean_b0[:, np.newaxis] ** 2)
-                sigma_n_norm[..., :, smm_idx] = sigma_n_norm[..., :, smm_idx] / (mean_b0[:, np.newaxis] ** 2)
+                if not log_l:
+                    sigma_n_norm[..., smm_idx, :] = sigma_n_norm[..., smm_idx, :] / (mean_b0[:, np.newaxis] ** 2)
+                    sigma_n_norm[..., :, smm_idx] = sigma_n_norm[..., :, smm_idx] / (mean_b0[:, np.newaxis] ** 2)
+
         res.append(sigma_n_norm)
 
     if dy is None and sigma_n is None:
