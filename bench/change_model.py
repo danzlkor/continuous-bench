@@ -300,10 +300,10 @@ class ChangeModel:
                                 pos_expected = estimate_mode(post_pdf, [lower, upper])
 
                         integral = pos_int + neg_int
-                        if integral == 0:
-                            log_prob[vec_idx] = -np.inf
-                        else:
+                        if integral > 0:
                             log_prob[vec_idx] = np.log(integral)
+                        else:
+                            log_prob[vec_idx] = -np.inf
 
                         if ch_mdl.lim == 'positive':
                             amount[vec_idx] = pos_expected
