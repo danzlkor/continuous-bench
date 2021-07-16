@@ -225,7 +225,7 @@ class ChangeModel:
 
         print(f'running inference for {data.shape[0]} samples ...')
         y, dy, sn = summary_measures.normalize_summaries(data, self.summary_names, delta_data, sigma_n)
-        lls, amounts = self.compute_log_likelihood(y, dy, sn, parallel=parallel, integral_bound=10)
+        lls, amounts = self.compute_log_likelihood(y, dy, sn, parallel=parallel, integral_bound=1)
         priors = np.array([m.prior for m in self.models])  # the 1 is for empty set
         priors = priors / priors.sum()
         model_log_posteriors = lls + np.log(priors)
