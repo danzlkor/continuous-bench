@@ -103,6 +103,8 @@ class MLChangeVector:
 
         if self.lim == 'twosided':
             p -= np.log(2)
+        if dv > 1:
+            p = -np.inf
 
         return p
 
