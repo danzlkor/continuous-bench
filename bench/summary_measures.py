@@ -242,7 +242,7 @@ def normalize_summaries(y1: np.ndarray, names, dy=None, sigma_n=None, log_l=Defa
                 dy_norm[..., smm_idx] = dy[..., smm_idx] / mean_b0
             else:
                 if log_l:
-                    dy_norm[..., smm_idx] = dy[..., smm_idx] - 2 * np.log(mean_b0)
+                    dy_norm[..., smm_idx] = dy[..., smm_idx]
                 else:
                     dy_norm[..., smm_idx] = dy[..., smm_idx] / (mean_b0 ** 2)
         res.append(dy_norm)
