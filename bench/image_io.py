@@ -24,8 +24,11 @@ def read_image(fname, mask):
     :param mask: address to the mask
     :return: data [n, d] where n is the number of voxels in the mask and d is the 4th dimension of data.
     """
-    mask_img = Image(mask)
-    data = Image(fname).data[mask_img.data > 0, :]
+    mask_img = Image(mask).data
+    data_img = Image(fname).data
+    if data_img.ndim == 3:
+        data_img = data_img[..., np.newaxis]
+    data = data_img[mask_img > 0, :]
     return data
 
 
