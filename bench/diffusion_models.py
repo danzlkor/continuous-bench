@@ -22,9 +22,9 @@ def sample_signal(n_samples):
     """
     tissue_type = np.random.choice(3, n_samples, p=[0.0, .2, .8])
     # 0: CSF, 1: partial volume , 2: brain
-    s_iso = stats.uniform(loc=0, scale=.5).rvs(n_samples)
-    s_in = stats.truncnorm(loc=.5, scale=.2, a=-.4 / .2, b=np.Inf).rvs(n_samples)
-    s_ex = stats.truncnorm(loc=.5, scale=.2, a=-.4 / .2, b=np.Inf).rvs(n_samples)
+    s_iso = stats.uniform(loc=0, scale=.8).rvs(n_samples)
+    s_in = stats.truncnorm(loc=.5, scale=.2, a=-.4 / .2, b=1/0.2).rvs(n_samples)
+    s_ex = stats.truncnorm(loc=.5, scale=.2, a=-.4 / .2, b=1/0.2).rvs(n_samples)
 
     # CSF:
     s_iso[tissue_type == 0] = 1 - 1e-4
@@ -64,7 +64,7 @@ prior_distributions = dict(
                 },
 
     watson_noddi={('s_iso', 's_in', 's_ex'): sample_signal,
-                  'odi': stats.beta(a=2, b=5),
+                  'odi': stats.beta(a=2, b=3),
                   'd_iso': stats.truncnorm(loc=3, scale=.1, a=-3 / .1, b=np.Inf),
                   'd_a_in': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
                   'd_a_ex': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
