@@ -103,6 +103,8 @@ def voxelwise_group_glm(data, weights, design_con, equal_samples=False, baseline
     n_subj, n_vox, n_dim = data.shape
     copes = np.zeros((n_vox, n_dim, 2))
     varcopes = np.zeros((n_vox, n_dim, n_dim, 2))
+    sigma_n_base = np.zeros((n_vox, n_dim, n_dim))
+
     for vox in range(n_vox):
         y = data[:, vox, :].T
         if equal_samples:
@@ -117,6 +119,7 @@ def voxelwise_group_glm(data, weights, design_con, equal_samples=False, baseline
             x[:, 1] = weights[:, vox] == 1
         beta = y @ np.linalg.pinv(x.T)
         copes[vox] = beta @ c.T
+        sigma_n_base[vox] = np.cov(y[:, x[:, 1] == 1])
 
         r = y - beta @ x.T
         sigma_sq = np.cov(r)
@@ -125,9 +128,8 @@ def voxelwise_group_glm(data, weights, design_con, equal_samples=False, baseline
     data1 = copes[:, :, 0]
     delta_data = copes[:, :, 1]
     if baseline_sigman:
-        sigma_n = varcopes[..., 0]
+        sigma_n = sigma_n_base
     else:
         sigma_n = varcopes[..., 1]
-
 
     return data1, delta_data, sigma_n

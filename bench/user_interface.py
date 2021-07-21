@@ -4,14 +4,12 @@ This module is to parse inputs from commandline and call the proper functions fr
 """
 
 import argparse
-import subprocess
 import glob
 import os
 from warnings import warn
 import numpy as np
 from fsl.utils.run import run
 from bench import change_model, glm, summary_measures, diffusion_models, acquisition, image_io
-from joblib import Parallel, delayed
 
 
 def main(argv=None):
