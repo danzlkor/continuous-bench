@@ -78,7 +78,7 @@ class MLChangeVector:
         #     warnings.warn('estimated inverse matrix is singular.')
         return mu, sigma
 
-    def log_lh(self, dv, y, dy, sigma_n):
+    def log_lh(self, dv, y, dy, sigma_n, no_sigmap=False):
         """
         computes the log likelihood function for the amount of change
         P(dy | y, sigma_n, dv) for the vector of change
@@ -90,7 +90,11 @@ class MLChangeVector:
         """
         mu, sigma_p = self.distribution(y)
         mean = np.squeeze(dv * mu)
-        cov = (dv ** 2) * np.squeeze(sigma_p) + sigma_n
+        if no_sigmap:
+            cov = sigma_n
+        else:
+            cov = (dv ** 2) * np.squeeze(sigma_p) + sigma_n
+
         return log_mvnpdf(x=dy, mean=mean, cov=cov)
 
     def log_prior(self, dv):
@@ -307,7 +311,7 @@ class ChangeModel:
 
                         if ch_mdl.lim == 'positive':
                             amount[vec_idx] = pos_expected
-                        if ch_mdl.lim == 'negative':
+                        elif ch_mdl.lim == 'negative':
                             amount[vec_idx] = neg_expected
                         else:
                             amount[vec_idx] = pos_expected if pos_int > neg_int else neg_expected
