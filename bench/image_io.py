@@ -239,7 +239,7 @@ def write_nifti(data: np.ndarray, mask_add: str, fname: str, invalids=None):
         invalids = np.zeros((std_indices.shape[0],), dtype=bool)
 
     std_indices_valid = std_indices[np.logical_not(invalids)]
-    std_indices_invalid = std_indices[invalids]
+    std_indices_invalid = std_indices[invalids.astype(bool)]
 
     img = np.zeros((*mask.shape, data.shape[1]))
     img[tuple(std_indices_valid.T)] = data
