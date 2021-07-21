@@ -119,7 +119,7 @@ def voxelwise_group_glm(data, weights, design_con, equal_samples=False, baseline
             x[:, 1] = weights[:, vox] == 1
         beta = y @ np.linalg.pinv(x.T)
         copes[vox] = beta @ c.T
-        sigma_n_base[vox] = np.cov(y[:, x[:, 1] == 1]) / x[:, 1].sum()
+        sigma_n_base[vox] = np.cov(y[:, x[:, 1] == 1]) / x[:, 0].sum()
 
         r = y - beta @ x.T
         sigma_sq = np.cov(r)
