@@ -322,7 +322,9 @@ class ChangeModel:
                             warnings.warn(f'noise covariance is singular for sample {sam_idx}'
                                           f'with variances {np.diag(sigma_n_s)}')
                         else:
+                            print(f'crashed at sample {sam_idx}.\n')
                             raise
+
             if np.isnan(log_prob).any():
                 print(sam_idx, np.argwhere(np.isnan(log_prob)))
             return log_prob, amount
