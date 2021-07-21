@@ -78,7 +78,7 @@ def loadcontrast(design_con):
     return names, contrasts
 
 
-def voxelwise_group_glm(data, weights, design_con, equal_samples=False):
+def voxelwise_group_glm(data, weights, design_con, equal_samples=False, baseline_sigman=False):
     """
     Performs voxel-wise group glm on the given data with weights
 
@@ -87,6 +87,8 @@ def voxelwise_group_glm(data, weights, design_con, equal_samples=False):
     :param weights: 2d numpy array (n_subj, n_vox)
     :param design_con: path to design.con file, the first contrast must be first group mean, the second contrast is the
     change across groups contrast
+    :param equal_samples: take equal number of samples per class
+    :param baseline_sigman: if true returns covariance matrix for the first class rather than the difference
     :return: data1, delta_data and noise covariance matrices.
     """
     c_names, c = loadcontrast(design_con)
@@ -122,6 +124,10 @@ def voxelwise_group_glm(data, weights, design_con, equal_samples=False):
 
     data1 = copes[:, :, 0]
     delta_data = copes[:, :, 1]
-    sigma_n = varcopes[..., 1]
+    if baseline_sigman:
+        sigma_n = varcopes[..., 0]
+    else:
+        sigma_n = varcopes[..., 1]
+
 
     return data1, delta_data, sigma_n
