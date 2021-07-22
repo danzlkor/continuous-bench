@@ -29,7 +29,7 @@ As bench is an alternative to model fitting, anything that is needed to fit mode
 
 ## How to use it?
 BENCH runs in multiple steps that are explained as follows:
-- Train change models:
+#- Train change models:
  This step is for taining change models for parameters of a specific biophysical model with a given acquisition protocol. It doesnt require any data, and once the training is done the models can be used with any data with the same acquisition protocol. Generally, this step requires a forward model that can map parameters to measurements and prior distribution for each of them. Currently a few forward models have been implemented. Please refer to the paper for the details about the forward model and the priors for the parameters. You can add your model or update the priors in the [diffusion_models.py](bench/diffusion_models.py). 
 
  To train models of change you need to run the following command:
@@ -41,7 +41,7 @@ bench diff-train --model <model_name> --bval <path_to_bvalue_file> --output <nam
 run `` bench diff-train --help`` to see the full list of optional parameters. This command generates a pickle file that contains trained machine learning models.
 
 
-- Compute the summary measurements:
+#- Compute the summary measurements:
 This stage estimates rotationally invariante summary measurements from dMRI data for each subject. We assume all the subjects have the same b-values, that is used for the training models of changes, but the b-vectors and ordering of measurements can vary across subjects.
 
 Run the following command to estimate the summary measurements:
@@ -54,7 +54,7 @@ Run the following command to estimate the summary measurements:
 ```
 This command will make a `SummaryMeasurements` directory inside the specified `study_dir` that contains summary measurements per subject, numbered based on the ordering of input from 0 to the number of subjects.
   
-- GLM:
+#- GLM:
 This steps runs group glm to compute the baseline measurements, the change between groups and the noise covariance matrices. 
 
 ```
@@ -65,7 +65,7 @@ bench glm
 ```
 The design matrix must have one row per subject (with the smae order as the input for the previous step) and arbitrary number of columns. The contrast matrix must have two rows where the first one should correspond to the baseline measurement and the second one the group difference. In the simplest case, where there is no confounding variables the design matrix has two columns that have group memberships and the contrast is `[1 0, -1 1]`.    
 
-- Inference:
+#- Inference:
 
 
 ## What are the outputs?
