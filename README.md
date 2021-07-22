@@ -51,6 +51,7 @@ Run the following command to estimate the summary measurements:
     --xfm <list of all subjects warp fileds from native to standard space>
     --bval <a single bval or a list of bval file.>
     --bvec <list of bvecs for all subject>
+    --mask <ROI mask in standard space>
     --study_dir <path to save summary measurements>
 ```
 This command will make a `SummaryMeasurements` directory inside the specified `study_dir` that contains summary measurements per subject, numbered based on the ordering of input from 0 to the number of subjects.
@@ -62,15 +63,18 @@ This steps runs group glm to compute the baseline measurements, the change betwe
 bench glm
 --design-mat <Design matrix for the group glm>
 --design-con <Design contrast for the group glm>
---study-dir STUDY_DIR
+--study-dir <study directory>
 ```
 `study dir` must contain the `SummaryMeasurements` directory.The design matrix must have one row per subject (with the smae order as the input for the previous step) and arbitrary number of columns. The contrast matrix must have two rows where the first one should correspond to the baseline measurement and the second one the group difference. In the simplest case, where there is no confounding variables the design matrix has two columns that have group memberships and the contrast is `[1 0, -1 1]`.    
  
-This step produces a directory in the `study dir` that contains data.nii.gz, delta_data.nii.gz and variances.nii.gz
+This step produces a directory in the `study dir` that contains data.nii.gz, delta_data.nii.gz, variances.nii.gz, valid_mask.nii.gz. The valid mask contains all the voxels that all subjects had valid data, as some of the voxels from the standard mask can lie out of the brain masks for specific subjects.
 
 ### Make inference:
-This final stage computes for each voxel the posterior probability for any of the change models trained in the first stage using the results of glm
-
+This final stage computes for each voxel the posterior probability for any of the change models trained in the first stage using the results of glm. 
+```
+ --model <change_model_file>
+  --study-dir <study directory>
+```
 
 ## What are the outputs?
 
