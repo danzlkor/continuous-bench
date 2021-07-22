@@ -82,7 +82,7 @@ bench inference
 The results contain these outputs:
 1. one preobability map per parameter of the forward model named '<pname_probability.nii.gz>. This contains per voxel the probability that change in that parameter can explain the observed change between the two groups.
 2. one estimated change map parameter of the forward model named '<pname_amount.nii.gz>, which contains the estimated amount of change for the corresponding parameter.
-3. best explaining model of change in each voxel '<inferred_change.nii.gz>'. This shows the index of the parameter that can best explain the observed change. The ordering is matched with the order of appearance in the prior distributions in [diffusion_models.py]<bench/diffusion_models.py> 
+3. best explaining model of change in each voxel '<inferred_change.nii.gz>'. This shows the index of the parameter that can best explain the observed change. The ordering is matched with the order of appearance in the prior distributions in [diffusion_models.py](bench/diffusion_models.py) 
 
 
 ## Usage for non-diffusion models and data
