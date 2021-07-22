@@ -86,3 +86,10 @@ The results contain these outputs:
 
 
 ## Usage for non-diffusion models and data
+We designed BENCH to be as modular as possible, meaning that any stage is a separate module that can be replaced by user defined codes. Particularly to apply it to other domains one needs to provide the followings:
+1. A biophysical model that maps parameters to summary measurements. (a callable function)
+2. Prior distribution of the parameters of the model (a dictionary with keys being the parameters and values scipy stats distribution objects)
+3. A script that computes summary measurements from raw data.
+
+
+
