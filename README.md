@@ -55,7 +55,7 @@ Run the following command to estimate the summary measurements:
 ```
 This command will make a `SummaryMeasurements` directory inside the specified `study_dir` that contains summary measurements per subject, numbered based on the ordering of input from 0 to the number of subjects.
   
-### GLM:
+### Run GLM:
 This steps runs group glm to compute the baseline measurements, the change between groups and the noise covariance matrices. 
 
 ```
@@ -64,10 +64,12 @@ bench glm
 --design-con <Design contrast for the group glm>
 --study-dir STUDY_DIR
 ```
-The design matrix must have one row per subject (with the smae order as the input for the previous step) and arbitrary number of columns. The contrast matrix must have two rows where the first one should correspond to the baseline measurement and the second one the group difference. In the simplest case, where there is no confounding variables the design matrix has two columns that have group memberships and the contrast is `[1 0, -1 1]`.    
+`study dir` must contain the `SummaryMeasurements` directory.The design matrix must have one row per subject (with the smae order as the input for the previous step) and arbitrary number of columns. The contrast matrix must have two rows where the first one should correspond to the baseline measurement and the second one the group difference. In the simplest case, where there is no confounding variables the design matrix has two columns that have group memberships and the contrast is `[1 0, -1 1]`.    
+ 
+This step produces a directory in the `study dir` that contains data.nii.gz, delta_data.nii.gz and variances.nii.gz
 
-### Inference:
-
+### Make inference:
+This final stage computes for each voxel the posterior probability for any of the change models trained in the first stage using the results of glm
 
 
 ## What are the outputs?
