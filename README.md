@@ -42,8 +42,18 @@ run `` bench diff-train --help`` to see the full list of optional parameters. Th
 
 
 - Compute the summary measurements:
+This stage estimates rotationally invariante summary measurements from dMRI data for each subject. We assume all the subjects have the same b-values, that is used for the training models of changes, but the b-vectors and ordering of measurements can vary across subjects.
 
-
+Run the following command to estimate the summary measurements:
+``` 
+    bench diff-summary --data <list of all subjects diffusion data> 
+    --xfm <list of all subjects warp fileds from native to standard space>
+    --bval <a single bval or a list of bval file.>
+    --bvec <list of bvecs for all subject>
+    --study_dir <path to save summary measurements>
+```
+This command will make a `SummaryMeasurements` directory inside the specified `study_dir` that contains summary measurements per subject, numbered based on the ordering of input from 0 to the number of subjects.
+  
 - GLM:
 
 - Inference:
