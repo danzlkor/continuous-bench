@@ -8,11 +8,14 @@ BENCH is a toolbox for identifying and estimating changes in parameters of a bio
 Bench is usful when the aim is comparing two groups of data in terms of parameters of a biophysical model; but not estimating the parameters pre.se. It is particularly advantagous when the model has more free parameters than what can be estimated given the measurements.  
 
 ## How it works?
-The idea is using simulation data, we generate models of change that can predict how a baseline measurement changes if any of the parameters of the model changes. Then, in a bayesian framework, we estimate which of the `` change models'' can better explain the observed change between two groups.  
+Using simulated data, we generate models of change that can predict how a baseline measurement changes if any of the parameters of the model changes. Then, in a bayesian framework, we estimate which of the `` change models'' can better explain the observed change between two groups. FOr more details, please refer to the paper(link). 
 
 
 ## How to install?
-
+Here are the steps to install BENCH:
+1- clone the project in github. 
+2- open a command line in the downloded directory (where there is a setup.py file)
+3- run <<python setup.py install>> 
 
 ## What are the required inputs?
 
