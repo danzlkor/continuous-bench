@@ -30,7 +30,7 @@ As bench is an alternative to model fitting, anything that is needed to fit mode
 ## How to use it?
 BENCH runs in multiple steps that are explained as follows:
 - Train change models:
- This step is for taining change models for parameters of a specific biophysical model with a given acquisition protocol. It doesnt require any data, and once the training is done the models can be used with any data with the same acquisition protocol. Generally, this step requires a forward model that can map parameters to measurements and prior distribution for each of them. Currently a few forward models have been implemented. Please refer to the paper for the details about the forward model and the priors for the parameters. You can add your model or update the priors in the <<diffusion_models.py>>
+ This step is for taining change models for parameters of a specific biophysical model with a given acquisition protocol. It doesnt require any data, and once the training is done the models can be used with any data with the same acquisition protocol. Generally, this step requires a forward model that can map parameters to measurements and prior distribution for each of them. Currently a few forward models have been implemented. Please refer to the paper for the details about the forward model and the priors for the parameters. You can add your model or update the priors in the [diffusion_models.py](bench/diffusion_models.py)
 
 
 
