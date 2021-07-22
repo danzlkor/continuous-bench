@@ -8,7 +8,7 @@ BENCH is a toolbox for identifying and estimating changes in parameters of a bio
 Bench is usful when the aim is comparing two groups of data in terms of parameters of a biophysical model; but not estimating the parameters pre.se. It is particularly advantagous when the model has more free parameters than what can be estimated given the measurements.  
 
 ## How it works?
-Using simulated data, we generate models of change that can predict how a baseline measurement changes if any of the parameters of the model changes. Then, in a bayesian framework, we estimate which of the `` change models'' can better explain the observed change between two groups. FOr more details, please refer to the paper(link). 
+Using simulated data, we generate models of change that can predict how a baseline measurement changes if any of the parameters of the model changes. Then, in a bayesian framework, we estimate which of the "change models" can better explain the observed change between two groups. For more details about the method, please refer to the paper (link). 
 
 
 ## How to install it?
@@ -72,9 +72,17 @@ This step produces a directory in the `study dir` that contains data.nii.gz, del
 ### Make inference:
 This final stage computes for each voxel the posterior probability for any of the change models trained in the first stage using the results of glm. 
 ```
- --model <change_model_file>
+bench inference
+ --model <change model file>
   --study-dir <study directory>
 ```
 
+`study directory` must contain the Glm folder produced in the earlier stage with the folder. This stage produces "Results" folder in the study directory that contains a folder for each forward model, e.g. `study_dir/Results/watson_noddi/`.  
 ## What are the outputs?
+The results contain these outputs:
+1. one preobability map per parameter of the forward model named '<pname_probability.nii.gz>. This contains per voxel the probability that change in that parameter can explain the observed change between the two groups.
+2. one estimated change map parameter of the forward model named '<pname_amount.nii.gz>, which contains the estimated amount of change for the corresponding parameter.
+3. best explaining model of change in each voxel '<inferred_change.nii.gz>'. This shows the index of the parameter that can best explain the observed change. The ordering is matched with the order of appearance in the prior distributions in [diffusion_models.py]<bench/diffusion_models.py> 
 
+
+## Usage for non-diffusion models and data
