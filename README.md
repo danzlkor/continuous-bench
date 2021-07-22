@@ -69,5 +69,6 @@ The design matrix must have one row per subject (with the smae order as the inpu
 ### Inference:
 
 
+
 ## What are the outputs?
 
