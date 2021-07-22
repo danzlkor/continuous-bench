@@ -95,7 +95,7 @@ def transform_indices(native_image, std_mask, def_field):
     :param def_field: string
     :return:
     """
-    std_indices = np.array(np.where(std_mask.data > 0)).T
+    std_indices = np.array(np.where(np.nan_to_num(std_mask.data) > 0)).T
     transform = fnirt.readFnirt(def_field, native_image, std_mask)
     native_indices = np.around(transform.transform(std_indices, 'voxel', 'voxel')).astype(int)
 
