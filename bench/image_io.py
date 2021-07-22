@@ -195,7 +195,7 @@ def read_glm_weights(data: List[str], xfm: List[str],  mask: str, save_xfm_path:
 
     os.makedirs(save_xfm_path, exist_ok=True)
     mask_img = Image(mask)
-    std_indices = np.array(np.where(mask_img.data > 0)).T
+    std_indices = np.array(np.where(np.nan_to_num(mask_img.data) > 0)).T
 
     n_vox = std_indices.shape[0]
     n_subj = len(data)
