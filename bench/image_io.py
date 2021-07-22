@@ -233,7 +233,7 @@ def write_nifti(data: np.ndarray, mask_add: str, fname: str, invalids=None):
     """
 
     mask = Image(mask_add)
-    std_indices = np.array(np.where(mask.data > 0)).T
+    std_indices = np.array(np.where(np.nan_to_num(mask.data) > 0)).T
 
     if invalids is None:
         invalids = np.zeros((std_indices.shape[0],), dtype=bool)
