@@ -32,13 +32,17 @@ BENCH runs in multiple steps that are explained as follows:
 - Train change models:
  This step is for taining change models for parameters of a specific biophysical model with a given acquisition protocol. It doesnt require any data, and once the training is done the models can be used with any data with the same acquisition protocol. Generally, this step requires a forward model that can map parameters to measurements and prior distribution for each of them. Currently a few forward models have been implemented. Please refer to the paper for the details about the forward model and the priors for the parameters. You can add your model or update the priors in the [diffusion_models.py](bench/diffusion_models.py). 
 
- To train models of change you need to run the following command
+ To train models of change you need to run the following command:
 
 ```
 bench diff-train --model <model_name> --bval <path_to_bvalue_file> --output <name_of_output_file>
 ```
 
+run `` bench diff-train --help`` to see the full list of optional parameters. This command generates a pickle file that contains trained machine learning models.
+
+
 - Compute the summary measurements:
+
 
 - GLM:
 
