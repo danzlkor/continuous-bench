@@ -1,5 +1,5 @@
 # BENCH
-
+Bayesian EstimatioN of CHange
 ## What is it?
 
 ## How it works?
