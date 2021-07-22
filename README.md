@@ -77,7 +77,7 @@ bench inference
   --study-dir <study directory>
 ```
 
-`study directory` must contain the Glm folder produced in the earlier stage with the folder. This stage produces "Results" folder in the study directory that contains a folder for each forward model, e.g. `study_dir/Results/watson_noddi/`.  
+`study directory` must contain the Glm folder produced in the earlier stage. This stage produces "Results" folder in the study directory that contains a folder for each forward model, e.g. `study_dir/Results/watson_noddi/`.  
 ## What are the outputs?
 The results contain these outputs:
 1. one preobability map per parameter of the forward model named '<pname_probability.nii.gz>. This contains per voxel the probability that change in that parameter can explain the observed change between the two groups.
@@ -91,5 +91,8 @@ We designed BENCH to be as modular as possible, meaning that any stage is a sepa
 2. Prior distribution of the parameters of the model (a dictionary with keys being the parameters and values scipy stats distribution objects)
 3. A script that computes summary measurements from raw data.
 
+You can embed the above in the corresponding python files and use the rest of the commandline as described above, or use the python apis which gives you more flexibility to emplement your own use.
+
+Feedbacks or suggestions for improving the toolbox are highly appreciated. [email address](hossein.rafipoor@ndcn.ox.ac.uk)
 
 
