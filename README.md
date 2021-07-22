@@ -93,6 +93,6 @@ We designed BENCH to be as modular as possible, meaning that any stage is a sepa
 
 You can embed the above in the corresponding python files and use the rest of the commandline as described above, or use the python apis which gives you more flexibility to emplement your own use.
 
-Feedbacks or suggestions for improving the toolbox are highly appreciated. [email address](mailto:hossein.rafipoor@ndcn.ox.ac.uk?subject=[BENCH feedback])
+Feedbacks or suggestions for improving the toolbox are highly appreciated. [email address](mailto:hossein.rafipoor@ndcn.ox.ac.uk?subject=[BENCH])
 
 
