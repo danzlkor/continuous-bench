@@ -12,10 +12,11 @@ Using simulated data, we generate models of change that can predict how a baseli
 
 
 ## How to install?
-Here are the steps to install BENCH:
+Here are the steps to install BENCH: 
+
 1- clone the project in github. 
 2- open a command line in the downloded directory (where there is a setup.py file)
-3- run <<python setup.py install>> 
+3- run '''python setup.py install''' 
 
 ## What are the required inputs?
 
