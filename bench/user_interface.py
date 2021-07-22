@@ -61,10 +61,7 @@ def parse_args(argv):
     train_required.add_argument("--bval", required=True)
 
     train_optional = diff_train_parser.add_argument_group("optional arguments")
-    train_optional.add_argument("--trainer", default='knn', type=str, required=False,
-                                help="training method either of knn (K nearest neighbour) or ml (maximum likelihood)")
-    train_optional.add_argument("-k", default=100, type=int, help="number of nearest neighbours", required=False)
-    train_optional.add_argument("-n", default=1000, type=int, help="number of training samples", required=False)
+    train_optional.add_argument("-n", default=10000, type=int, help="number of training samples", required=False)
     train_optional.add_argument("-p", default=2, type=int, help="polynomial degree for mu design matrix", required=False)
     train_optional.add_argument("-ps", default=2, type=int, help="polynomial degree for sigma design matrix", required=False)
     train_optional.add_argument("-d", default=4, type=int,
@@ -74,8 +71,6 @@ def parse_args(argv):
     train_optional.add_argument("--summary", default='shm', type=str,
                                 help='type of summary measurements. Either shm (spherical harmonic model)'
                                      ' or dtm (diffusion tensor model)', required=False)
-    train_optional.add_argument("--normalize", default=False, action='store_true',
-                                help='normalize the summary measures', required=False)
 
     # fit summary arguments:
     diff_summary_parser.add_argument("--mask",
@@ -163,21 +158,12 @@ def submit_train(args):
         summary_names=summary_names,
         param_prior_dists=param_dist)
 
-    if args.trainer == 'knn':
-        print('Change models are trained using KNN approximation.')
-        ch_model = trainer.train_knn(n_samples=int(args.n), k=int(args.k),
-                                     poly_degree=int(args.p),
-                                     regularization=float(args.alpha))
-
-    elif args.trainer == 'ml':
-        print('Change models are trained using maximum likelihood.')
-        ch_model = trainer.train_ml(n_samples=int(args.n),
-                                    mu_poly_degree=int(args.p),
-                                    sigma_poly_degree=int(args.ps),
-                                    alpha=float(args.alpha),
-                                    parallel=True)
-    else:
-        raise ValueError(f'Trainer {args.trainer} is undefined. It must be either knn (default) or ml.')
+    print('Change models are trained using maximum likelihood.')
+    ch_model = trainer.train_ml(n_samples=int(args.n),
+                                mu_poly_degree=int(args.p),
+                                sigma_poly_degree=int(args.ps),
+                                alpha=float(args.alpha),
+                                parallel=True)
 
     ch_model.forward_model_name = forward_model.__name__
     ch_model.meausrement_names = summary_measures.summary_names(acq, args.d)
