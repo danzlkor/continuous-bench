@@ -54,7 +54,7 @@ Run the following command to estimate the summary measurements:
 ```
 This command will make a `SummaryMeasurements` directory inside the specified `study_dir` that contains summary measurements per subject, numbered based on the ordering of input from 0 to the number of subjects.
   
-### -Run GLM:
+### - Run GLM:
 This steps runs group glm to compute the baseline measurements, the change between groups and the noise covariance matrices. 
 
 ```
