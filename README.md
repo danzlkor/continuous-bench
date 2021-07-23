@@ -58,10 +58,7 @@ This command will make a `SummaryMeasurements` directory inside the specified `s
 This steps runs group glm to compute the baseline measurements, the change between groups and the noise covariance matrices. 
 
 ```
-bench glm
---design-mat <Design matrix for the group glm>
---design-con <Design contrast for the group glm>
---study-dir <study directory>
+bench glm --design-mat <Design matrix for the group glm>  --design-con <Design contrast for the group glm>  --study-dir <study directory>
 ```
 `study dir` must contain the `SummaryMeasurements` directory.The design matrix must have one row per subject (with the smae order as the input for the previous step) and arbitrary number of columns. The contrast matrix must have two rows where the first one should correspond to the baseline measurement and the second one the group difference. In the simplest case, where there is no confounding variables the design matrix has two columns that have group memberships and the contrast is `[1 0, -1 1]`.    
  
@@ -70,9 +67,7 @@ This step produces a directory in the `study dir` that contains data.nii.gz, del
 ### 4. Make inference:
 This final stage computes for each voxel the posterior probability for any of the change models trained in the first stage using the results of glm. 
 ```
-bench inference
- --model <change model file>
-  --study-dir <study directory>
+bench inference --model <change model file> --study-dir <study directory>
 ```
 
 `study directory` must contain the Glm folder produced in the earlier stage. This stage produces "Results" folder in the study directory that contains a folder for each forward model, e.g. `study_dir/Results/watson_noddi/`.  
