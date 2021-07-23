@@ -40,7 +40,7 @@ bench diff-train --model <model_name> --bval <path_to_bvalue_file> --output <nam
 run `` bench diff-train --help`` to see the full list of optional parameters. This command generates a pickle file that contains trained machine learning models.
 
 
-### 2.Compute the summary measurements:
+### 2. Compute the summary measurements:
 This stage estimates rotationally invariante summary measurements from dMRI data for each subject. We assume all the subjects have the same b-values, that is used for the training models of changes, but the b-vectors and ordering of measurements can vary across subjects.
 
 Run the following command to estimate the summary measurements:
@@ -54,7 +54,7 @@ Run the following command to estimate the summary measurements:
 ```
 This command will make a `SummaryMeasurements` directory inside the specified `study_dir` that contains summary measurements per subject, numbered based on the ordering of input from 0 to the number of subjects.
   
-### - Run GLM:
+### 3. Run GLM:
 This steps runs group glm to compute the baseline measurements, the change between groups and the noise covariance matrices. 
 
 ```
@@ -67,7 +67,7 @@ bench glm
  
 This step produces a directory in the `study dir` that contains data.nii.gz, delta_data.nii.gz, variances.nii.gz, valid_mask.nii.gz. The valid mask contains all the voxels that all subjects had valid data, as some of the voxels from the standard mask can lie out of the brain masks for specific subjects.
 
-### -Make inference:
+### 4. Make inference:
 This final stage computes for each voxel the posterior probability for any of the change models trained in the first stage using the results of glm. 
 ```
 bench inference
