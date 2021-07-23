@@ -78,8 +78,8 @@ bench inference
 `study directory` must contain the Glm folder produced in the earlier stage. This stage produces "Results" folder in the study directory that contains a folder for each forward model, e.g. `study_dir/Results/watson_noddi/`.  
 ## What are the outputs?
 The results contain these outputs:
-1. one preobability map per parameter of the forward model named '<pname_probability.nii.gz>. This contains per voxel the probability that change in that parameter can explain the observed change between the two groups.
-2. one estimated change map parameter of the forward model named '<pname_amount.nii.gz>, which contains the estimated amount of change for the corresponding parameter.
+1. one preobability map per parameter of the forward model named '<pname_probability.nii.gz>. This contains per voxel the probability that change in that parameter can explain the observed change between the two groups. 
+2. one estimated amount of change map per parameter of the forward model named '<pname_amount.nii.gz>, which contains the estimated amount of change for the corresponding parameter.
 3. best explaining model of change in each voxel '<inferred_change.nii.gz>'. This shows the index of the parameter that can best explain the observed change. The ordering is matched with the order of appearance in the prior distributions in [diffusion_models.py](bench/diffusion_models.py) 
 
 
