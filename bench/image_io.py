@@ -26,9 +26,11 @@ def read_image(fname, mask):
     """
     mask_img = Image(mask).data
     data_img = Image(fname).data
+
     if data_img.ndim == 3:
         data_img = data_img[..., np.newaxis]
     data = data_img[mask_img > 0, :]
+
     return data
 
 

@@ -218,7 +218,7 @@ def submit_summary(args):
             task_list.append(cmd)
         # main(cmd.split()[1:]) # for debugging.
 
-        if 'SGE_ROOT1' in os.environ.keys():
+        if 'SGE_ROOT' in os.environ.keys():
             with open(f'{args.study_dir}/summary_tasklist.txt', 'w') as f:
                 for t in task_list:
                     f.write("%s\n" % t)
