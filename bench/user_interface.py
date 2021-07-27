@@ -10,7 +10,7 @@ from warnings import warn
 import numpy as np
 from fsl.utils.run import run
 from bench import change_model, glm, summary_measures, diffusion_models, acquisition, image_io
-
+from joblib import delayed, Parallel
 
 def main(argv=None):
     """
@@ -216,9 +216,9 @@ def submit_summary(args):
             cmd = f'bench diff-single-summary {d} {bvec} ' \
                   f'{bval} {args.mask} {x} {args.shm_degree} {subj_idx} {args.study_dir} '
             task_list.append(cmd)
-        # main(cmd.split()[1:]) # for debugging.
+        # main(cmd.split()[1:]) # just for debugging.
 
-        if 'SGE_ROOT' in os.environ.keys():
+        if 'SGE_ROOT1' in os.environ.keys():
             with open(f'{args.study_dir}/summary_tasklist.txt', 'w') as f:
                 for t in task_list:
                     f.write("%s\n" % t)
@@ -227,8 +227,8 @@ def submit_summary(args):
                 job_id = run(f'fsl_sub -t {args.study_dir}/summary_tasklist.txt ' 
                              f'-T 200 -R 4 -N bench_summary -l {args.study_dir}/log',
                              env=os.environ, exitcode=True, stderr=True)
-                print(job_id[0])
-                print(f'Jobs were submitted to SGE with job id {job_id}.')
+
+                print(f'Jobs were submitted to SGE with job id {job_id[0]}.')
         else:
             print(f'No clusters were found. The jobs are running locally.')
             # processes = [subprocess.Popen(t.split(), shell=False, env=os.environ) for t in task_list]
@@ -240,9 +240,9 @@ def submit_summary(args):
                                                             x, args.shm_degree, subj_idx,
                                                             f'{args.study_dir}/SummaryMeasurements')
 
-            # res = Parallel(n_jobs=-1, verbose=True)(delayed(func)(i) for i in range(len(args.data)))
-            for i in range(len(args.data)):
-                func(i)
+            res = Parallel(n_jobs=-1, verbose=True)(delayed(func)(i) for i in range(len(args.data)))
+            # for i in range(len(args.data)):
+            #    func(i)
 
             job_id = 0
 
