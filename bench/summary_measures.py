@@ -158,7 +158,7 @@ def fit_summary_single_subject(diff_add: str, bvec_add: str, bval_add: str, mask
         """
     if output_add is None:
         output_add = '.'
-
+    print(os.environ)
     if subj_idx is None:
         subj_idx = 'summary'
         fname = f"{output_add}/{subj_idx}.nii.gz"

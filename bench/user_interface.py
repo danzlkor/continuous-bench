@@ -227,7 +227,7 @@ def submit_summary(args):
                 job_id = run(f'fsl_sub -t {args.study_dir}/summary_tasklist.txt ' 
                              f'-T 200 -R 4 -N bench_summary -l {args.study_dir}/log',
                              env=os.environ, exitcode=True, stderr=True)
-                print(job_id)
+                print(job_id[0])
                 print(f'Jobs were submitted to SGE with job id {job_id}.')
         else:
             print(f'No clusters were found. The jobs are running locally.')
