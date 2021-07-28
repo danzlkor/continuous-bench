@@ -21,8 +21,8 @@ def sample_signal(n_samples):
     :return: samples (n_samples, 3)
     """
     tissue_type = np.random.choice(3, n_samples, p=[0.0, .2, .8])
-    # 0: CSF, 1: partial volume , 2: brain
-    s_iso = stats.uniform(loc=0, scale=.8).rvs(n_samples)
+    # 0: Pure CSF, 1: CSF partial volume , 2: brain tissue
+    s_iso = stats.uniform(loc=0, scale=.9).rvs(n_samples)
     s_in = stats.truncnorm(loc=.5, scale=.2, a=-.4 / .2, b=1/0.2).rvs(n_samples)
     s_ex = stats.truncnorm(loc=.5, scale=.2, a=-.4 / .2, b=1/0.2).rvs(n_samples)
 

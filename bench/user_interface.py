@@ -224,7 +224,7 @@ def submit_summary(args):
                     f.write("%s\n" % t)
                 f.close()
 
-                job_id = run(f'fsl_sub -t {args.study_dir}/summary_tasklist.txt ' 
+                job_id = run(f'fsl_sub --export PATH -t {args.study_dir}/summary_tasklist.txt ' 
                              f'-T 200 -R 4 -N bench_summary -l {args.study_dir}/log',
                              env=os.environ, exitcode=True, stderr=True)
 
