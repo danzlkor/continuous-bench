@@ -24,7 +24,7 @@ def read_image(fname, mask):
     :param mask: address to the mask
     :return: data [n, d] where n is the number of voxels in the mask and d is the 4th dimension of data.
     """
-    mask_img = Image(mask).data
+    mask_img = np.nan_to_num(Image(mask).data)
     data_img = Image(fname).data
 
     if data_img.ndim == 3:
@@ -41,7 +41,7 @@ def read_summary_images(summary_dir: str, mask: str):
     :param mask: roi mask file name
     :return: 3d numpy array containing summary measurements, inclusion mask
     """
-    mask_img = Image(mask)
+    mask_img = np.nan_to_num(Image(mask).data)
     n_subj = len(glob.glob(summary_dir + '/subj_*.nii.gz'))
     print(summary_dir)
     if n_subj == 0:
@@ -50,7 +50,7 @@ def read_summary_images(summary_dir: str, mask: str):
     summary_list = list()
     for subj_idx in range(n_subj):
         f = f'{summary_dir}/subj_{subj_idx}.nii.gz'
-        summary_list.append(Image(f).data[mask_img.data > 0, :])
+        summary_list.append(Image(f).data[mask_img > 0, :])
 
     print(f'loaded summaries from {n_subj} subjects')
     all_summaries = np.array(summary_list)  # n_subj, n_vox, n_dim
@@ -164,10 +164,10 @@ def read_glm_results(glm_dir, mask_add=None):
     if mask_add is None:
         mask_add = glm_dir + '/valid_mask.nii'
 
-    mask_img = Image(mask_add)
-    data = Image(f'{glm_dir}/data.nii').data[mask_img.data > 0, :]
-    delta_data = Image(f'{glm_dir}/delta_data.nii').data[mask_img.data > 0, :]
-    variances = Image(f'{glm_dir}/variances.nii').data[mask_img.data > 0, :]
+    mask_img = np.nan_to_num(Image(mask_add).data)
+    data = Image(f'{glm_dir}/data.nii').data[mask_img > 0, :]
+    delta_data = Image(f'{glm_dir}/delta_data.nii').data[mask_img > 0, :]
+    variances = Image(f'{glm_dir}/variances.nii').data[mask_img > 0, :]
 
     n_vox, n_dim = data.shape
     tril_idx = np.tril_indices(n_dim)
@@ -196,8 +196,8 @@ def read_glm_weights(data: List[str], xfm: List[str],  mask: str, save_xfm_path:
     """
 
     os.makedirs(save_xfm_path, exist_ok=True)
-    mask_img = Image(mask)
-    std_indices = np.array(np.where(np.nan_to_num(mask_img.data) > 0)).T
+    mask_img = np.nan_to_num(Image(mask).data)
+    std_indices = np.array(np.where(mask_img > 0)).T
 
     n_vox = std_indices.shape[0]
     n_subj = len(data)
@@ -281,15 +281,14 @@ def read_inference_results(maps_dir, mask_add=None):
         mask_add = maps_dir + '/valid_mask.nii'
     file_names = glob.glob(f'{maps_dir}/*probability*')
     model_names = [f.split('/')[-1].replace('_probability.nii', '') for f in file_names]
-    mask_img = Image(mask_add)
-
+    mask_img = np.nan_to_num(Image(mask_add).data)
     posteriors = dict()
     amounts = dict()
     for i, m in enumerate(model_names):
-        posteriors[m] = Image(f'{maps_dir}/{m}_probability.nii').data[mask_img.data > 0]
+        posteriors[m] = Image(f'{maps_dir}/{m}_probability.nii').data[mask_img > 0]
         if m == '[]':
             amounts[m] = np.zeros_like(posteriors[m])
         else:
-            amounts[m] = Image(f'{maps_dir}/{m}_amount.nii').data[mask_img.data > 0]
+            amounts[m] = Image(f'{maps_dir}/{m}_amount.nii').data[mask_img > 0]
 
     return posteriors, amounts
