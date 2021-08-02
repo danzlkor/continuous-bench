@@ -167,7 +167,7 @@ def read_glm_results(glm_dir, mask_add=None):
     mask_img = np.nan_to_num(Image(mask_add).data)
     data = Image(f'{glm_dir}/data.nii').data[mask_img > 0, :]
     delta_data = Image(f'{glm_dir}/delta_data.nii').data[mask_img > 0, :]
-    variances = Image(f'{glm_dir}/variances.nii').data[mask_img > 0, :]
+    variances = Image(f'{glm_dir}/covariances.nii').data[mask_img > 0, :]
 
     n_vox, n_dim = data.shape
     tril_idx = np.tril_indices(n_dim)
