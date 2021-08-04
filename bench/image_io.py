@@ -162,12 +162,12 @@ def read_glm_results(glm_dir, mask_add=None):
     """
 
     if mask_add is None:
-        mask_add = glm_dir + '/valid_mask.nii'
+        mask_add = glm_dir + '/valid_mask.nii.gz'
 
     mask_img = np.nan_to_num(Image(mask_add).data)
-    data = Image(f'{glm_dir}/data.nii').data[mask_img > 0, :]
-    delta_data = Image(f'{glm_dir}/delta_data.nii').data[mask_img > 0, :]
-    variances = Image(f'{glm_dir}/covariances.nii').data[mask_img > 0, :]
+    data = Image(f'{glm_dir}/data.nii.gz').data[mask_img > 0, :]
+    delta_data = Image(f'{glm_dir}/delta_data.nii.gz').data[mask_img > 0, :]
+    variances = Image(f'{glm_dir}/covariances.nii.gz').data[mask_img > 0, :]
 
     n_vox, n_dim = data.shape
     tril_idx = np.tril_indices(n_dim)
@@ -278,17 +278,17 @@ def read_inference_results(maps_dir, mask_add=None):
     """
 
     if mask_add is None:
-        mask_add = maps_dir + '/valid_mask.nii'
+        mask_add = maps_dir + '/valid_mask.nii.gz'
     file_names = glob.glob(f'{maps_dir}/*probability*')
-    model_names = [f.split('/')[-1].replace('_probability.nii', '') for f in file_names]
+    model_names = [f.split('/')[-1].replace('_probability.nii.gz', '') for f in file_names]
     mask_img = np.nan_to_num(Image(mask_add).data)
     posteriors = dict()
     amounts = dict()
     for i, m in enumerate(model_names):
-        posteriors[m] = Image(f'{maps_dir}/{m}_probability.nii').data[mask_img > 0]
+        posteriors[m] = Image(f'{maps_dir}/{m}_probability.nii.gz').data[mask_img > 0]
         if m == '[]':
             amounts[m] = np.zeros_like(posteriors[m])
         else:
-            amounts[m] = Image(f'{maps_dir}/{m}_amount.nii').data[mask_img > 0]
+            amounts[m] = Image(f'{maps_dir}/{m}_amount.nii.gz').data[mask_img > 0]
 
     return posteriors, amounts
