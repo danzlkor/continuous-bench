@@ -92,12 +92,12 @@ def parse_args(argv):
     # single subject summary:
     diff_single_subj_summary_parser.add_argument('subj_idx')
     diff_single_subj_summary_parser.add_argument('diff_add')
-    diff_single_subj_summary_parser.add_argument('xfm_add')
     diff_single_subj_summary_parser.add_argument('bvec_add')
     diff_single_subj_summary_parser.add_argument('bval_add')
     diff_single_subj_summary_parser.add_argument('mask_add')
+    diff_single_subj_summary_parser.add_argument('xfm_add')
     diff_single_subj_summary_parser.add_argument('output_add')
-    diff_single_subj_summary_parser.add_argument('sph_degree', type=int, default=2)
+    diff_single_subj_summary_parser.add_argument('shm_degree', type=int, default=2)
 
     # normalization args
     diff_normalize_parse.add_argument('--study-dir', default=None,
@@ -213,8 +213,8 @@ def submit_summary(args):
     else:
         task_list = list()
         for subj_idx, (x, d, bval, bvec) in enumerate(zip(args.xfm, args.data, args.bval, args.bvecs)):
-            cmd = f'bench diff-single-summary {d} {bvec} ' \
-                  f'{bval} {args.mask} {x} {args.shm_degree} {subj_idx} {args.study_dir} '
+            cmd = f'bench diff-single-summary {subj_idx} {d} {bvec} ' \
+                  f'{bval} {args.mask} {x} {args.study_dir} {args.shm_degree}'
             task_list.append(cmd)
         # main(cmd.split()[1:]) # just for debugging.
 
@@ -238,7 +238,7 @@ def submit_summary(args):
                 x, d, bval, bvec = args.xfm[subj_idx], args.data[subj_idx], args.bval[subj_idx], args.bvecs[subj_idx]
                 summary_measures.fit_summary_single_subject(d, bvec, bval, args.mask,
                                                             x, args.shm_degree, subj_idx,
-                                                            f'{args.study_dir}/SummaryMeasurements')
+                                                            f'{args.study_dir}/SummaryMeasurements', args.shm_degree)
 
             res = Parallel(n_jobs=-1, verbose=True)(delayed(func)(i) for i in range(len(args.data)))
             # for i in range(len(args.data)):
@@ -255,8 +255,9 @@ def submit_summary_single_subject(args):
         :param args: list of strings containing all required parameters for fit_summary_single_subj()
         """
     output_add = args.output_add + '/SummaryMeasurements'
-    summary_measures.fit_summary_single_subject(args.diff_add, args.bvec_add, args.bval_add, args.mask_add,
-                                                args.xfm_add, args.sph_degree, args.subj_idx, output_add)
+    summary_measures.fit_summary_single_subject(diff_add=args.diff_add, bvec_add=args.bvec_add, bval_add=args.bval_add,
+                                                mask_add=args.mask_add, xfm_add=args.xfm_add, shm_degree=args.shm_degree,
+                                                subj_idx=args.subj_idx, output_add=output_add)
 
 
 def submit_glm(args):
