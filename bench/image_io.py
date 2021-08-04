@@ -145,12 +145,12 @@ def write_glm_results(data, delta_data, sigma_n, mask, invalid_vox, glm_dir):
     covariances = np.stack([s[tril_idx] for s in sigma_n], axis=0)
 
     os.makedirs(glm_dir, exist_ok=True)
-    write_nifti(data, mask, glm_dir + '/data', invalid_vox)
-    write_nifti(delta_data, mask, glm_dir + '/delta_data', invalid_vox)
-    write_nifti(covariances, mask, glm_dir + '/covariances', invalid_vox)
+    write_nifti(data, mask, glm_dir + '/data.nii.gz', invalid_vox)
+    write_nifti(delta_data, mask, glm_dir + '/delta_data.nii.gz', invalid_vox)
+    write_nifti(covariances, mask, glm_dir + '/covariances.nii.gz', invalid_vox)
 
     valid_mask = np.ones((data.shape[0], 1))
-    write_nifti(valid_mask, mask, glm_dir + '/valid_mask', invalid_vox)
+    write_nifti(valid_mask, mask, glm_dir + '/valid_mask.nii.gz', invalid_vox)
 
 
 def read_glm_results(glm_dir, mask_add=None):
@@ -262,11 +262,11 @@ def write_inference_results(path, model_names, predictions, posteriors, peaks, m
     :return: Nothing.
     """
     os.makedirs(path, exist_ok=True)
-    write_nifti(predictions[:, np.newaxis], mask, f'{path}/inferred_change')
+    write_nifti(predictions[:, np.newaxis], mask, f'{path}/inferred_change.nii.gz')
     for i, m in enumerate(model_names):
-        write_nifti(posteriors[:, i][:, np.newaxis], mask, f'{path}/{m}_probability')
+        write_nifti(posteriors[:, i][:, np.newaxis], mask, f'{path}/{m}_probability.nii.gz')
         if i > 0:
-            write_nifti(peaks[:, i][:, np.newaxis], mask, f'{path}/{m}_amount')
+            write_nifti(peaks[:, i][:, np.newaxis], mask, f'{path}/{m}_amount.nii.gz')
 
 
 def read_inference_results(maps_dir, mask_add=None):
