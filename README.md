@@ -1,7 +1,7 @@
 # BENCH  
 
 ## What is it?
-BENCH (Bayesian EstimatioN of CHange)) is a toolbox implemented in python for identifying and estimating changes in parameters of a biophysical model between two groups of data (e.g. patients and controls). It is an alternative for model inversion, where one estimates the parameters for each group separately and compares the estimations between the groups using a GLM. The advantage is that BENCH allows for using over parameterised models where the model inversion approaches fail because of parameter degeneracies. Currently, BENCH only supports microstructural models for diffusion MRI, but it is extendable to other domains.    
+BENCH (Bayesian EstimatioN of CHange) is a toolbox implemented in python for identifying and estimating changes in parameters of a biophysical model between two groups of data (e.g. patients and controls). It is an alternative for model inversion, where one estimates the parameters for each group separately and compares the estimations between the groups using a GLM. The advantage is that BENCH allows for using over parameterised models where the model inversion approaches fail because of parameter degeneracies. Currently, BENCH only supports microstructural models for diffusion MRI, but it is extendable to other domains.    
 
 ## When it is useful?
 Bench is useful when the aim is comparing two groups of data in terms of parameters of a biophysical model; but not estimating the parameters per se. It is particularly advantageous when the model has more free parameters than what can be estimated given the measurements.  
