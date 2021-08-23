@@ -15,8 +15,7 @@ def group_glm(data, design_mat, design_con):
 
     :param data: 3d numpy array (n_subj, n_vox, n_dim) 
     :param design_mat: path to design.mat file
-    :param design_con: path to design.con file, the first contrast must be first group mean, the second the second group
-     mean (not used for now),
+    :param design_con: path to design.con file, the first contrast must be first group mean, the second the group difference
     3rd contrast is the difference between two groups.
     change across groups contrast
     :return: data1, delta_data and noise covariance matrices.
@@ -30,7 +29,7 @@ def group_glm(data, design_mat, design_con):
         raise ValueError(f'number of subjects in design matrix is {x.shape[0]} but'
                          f' {data.shape[0]} summary measures were loaded.')
 
-    y = np.transpose(data, [1, 2, 0])
+    y = np.transpose(data, [1, 2, 0]) # make it (n_vox, n_dim, n_subj)
     beta = y @ np.linalg.pinv(x).T
     copes = beta @ c.T
 
@@ -39,11 +38,10 @@ def group_glm(data, design_mat, design_con):
     varcopes = sigma_sq[..., np.newaxis] * np.diagonal(c @ np.linalg.inv(x.T @ x) @ c.T)
 
     data1 = copes[:, :, 0]
-    data2 = copes[:, :, 1]
-    delta_data = copes[:, :, 2]
-    sigma_n = varcopes[..., 2]
+    delta_data = copes[:, :, 1]
+    sigma_n = varcopes[..., 1]
 
-    return data1, data2, delta_data, sigma_n
+    return data1, delta_data, sigma_n
 
 def loadcontrast(design_con):
     """

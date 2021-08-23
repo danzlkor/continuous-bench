@@ -290,7 +290,7 @@ def submit_glm(args):
 
     summaries = summaries[:, invalid_vox == 0, :]
     # perform glm:
-    data, _, delta_data, sigma_n = glm.group_glm(summaries, args.design_mat, args.design_con)
+    data, delta_data, sigma_n = glm.group_glm(summaries, args.design_mat, args.design_con)
     glm_dir = f'{args.study_dir}/Glm/'
     image_io.write_glm_results(data, delta_data, sigma_n, args.mask, invalid_vox, glm_dir)
 
