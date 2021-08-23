@@ -301,7 +301,7 @@ def submit_inference(args):
 
     # perform inference:
     ch_mdl = change_model.ChangeModel.load(args.model)
-    posteriors, predictions, peaks = ch_mdl.predict(data, delta_data, sigma_n)
+    posteriors, predictions, peaks, bad_samples = ch_mdl.infer(data, delta_data, sigma_n)
 
     # save the results:
     maps_dir = f'{args.study_dir}/Results/{ch_mdl.model_name}'
