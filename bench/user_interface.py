@@ -12,6 +12,7 @@ from fsl.utils.run import run
 from bench import change_model, glm, summary_measures, diffusion_models, acquisition, image_io
 from joblib import delayed, Parallel
 
+
 def main(argv=None):
     """
     Wrapper function to parse the input from commandline and run the requested pipeline.
@@ -62,8 +63,10 @@ def parse_args(argv):
 
     train_optional = diff_train_parser.add_argument_group("optional arguments")
     train_optional.add_argument("-n", default=10000, type=int, help="number of training samples", required=False)
-    train_optional.add_argument("-p", default=2, type=int, help="polynomial degree for mu design matrix", required=False)
-    train_optional.add_argument("-ps", default=2, type=int, help="polynomial degree for sigma design matrix", required=False)
+    train_optional.add_argument("-p", default=2, type=int, help="polynomial degree for mu design matrix",
+                                required=False)
+    train_optional.add_argument("-ps", default=2, type=int, help="polynomial degree for sigma design matrix",
+                                required=False)
     train_optional.add_argument("-d", default=4, type=int,
                                 help=" maximum degree for summary measures (only even numbers)", required=False)
     train_optional.add_argument("--alpha", default=0.0, type=float, help="regularization weight", required=False)
@@ -104,8 +107,9 @@ def parse_args(argv):
                                       help='Path to the un-normalized summary measurements', required=True)
 
     # glm arguments:
-    glm_parser.add_argument("--design-mat", help="Design matrix for the group glm", required=True)
-    glm_parser.add_argument("--design-con", help="Design contrast for the group glm", required=True)
+    glm_parser.add_argument("--design-mat", help="Design matrix for the group glm", required=False)
+    glm_parser.add_argument("--design-con", help="Design contrast for the group glm", required=False)
+    glm_parser.add_argument('--paired', dest='paired', action='store_true')
     glm_parser.add_argument("--study-dir", help='Path to save the outputs', default='./')
     glm_parser.add_argument("--mask", help='Path to the mask', required=True)
 
@@ -224,13 +228,14 @@ def submit_summary(args):
                     f.write("%s\n" % t)
                 f.close()
 
-                job_id = run(f'fsl_sub --export PATH -t {args.study_dir}/summary_tasklist.txt ' 
+                job_id = run(f'fsl_sub --export PATH -t {args.study_dir}/summary_tasklist.txt '
                              f'-T 200 -R 4 -N bench_summary -l {args.study_dir}/log',
                              env=os.environ, exitcode=True, stderr=True)
 
                 print(f'Jobs were submitted to SGE with job id {job_id[0]}.')
         else:
             print(f'No clusters were found. The jobs are running locally.')
+
             # processes = [subprocess.Popen(t.split(), shell=False, env=os.environ) for t in task_list]
             # [p.wait() for p in processes]
 
@@ -256,7 +261,8 @@ def submit_summary_single_subject(args):
         """
     output_add = args.output_add + '/SummaryMeasurements'
     summary_measures.fit_summary_single_subject(diff_add=args.diff_add, bvec_add=args.bvec_add, bval_add=args.bval_add,
-                                                mask_add=args.mask_add, xfm_add=args.xfm_add, shm_degree=args.shm_degree,
+                                                mask_add=args.mask_add, xfm_add=args.xfm_add,
+                                                shm_degree=args.shm_degree,
                                                 subj_idx=args.subj_idx, output_add=output_add)
 
 
@@ -266,17 +272,9 @@ def submit_glm(args):
     :param args: output from argparse, should contain desing matrix anc contrast addresss, summary_dir and masks
     :return:
     """
-    if args.design_mat is None:
-        raise RuntimeError('For inference you have to provide a design matrix file.')
-    elif not os.path.exists(args.design_mat):
-        raise FileNotFoundError(f'{args.design_mat} file not found.')
+    assert args.paired or (args.design_mat is not None and args.design_con is not None)
 
-    if args.design_con is None:
-        raise RuntimeError('For inference you need to provide a design contrast file.')
-    elif not os.path.exists(args.design_con):
-        raise FileNotFoundError(f'{args.design_con} file not found.')
     glm_dir = f'{args.study_dir}/GLM'
-
     if os.path.exists(args.study_dir + '/SummaryMeasurements'):
         summary_dir = args.study_dir + '/SummaryMeasurements'
     else:
@@ -289,9 +287,22 @@ def submit_glm(args):
         summary_dir=summary_dir, mask=args.mask)
 
     summaries = summaries[:, invalid_vox == 0, :]
-    # perform glm:
-    data, delta_data, sigma_n = glm.group_glm(summaries, args.design_mat, args.design_con)
-    glm_dir = f'{args.study_dir}/Glm/'
+
+    if args.paired:
+        data, delta_data, sigma_n = glm.group_glm_paired(summaries)
+    else:
+        if args.design_mat is None:
+            raise RuntimeError('For inference you have to provide a design matrix file.')
+        elif not os.path.exists(args.design_mat):
+            raise FileNotFoundError(f'{args.design_mat} file not found.')
+
+        if args.design_con is None:
+            raise RuntimeError('For inference you need to provide a design contrast file.')
+        elif not os.path.exists(args.design_con):
+            raise FileNotFoundError(f'{args.design_con} file not found.')
+
+        data, delta_data, sigma_n = glm.group_glm(summaries, args.design_mat, args.design_con)
+
     image_io.write_glm_results(data, delta_data, sigma_n, args.mask, invalid_vox, glm_dir)
 
 

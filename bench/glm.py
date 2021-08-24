@@ -43,6 +43,24 @@ def group_glm(data, design_mat, design_con):
 
     return data1, delta_data, sigma_n
 
+
+def group_glm_paired(data):
+    """
+    Performs group glm on the given pared data, assumes data is sorter as:
+        subj1_scan1, subj2_scan1, ..., subjectn_scan1, subj1_scan2, subject2_scan2, ...
+    :param data: 3d numpy array (2 * n_subj, n_vox, n_dim)
+    :return: data1, delta_data and noise covariance matrices.
+    """
+    n_subj = data.shape[0] // 2
+    data1 = data[:n_subj].mean(axis=0)
+    diffs = data[n_subj:] - data[:n_subj]
+    delta_data = diffs.mean(axis=0)
+
+    sigma_n = np.array([np.cov(diffs[:, i, :].T) for i in diffs.shape[1]]) # todo:vectorize it,
+
+    return data1, delta_data, sigma_n
+
+
 def loadcontrast(design_con):
     """
     Reads design.con file. This function adopted from fslpy.data.loadContrasts with some minor changes
