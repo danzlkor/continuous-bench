@@ -307,6 +307,11 @@ def submit_inference(args):
     maps_dir = f'{args.study_dir}/Results/{ch_mdl.forward_model_name}'
     image_io.write_inference_results(maps_dir, ch_mdl.model_names, predictions, posteriors, peaks,
                                      f'{args.study_dir}/Glm/valid_mask')
+
+    dv, offset, deviation = ch_mdl.estimate_quality_of_fit(data, delta_data, sigma_n, predictions, peaks)
+    image_io.write_nifti(deviation[:, np.newaxis], f'{args.study_dir}/Glm/valid_mask',
+                         f'{maps_dir}/sigma_deviations.nii.gz')
+
     print(f'Analysis completed successfully, the posterior probability maps are stored in {maps_dir}')
 
 
