@@ -274,7 +274,7 @@ def submit_glm(args):
     """
     assert args.paired or (args.design_mat is not None and args.design_con is not None)
 
-    glm_dir = f'{args.study_dir}/GLM'
+    glm_dir = f'{args.study_dir}/Glm'
     if os.path.exists(args.study_dir + '/SummaryMeasurements'):
         summary_dir = args.study_dir + '/SummaryMeasurements'
     else:
