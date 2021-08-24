@@ -304,7 +304,7 @@ def submit_inference(args):
     posteriors, predictions, peaks, bad_samples = ch_mdl.infer(data, delta_data, sigma_n)
 
     # save the results:
-    maps_dir = f'{args.study_dir}/Results/{ch_mdl.model_name}'
+    maps_dir = f'{args.study_dir}/Results/{ch_mdl.forward_model_name}'
     image_io.write_inference_results(maps_dir, ch_mdl.model_names, predictions, posteriors, peaks,
                                      f'{args.study_dir}/Glm/valid_mask')
     print(f'Analysis completed successfully, the posterior probability maps are stored in {maps_dir}')
