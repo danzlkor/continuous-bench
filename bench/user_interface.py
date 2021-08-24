@@ -283,7 +283,7 @@ def submit_glm(args):
     if not os.path.isdir(glm_dir):
         os.makedirs(glm_dir)
 
-    summaries, invalid_vox, _ = image_io.read_summary_images(
+    summaries, invalid_vox, summary_names = image_io.read_summary_images(
         summary_dir=summary_dir, mask=args.mask)
 
     summaries = summaries[:, invalid_vox == 0, :]
@@ -303,7 +303,12 @@ def submit_glm(args):
 
         data, delta_data, sigma_n = glm.group_glm(summaries, args.design_mat, args.design_con)
 
-    image_io.write_glm_results(data, delta_data, sigma_n, args.mask, invalid_vox, glm_dir)
+    image_io.write_glm_results(data, delta_data, sigma_n, args.mask,
+                               invalid_vox, glm_dir)
+    y_norm, dy_norm, sigma_n_norm = \
+        summary_measures.normalize_summaries(data, summary_names, delta_data, sigma_n)
+
+    image_io.write_glm_results(y_norm, dy_norm, sigma_n_norm, args.mask, invalid_vox, glm_dir + '_normalised')
 
 
 def submit_inference(args):
