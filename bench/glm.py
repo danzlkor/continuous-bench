@@ -59,6 +59,7 @@ def group_glm_paired(data):
     # sigma_n = np.array([np.cov(diffs[:, i, :].T) for i in range(diffs.shape[1])])
     offset = diffs - delta_data
     sigma_n = np.einsum('kij,kil->ijl', offset, offset) / (n_subj - 1)
+    sigma_n = sigma_n /n_subj
 
     return data1, delta_data, sigma_n
 
