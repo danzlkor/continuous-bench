@@ -11,7 +11,6 @@ import warnings
 from dataclasses import dataclass
 import numpy as np
 from joblib import Parallel, delayed
-from progressbar import ProgressBar
 from scipy.integrate import quad
 from scipy.optimize import minimize_scalar, root_scalar
 from scipy.spatial import KDTree
@@ -332,9 +331,8 @@ class ChangeModel:
         if parallel:
             res = Parallel(n_jobs=-1, verbose=True)(delayed(func)(i) for i in range(n_samples))
         else:
-            pbar = ProgressBar()
             res = []
-            for i in pbar(range(n_samples)):
+            for i in range(n_samples):
                 res.append(func(i))
 
         log_probs = np.array([d[0] for d in res])
@@ -760,9 +758,8 @@ class Trainer:
         if parallel:
             res = Parallel(n_jobs=-1, verbose=True)(delayed(generator_func)(i) for i in range(n_samples))
         else:
-            pbar = ProgressBar()
             res = []
-            for i in pbar(range(n_samples)):
+            for i in range(n_samples):
                 res.append(generator_func(i))
 
         y_1 = np.squeeze(np.stack([d[0] for d in res], 0))
@@ -800,9 +797,8 @@ def knn_estimation(y, dy, k=100, lam=1e-12):
     tree = KDTree(y_whitened)
     dists, neigbs = tree.query(y_whitened, k)
     weights = 1 / (dists + 1)
-    pbar = ProgressBar()
     print('KNN approximation of sample means and covariances:')
-    for vec_idx in pbar(range(n_vecs)):
+    for vec_idx in range(n_vecs):
         for sample_idx in range(n_samples):
             pop = dy[vec_idx, neigbs[sample_idx]]
             mu[vec_idx, sample_idx] = np.average(pop, axis=0, weights=weights[sample_idx])

@@ -10,7 +10,6 @@ import scipy.stats as st
 import sys
 from fsl.data.featdesign import loadDesignMat
 from fsl.data.image import Image
-from progressbar import ProgressBar
 from joblib import delayed, Parallel
 from scipy import optimize
 from typing import Callable
@@ -116,9 +115,8 @@ def fit_model_smm(diffusion_sig, forward_model_name, bvals, bvecs, sph_degree):
     idx_shells, shells = acquisition.ShellParameters.create_shells(bval=bvals)
     acq = acquisition.Acquisition(shells, idx_shells, bvecs)
     y, sigma_n = summary_measures.fit_shm(diffusion_sig, acq, sph_degree)
-    pbar = ProgressBar()
     pe = np.zeros((y.shape[0], len(priors)))
-    for i in pbar(range(y.shape[0])):
+    for i in range(y.shape[0]):
         pe[i] = map_fit_smm(func, acq, sph_degree, priors, y[i], sigma_n[i])
 
     return pe
@@ -148,9 +146,8 @@ def fit_model_sig(diffusion_sig, noise_level, forward_model_name, bvals, bvecs, 
     if parallel:
         res = Parallel(n_jobs=-1, verbose=True)(delayed(tmp_func)(i) for i in range(n_samples))
     else:
-        pbar = ProgressBar()
         res = []
-        for i in pbar(range(n_samples)):
+        for i in range(n_samples):
             res.append(tmp_func(i))
 
     pe = np.array([item[0] for item in res])
