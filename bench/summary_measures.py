@@ -146,7 +146,7 @@ def fit_summary_single_subject(diff_add: str, bvec_add: str, bval_add: str, mask
         the main function that fits summary measurements for a single subject
         :param diff_add: path to diffusion data
         :param bvec_add: path to bvec file
-        :param bval_add: path to bvec file
+        :param bval_add: path to bval file
         :param mask_add: path to mask
         :param xfm_add: path to transformation from native space to standard space,
             if not provided, uses the same space as input.
