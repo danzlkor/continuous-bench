@@ -241,9 +241,10 @@ def submit_summary(args):
 
             def func(subj_idx):
                 x, d, bval, bvec = args.xfm[subj_idx], args.data[subj_idx], args.bval[subj_idx], args.bvecs[subj_idx]
-                summary_measures.fit_summary_single_subject(d, bvec, bval, args.mask,
-                                                            x, args.shm_degree, subj_idx,
-                                                            f'{args.study_dir}/SummaryMeasurements', args.shm_degree)
+                summary_measures.fit_summary_single_subject(diff_add=d, bvec_add=bvec, bval_add=bval,
+                                                            mask_add=args.mask, xfm_add=x,
+                                                            shm_degree=args.shm_degree, subj_idx=subj_idx,
+                                                            output_add=f'{args.study_dir}/SummaryMeasurements')
 
             res = Parallel(n_jobs=-1, verbose=True)(delayed(func)(i) for i in range(len(args.data)))
             # for i in range(len(args.data)):

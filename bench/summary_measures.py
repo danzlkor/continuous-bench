@@ -201,7 +201,7 @@ def fit_summary_single_subject(diff_add: str, bvec_add: str, bval_add: str, mask
                 f.write("%s\n" % t)
             f.close()
 
-    print(f'Summary measurements for {diff_add} computed')
+    print(f'Summary measurements for {diff_add} are computed.')
     return 1
 
 
