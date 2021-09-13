@@ -58,7 +58,10 @@ This command will make a `SummaryMeasurements` directory inside the specified `s
 This steps runs a group GLM to compute the baseline measurements, the average change between groups and the noise covariance matrices. 
 
 ```
-bench glm --design-mat <Design matrix for the group glm>  --design-con <Design contrast for the group glm>  --study-dir <study directory>
+bench glm --design-mat <Design matrix for the group glm>  
+          --design-con <Design contrast for the group glm>
+          --mask <ROI mask in standard space>
+          --study-dir <study directory>
 ```
 The design matrix must have one row per subject (with the same order as the input for the previous step) and arbitrary number of columns. The contrast matrix must have two rows where the first one should correspond to the baseline measurement and the second one the group difference. In the simplest case, where there is no confounding variables the design matrix has two columns that have group memberships and the contrast is `[1 0, -1 1]`. We strongly recommend generating the design and contrast matrices using the FSL's `Glm` tool (`Glm_gui` on Mac).   
 
