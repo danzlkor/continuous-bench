@@ -310,7 +310,7 @@ def submit_glm(args):
         summary_measures.normalize_summaries(data, summary_names, delta_data, sigma_n)
 
     image_io.write_glm_results(y_norm, dy_norm, sigma_n_norm, args.mask, invalid_vox, glm_dir + '_normalised')
-
+    print(f'GLM is done. Results are in written in {args.glm_dir}')
 
 def submit_inference(args):
     glm_dir = f'{args.study_dir}/Glm/'
