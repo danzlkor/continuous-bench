@@ -50,7 +50,7 @@ Run the following command to estimate the summary measurements:
     --bval <a single bval or a list of bval file.>
     --bvec <list of bvecs for all subject>
     --mask <ROI mask in standard space>
-    --study_dir <path to save summary measurements>
+    --study-dir <path to save summary measurements>
 ```
 This command will make a `SummaryMeasurements` directory inside the specified `study_dir` that contains summary measurements per subject, numbered based on the ordering of input from 0 to the number of subjects.
   
