@@ -34,7 +34,9 @@ This step is for training change models for parameters of a specific biophysical
 To train models of change you need to run the following command:
 
 ```
-bench diff-train --model <model_name> --bval <path_to_bvalue_file> --output <name_of_output_file>
+bench diff-train --model <model_name> 
+                 --bval <path_to_bvalue_file> 
+                 --output <name_of_output_file>
 ```
 
 run ``bench diff-train --help`` to see the full list of optional parameters. This command generates a pickle file that contains trained machine learning models.
@@ -46,11 +48,11 @@ This stage estimates rotationally invariant summary measurements from dMRI data 
 Run the following command to estimate the summary measurements:
 ``` 
     bench diff-summary --data <list of all subjects diffusion data> 
-    --xfm <list of all subjects warp files from native to standard space>
-    --bval <a single bval or a list of bval file.>
-    --bvec <list of bvecs for all subject>
-    --mask <ROI mask in standard space>
-    --study-dir <path to save summary measurements>
+                       --xfm <list of all subjects warp files from native to standard space>
+                       --bval <a single bval or a list of bval file.>
+                       --bvec <list of bvecs for all subject>
+                       --mask <ROI mask in standard space>
+                       --study-dir <path to save summary measurements>
 ```
 This command will make a `SummaryMeasurements` directory inside the specified `study_dir` that contains summary measurements per subject, numbered based on the ordering of input from 0 to the number of subjects.
   
@@ -70,7 +72,8 @@ This step produces a directory in the `study-dir` that contains `data.nii.gz`, `
 ### 4. Make inference:
 This final stage computes for each voxel the posterior probability for any of the change models trained in the first stage using the results of the GLM. 
 ```
-bench inference --model <change model file> --study-dir <study directory>
+bench inference --model <change model file> 
+                --study-dir <study directory>
 ```
 
 This stage produces `Results` folder in the study directory that contains a folder for each forward model, e.g. `study_dir/Results/watson_noddi/`.  
