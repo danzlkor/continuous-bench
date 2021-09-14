@@ -34,7 +34,9 @@ This step is for training change models for parameters of a specific biophysical
 To train models of change you need to run the following command:
 
 ```
-bench diff-train --model <model_name> --bval <path_to_bvalue_file> --output <name_of_output_file>
+bench diff-train --model <model_name> 
+                 --bval <path_to_bvalue_file> 
+                 --output <name_of_output_file>
 ```
 
 run ``bench diff-train --help`` to see the full list of optional parameters. This command generates a pickle file that contains trained machine learning models.
@@ -46,11 +48,11 @@ This stage estimates rotationally invariant summary measurements from dMRI data 
 Run the following command to estimate the summary measurements:
 ``` 
     bench diff-summary --data <list of all subjects diffusion data> 
-    --xfm <list of all subjects warp files from native to standard space>
-    --bval <a single bval or a list of bval file.>
-    --bvec <list of bvecs for all subject>
-    --mask <ROI mask in standard space>
-    --study_dir <path to save summary measurements>
+                       --xfm <list of all subjects warp files from native to standard space>
+                       --bval <a single bval or a list of bval file.>
+                       --bvec <list of bvecs for all subject>
+                       --mask <ROI mask in standard space>
+                       --study-dir <path to save summary measurements>
 ```
 This command will make a `SummaryMeasurements` directory inside the specified `study_dir` that contains summary measurements per subject, numbered based on the ordering of input from 0 to the number of subjects.
   
@@ -58,7 +60,10 @@ This command will make a `SummaryMeasurements` directory inside the specified `s
 This steps runs a group GLM to compute the baseline measurements, the average change between groups and the noise covariance matrices. 
 
 ```
-bench glm --design-mat <Design matrix for the group glm>  --design-con <Design contrast for the group glm>  --study-dir <study directory>
+bench glm --design-mat <Design matrix for the group glm>  
+          --design-con <Design contrast for the group glm>
+          --mask <ROI mask in standard space>
+          --study-dir <study directory>
 ```
 The design matrix must have one row per subject (with the same order as the input for the previous step) and arbitrary number of columns. The contrast matrix must have two rows where the first one should correspond to the baseline measurement and the second one the group difference. In the simplest case, where there is no confounding variables the design matrix has two columns that have group memberships and the contrast is `[1 0, -1 1]`. We strongly recommend generating the design and contrast matrices using the FSL's `Glm` tool (`Glm_gui` on Mac).   
 
@@ -67,7 +72,8 @@ This step produces a directory in the `study-dir` that contains `data.nii.gz`, `
 ### 4. Make inference:
 This final stage computes for each voxel the posterior probability for any of the change models trained in the first stage using the results of the GLM. 
 ```
-bench inference --model <change model file> --study-dir <study directory>
+bench inference --model <change model file> 
+                --study-dir <study directory>
 ```
 
 This stage produces `Results` folder in the study directory that contains a folder for each forward model, e.g. `study_dir/Results/watson_noddi/`.  
