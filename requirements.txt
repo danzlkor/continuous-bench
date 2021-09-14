@@ -12,3 +12,4 @@ scikit-learn
 setuptools
 pytest
 bench
+fslpy

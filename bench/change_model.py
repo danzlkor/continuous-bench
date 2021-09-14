@@ -617,7 +617,7 @@ class Trainer:
                                    name=str(self.vec_names[idx]) + '_' + l)
                 )
                 if verbose:
-                    print(f'Tained models for {models[-1].name}.')
+                    print(f'Trained models for {models[-1].name}.')
             return models
 
         if parallel:

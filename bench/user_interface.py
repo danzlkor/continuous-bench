@@ -35,6 +35,14 @@ def main(argv=None):
         submit_glm(args)
     elif args.commandname == 'inference':
         submit_inference(args)
+    else:
+        print_avail_commands()
+
+def print_avail_commands():
+    print('BENCH: Bayesian EstimatioN of CHange')
+    print('usage: bench <command> [options]')
+    print('')
+    print('available commands: diff-train, diff-summary,diff-single-summary,diff-normalize,glm,inference')
 
 
 def parse_args(argv):
@@ -57,7 +65,7 @@ def parse_args(argv):
 
     # train arguments:
     train_required = diff_train_parser.add_argument_group("required arguments")
-    train_required.add_argument("--model", help="Forward model name", required=True)
+    train_required.add_argument("--model", help="name of the forward model", required=True)
     train_required.add_argument("--output", help="name of the trained model", required=True)
     train_required.add_argument("--bval", required=True)
 
