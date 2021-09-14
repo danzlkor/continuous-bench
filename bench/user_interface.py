@@ -38,6 +38,7 @@ def main(argv=None):
     else:
         print_avail_commands()
 
+
 def print_avail_commands():
     print('BENCH: Bayesian EstimatioN of CHange')
     print('usage: bench <command> [options]')
@@ -70,20 +71,23 @@ def parse_args(argv):
     train_required.add_argument("--bval", required=True)
 
     train_optional = diff_train_parser.add_argument_group("optional arguments")
-    train_optional.add_argument("-n", default=10000, type=int, help="number of training samples (default=10000)", required=False)
+    train_optional.add_argument("-n", default=10000, type=int, help="number of training samples (default=10000)",
+                                required=False)
     train_optional.add_argument("-p", default=2, type=int, help="polynomial degree for mu design matrix (default=2)",
                                 required=False)
     train_optional.add_argument("-ps", default=1, type=int, help="polynomial degree for sigma design matrix(default=1)",
                                 required=False)
     train_optional.add_argument("-d", default=4, type=int,
-                                help=" maximum degree for summary measures (must be even numbers, default=4)", required=False)
+                                help=" maximum degree for summary measures (must be even numbers, default=4)",
+                                required=False)
     train_optional.add_argument("--alpha", default=0.0, type=float,
                                 help="regularisation weight (default=0)", required=False)
     train_optional.add_argument("--change-vecs", help="vectors of change", default=None, required=False)
     train_optional.add_argument("--summary", default='shm', type=str,
                                 help='type of summary measurements. Either shm (spherical harmonic model)'
                                      ' or dtm (diffusion tensor model) (default shm)', required=False)
-    train_optional.add_argument('--verbose', dest='verbose', action='store_true', default=False)
+    train_optional.add_argument('--verbose', help='flag for printing optimisation outputs', dest='verbose',
+                                action='store_true', default=False)
     # fit summary arguments:
     diff_summary_parser.add_argument("--mask",
                                      help="Mask in standard space indicating which voxels to analyse", required=True)
@@ -100,7 +104,10 @@ def parse_args(argv):
                                      help=" Degree for spherical harmonics summary measurements",
                                      required=False, type=int)
     diff_summary_parser.add_argument("--study-dir", help="Path to the output directory", required=True)
-
+    diff_summary_parser.add_argument('--force-local',
+                                     help='forces running computions locally rather than submitting'
+                                          ' to the available cluster', dest='force_local',
+                                     action='store_true', default=False)
     # single subject summary:
     diff_single_subj_summary_parser.add_argument('subj_idx')
     diff_single_subj_summary_parser.add_argument('diff_add')
@@ -171,7 +178,6 @@ def submit_train(args):
         summary_names=summary_names,
         param_prior_dists=param_dist)
 
-    print('Change models are trained using maximum likelihood.')
     ch_model = trainer.train_ml(n_samples=int(args.n),
                                 mu_poly_degree=int(args.p),
                                 sigma_poly_degree=int(args.ps),
@@ -210,7 +216,7 @@ def submit_summary(args):
     if len(args.bvecs) > n_subjects:
         raise ValueError(f"Got more bvecs than diffusion MRI data/transformations: {args.bvecs[n_subjects:]}")
 
-    if len(args.bval) == 1: # if a single bval passed.
+    if len(args.bval) == 1:  # if a single bval passed.
         args.bval = args.bval * len(args.bvecs)
 
     for subj_idx, (nl, d, bvec, bval) in \
@@ -235,7 +241,7 @@ def submit_summary(args):
             task_list.append(cmd)
         # main(cmd.split()[1:]) # just for debugging.
 
-        if 'SGE_ROOT' in os.environ.keys():
+        if 'SGE_ROOT' in os.environ.keys() and not args.force_local:
             with open(f'{args.study_dir}/summary_tasklist.txt', 'w') as f:
                 for t in task_list:
                     f.write("%s\n" % t)
@@ -324,6 +330,7 @@ def submit_glm(args):
 
     image_io.write_glm_results(y_norm, dy_norm, sigma_n_norm, args.mask, invalid_vox, glm_dir + '_normalised')
     print(f'GLM is done. Results are in written in {args.glm_dir}')
+
 
 def submit_inference(args):
     glm_dir = f'{args.study_dir}/Glm/'
