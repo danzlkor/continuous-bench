@@ -70,18 +70,18 @@ def parse_args(argv):
     train_required.add_argument("--bval", required=True)
 
     train_optional = diff_train_parser.add_argument_group("optional arguments")
-    train_optional.add_argument("-n", default=10000, type=int, help="number of training samples", required=False)
-    train_optional.add_argument("-p", default=2, type=int, help="polynomial degree for mu design matrix",
+    train_optional.add_argument("-n", default=10000, type=int, help="number of training samples (default=10000)", required=False)
+    train_optional.add_argument("-p", default=2, type=int, help="polynomial degree for mu design matrix (default=2)",
                                 required=False)
-    train_optional.add_argument("-ps", default=2, type=int, help="polynomial degree for sigma design matrix",
+    train_optional.add_argument("-ps", default=1, type=int, help="polynomial degree for sigma design matrix(default=1)",
                                 required=False)
     train_optional.add_argument("-d", default=4, type=int,
-                                help=" maximum degree for summary measures (only even numbers)", required=False)
+                                help=" maximum degree for summary measures (must be even numbers, default=4)", required=False)
     train_optional.add_argument("--alpha", default=0.0, type=float, help="regularization weight", required=False)
     train_optional.add_argument("--change-vecs", help="vectors of change", default=None, required=False)
     train_optional.add_argument("--summary", default='shm', type=str,
                                 help='type of summary measurements. Either shm (spherical harmonic model)'
-                                     ' or dtm (diffusion tensor model)', required=False)
+                                     ' or dtm (diffusion tensor model) (default shm)', required=False)
 
     # fit summary arguments:
     diff_summary_parser.add_argument("--mask",
@@ -249,9 +249,10 @@ def submit_summary(args):
 
             def func(subj_idx):
                 x, d, bval, bvec = args.xfm[subj_idx], args.data[subj_idx], args.bval[subj_idx], args.bvecs[subj_idx]
-                summary_measures.fit_summary_single_subject(d, bvec, bval, args.mask,
-                                                            x, args.shm_degree, subj_idx,
-                                                            f'{args.study_dir}/SummaryMeasurements', args.shm_degree)
+                summary_measures.fit_summary_single_subject(diff_add=d, bvec_add=bvec, bval_add=bval,
+                                                            mask_add=args.mask, xfm_add=x,
+                                                            shm_degree=args.shm_degree, subj_idx=subj_idx,
+                                                            output_add=f'{args.study_dir}/SummaryMeasurements')
 
             res = Parallel(n_jobs=-1, verbose=True)(delayed(func)(i) for i in range(len(args.data)))
             # for i in range(len(args.data)):
@@ -317,7 +318,7 @@ def submit_glm(args):
         summary_measures.normalize_summaries(data, summary_names, delta_data, sigma_n)
 
     image_io.write_glm_results(y_norm, dy_norm, sigma_n_norm, args.mask, invalid_vox, glm_dir + '_normalised')
-
+    print(f'GLM is done. Results are in written in {args.glm_dir}')
 
 def submit_inference(args):
     glm_dir = f'{args.study_dir}/Glm/'
