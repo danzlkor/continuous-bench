@@ -62,18 +62,18 @@ def parse_args(argv):
     train_required.add_argument("--bval", required=True)
 
     train_optional = diff_train_parser.add_argument_group("optional arguments")
-    train_optional.add_argument("-n", default=10000, type=int, help="number of training samples", required=False)
-    train_optional.add_argument("-p", default=2, type=int, help="polynomial degree for mu design matrix",
+    train_optional.add_argument("-n", default=10000, type=int, help="number of training samples (default=10000)", required=False)
+    train_optional.add_argument("-p", default=2, type=int, help="polynomial degree for mu design matrix (default=2)",
                                 required=False)
-    train_optional.add_argument("-ps", default=2, type=int, help="polynomial degree for sigma design matrix",
+    train_optional.add_argument("-ps", default=1, type=int, help="polynomial degree for sigma design matrix(default=1)",
                                 required=False)
     train_optional.add_argument("-d", default=4, type=int,
-                                help=" maximum degree for summary measures (only even numbers)", required=False)
+                                help=" maximum degree for summary measures (must be even numbers, default=4)", required=False)
     train_optional.add_argument("--alpha", default=0.0, type=float, help="regularization weight", required=False)
     train_optional.add_argument("--change-vecs", help="vectors of change", default=None, required=False)
     train_optional.add_argument("--summary", default='shm', type=str,
                                 help='type of summary measurements. Either shm (spherical harmonic model)'
-                                     ' or dtm (diffusion tensor model)', required=False)
+                                     ' or dtm (diffusion tensor model) (default shm)', required=False)
 
     # fit summary arguments:
     diff_summary_parser.add_argument("--mask",
