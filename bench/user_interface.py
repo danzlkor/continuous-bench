@@ -66,7 +66,9 @@ def parse_args(argv):
 
     # train arguments:
     train_required = diff_train_parser.add_argument_group("required arguments")
-    train_required.add_argument("--model", help="name of the forward model", required=True)
+    available_models = list(diffusion_models.prior_distributions.keys())
+    train_required.add_argument("--model",
+                                help=f"name of the forward model. Available models:\n{available_models}", required=True)
     train_required.add_argument("--output", help="name of the trained model", required=True)
     train_required.add_argument("--bval", required=True)
 
