@@ -208,6 +208,9 @@ def submit_summary(args):
     if len(args.bvecs) > n_subjects:
         raise ValueError(f"Got more bvecs than diffusion MRI data/transformations: {args.bvecs[n_subjects:]}")
 
+    if len(args.bval) == 1: # if a single bval passed.
+        args.bval = args.bval * len(args.bvecs)
+
     for subj_idx, (nl, d, bvec, bval) in \
             enumerate(zip(args.xfm, args.data, args.bvecs, args.bval), 1):
         print(f'Scan {subj_idx}: dMRI ({d} with {bvec} and {bval}); transform ({nl})')
