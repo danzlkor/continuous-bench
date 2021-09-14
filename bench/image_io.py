@@ -8,7 +8,6 @@ import glob
 import os
 from warnings import warn
 
-import nibabel as nib
 import numpy as np
 from fsl.data.image import Image
 from fsl.transform import fnirt
@@ -84,9 +83,10 @@ def convert_warp_to_deformation_field(warp_field, std_image, def_field, overwrit
     """
     if not os.path.exists(def_field) or overwrite is True:
         convertwarp(def_field, std_image, warp1=warp_field)
-        img = nib.load(def_field)
-        img.header['intent_code'] = 2006  # for displacement field style warps
-        img.to_filename(def_field)
+        img = Image(def_field)
+        new_hdr = img.header.copy()
+        new_hdr['intent_code'] = 2006 # for displacement field style warps
+        Image(img.data, header=new_hdr).save(def_field)
 
 
 def transform_indices(native_image, std_mask, def_field):
@@ -247,7 +247,7 @@ def write_nifti(data: np.ndarray, mask_add: str, fname: str, invalids=None):
     img[tuple(std_indices_valid.T)] = data
     img[tuple(std_indices_invalid.T)] = np.nan
 
-    nib.Nifti1Image(img, mask.nibImage.affine).to_filename(fname)
+    Image(img, header=mask.header).save(fname)
 
 
 def write_inference_results(path, model_names, predictions, posteriors, peaks, mask):
