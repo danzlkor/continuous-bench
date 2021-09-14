@@ -77,12 +77,13 @@ def parse_args(argv):
                                 required=False)
     train_optional.add_argument("-d", default=4, type=int,
                                 help=" maximum degree for summary measures (must be even numbers, default=4)", required=False)
-    train_optional.add_argument("--alpha", default=0.0, type=float, help="regularization weight", required=False)
+    train_optional.add_argument("--alpha", default=0.0, type=float,
+                                help="regularisation weight (default=0)", required=False)
     train_optional.add_argument("--change-vecs", help="vectors of change", default=None, required=False)
     train_optional.add_argument("--summary", default='shm', type=str,
                                 help='type of summary measurements. Either shm (spherical harmonic model)'
                                      ' or dtm (diffusion tensor model) (default shm)', required=False)
-
+    train_optional.add_argument('--verbose', dest='verbose', action='store_true', default=False)
     # fit summary arguments:
     diff_summary_parser.add_argument("--mask",
                                      help="Mask in standard space indicating which voxels to analyse", required=True)
@@ -175,7 +176,8 @@ def submit_train(args):
                                 mu_poly_degree=int(args.p),
                                 sigma_poly_degree=int(args.ps),
                                 alpha=float(args.alpha),
-                                parallel=True)
+                                parallel=True,
+                                verbose=args.verbose)
 
     ch_model.forward_model_name = forward_model.__name__
     ch_model.meausrement_names = summary_measures.summary_names(acq, args.d)

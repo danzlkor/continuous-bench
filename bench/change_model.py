@@ -546,7 +546,7 @@ class Trainer:
         return np.array([dict_.get(p, 0) for p in self.param_names])
 
     def train_ml(self, n_samples=1000, mu_poly_degree=2, sigma_poly_degree=1, alpha=.1, dv0=1e-6,
-                 verbose=True, parallel=True):
+                 verbose=False, parallel=True):
         """
         Train change models (estimates w_mu and w_l) using forward model simulation
 
@@ -569,17 +569,19 @@ class Trainer:
         yf_mu = PolynomialFeatures(degree=mu_poly_degree).fit_transform(y - mean_y)
         yf_sigma = PolynomialFeatures(degree=sigma_poly_degree).fit_transform(y - mean_y)
         n_mu_features = yf_mu.shape[-1]
-        if verbose:
-            print('Training models of change ...')
+
+        print('Training models of change, this may take up to a few hours ...')
 
         def func(idx):
             mu_weights = optimize.minimize(neg_log_likelihood,
                                            x0=np.zeros(self.n_dim * n_mu_features),
                                            method=None,
                                            args=(dy[idx], yf_mu, yf_sigma, None, self.diag_idx, 'mu', alpha))
-
-            print(f' mu optimization for {self.vec_names[idx]}: {mu_weights.message}\n '
-                  f'function value:{mu_weights.fun}, {mu_weights.nit}')
+            if verbose:
+                print(f' mu optimization for {self.vec_names[idx]}: {mu_weights.message}\n '
+                      f'function value:{mu_weights.fun}, {mu_weights.nit}')
+            else:
+                print(f'optimized mu weights for {self.vec_names[idx]}')
 
             x0 = np.zeros((self.n_dim * (self.n_dim + 1) // 2) * yf_sigma.shape[-1])
             sigma_weights = optimize.minimize(neg_log_likelihood, method='BFGS',
@@ -587,17 +589,21 @@ class Trainer:
                                               args=(
                                                   dy[idx], yf_mu, yf_sigma, mu_weights.x, self.diag_idx, 'sigma',
                                                   alpha))
-
-            print(f' sigma optimization for {self.vec_names[idx]}: {sigma_weights.message}\n '
-                  f'function value:{sigma_weights.fun}, {sigma_weights.nit}')
+            if verbose:
+                print(f' sigma optimization for {self.vec_names[idx]}: {sigma_weights.message}\n '
+                      f'function value:{sigma_weights.fun}, {sigma_weights.nit}')
+            else:
+                print(f'optimized sigma weights for {self.vec_names[idx]}')
 
             all_weights = optimize.minimize(neg_log_likelihood,
                                             method='BFGS',
                                             x0=np.concatenate([mu_weights.x, sigma_weights.x]),
                                             args=(dy[idx], yf_mu, yf_sigma, None, self.diag_idx, 'both', alpha))
-
-            print(f' mu+sigma optimization for {self.vec_names[idx]}: {all_weights.message}\n '
-                  f'function value:{all_weights.fun}, {all_weights.nit}')
+            if verbose:
+                print(f' mu+sigma optimization for {self.vec_names[idx]}: {all_weights.message}\n '
+                      f'function value:{all_weights.fun}, {all_weights.nit}')
+            else:
+                print(f'optimized mu + sigma weights for {self.vec_names[idx]}')
 
             w_mu = all_weights.x[:(n_mu_features * self.n_dim)].reshape(n_mu_features, self.n_dim)
             w_sigma = all_weights.x[n_mu_features * self.n_dim:].reshape \
