@@ -136,6 +136,8 @@ def parse_args(argv):
                                                   "a trained change model file", default=None, required=True)
     inference_parser.add_argument('--study-dir', help="Path to store posterior probability maps")
     inference_parser.add_argument("--mask", help='Path to the mask', default=None, required=False)
+    inference_parser.add_argument("--integral-bound", help='The bound for integrating over the amount of change(default=1)',
+                                  default=1.0, required=False)
 
     args = parser.parse_args(argv)
 
@@ -341,7 +343,8 @@ def submit_inference(args):
 
     # perform inference:
     ch_mdl = change_model.ChangeModel.load(args.model)
-    posteriors, predictions, peaks, bad_samples = ch_mdl.infer(data, delta_data, sigma_n)
+    posteriors, predictions, peaks, bad_samples = ch_mdl.infer(data, delta_data, sigma_n,
+                                                               integral_bound=args.integral_bound)
 
     # save the results:
     maps_dir = f'{args.study_dir}/Results/{ch_mdl.forward_model_name}'

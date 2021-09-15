@@ -213,20 +213,21 @@ class ChangeModel:
         for i in range(len(self.models)):
             self.models[i].scale = scale[i]
 
-    def infer(self, data, delta_data, sigma_n, parallel=True):
+    def infer(self, data, delta_data, sigma_n, integral_bound=1, parallel=True):
         """
         Computes the posterior probabilities for each model of change
 
         :param data: numpy array (..., n_dim) containing the first group average
         :param delta_data: numpy array (..., n_dim) containing the change between groups.
         :param sigma_n: numpy array or list (..., n_dim, n_dim)
+        :param integral_bound: the bound to integrate over delta v.
         :param parallel: flag to run infrence in parallel
         :return: posterior probabilities for each voxel (..., n_vecs)
         """
 
         print(f'running inference for {data.shape[0]} samples ...')
         y, dy, sn = summary_measures.normalize_summaries(data, self.summary_names, delta_data, sigma_n)
-        lls, amounts = self.compute_log_likelihood(y, dy, sn, parallel=parallel, integral_bound=10)
+        lls, amounts = self.compute_log_likelihood(y, dy, sn, parallel=parallel, integral_bound=integral_bound)
         priors = np.array([m.prior for m in self.models])  # the 1 is for empty set
         priors = priors / priors.sum()
         model_log_posteriors = lls + np.log(priors)
@@ -242,7 +243,7 @@ class ChangeModel:
 
     # warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-    def compute_log_likelihood(self, y, delta_y, sigma_n, integral_bound=1e3, parallel=False):
+    def compute_log_likelihood(self, y, delta_y, sigma_n, integral_bound=1, parallel=True):
         """
         Computes log_likelihood function for all models of change.
 
