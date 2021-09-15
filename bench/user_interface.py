@@ -345,7 +345,7 @@ def submit_inference(args):
     # perform inference:
     ch_mdl = change_model.ChangeModel.load(args.model)
     posteriors, predictions, peaks, bad_samples = ch_mdl.infer(data, delta_data, sigma_n,
-                                                               integral_bound=float(args.integral_bound), parallel=False)
+                                                               integral_bound=float(args.integral_bound), parallel=True)
 
     # save the results:
     maps_dir = f'{args.study_dir}/Results/{ch_mdl.forward_model_name}'
