@@ -316,8 +316,7 @@ class ChangeModel:
                         else:
                             amount[vec_idx] = pos_expected if pos_int > neg_int else neg_expected
 
-                    except np.linalg.LinAlgError as err:
-
+                    except:
                         log_prob[vec_idx] = -np.inf
                         amount[vec_idx] = 0
                         warnings.warn(f'noise covariance is singular for sample {sam_idx}'
