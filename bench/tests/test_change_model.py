@@ -75,3 +75,10 @@ def test_nan():
     b = np.array([2, np.nan])
     #assert np.all([(x == x).all() for x in (a, b)])
     testing.assert_almost_equal(a, b)
+
+
+def test_derivatives():
+    """
+
+    :return:
+    """

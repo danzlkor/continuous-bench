@@ -821,7 +821,7 @@ def knn_estimation(y, dy, k=100, lam=1e-12):
     return mu, tril
 
 
-def l_to_sigma(l_vec, diag_idx, use_numba=True):
+def l_to_sigma(l_vec, diag_idx):
     """
          inverse Cholesky decomposition and log transforms diagonals
            :param l_vec: (..., dim(dim+1)/2) vectors
@@ -832,9 +832,10 @@ def l_to_sigma(l_vec, diag_idx, use_numba=True):
     t = l_vec.shape[-1]
     dim = int((np.sqrt(8 * t + 1) - 1) / 2)  # t = dim*(dim+1)/2
 
-    if use_numba:
-        sigma = np.zeros((l_vec.shape[0], dim, dim))
-        _mat_lower_diagonal(l_vec, sigma)
+
+    sigma = np.zeros((l_vec.shape[0], dim, dim))
+    _mat_lower_diagonal(l_vec, sigma)
+
     #  transpose last two dimensions:
     log_dets = 2 * np.squeeze(l_vec[..., diag_idx]).sum(axis=-1)
     return sigma, log_dets
@@ -1042,6 +1043,8 @@ def neg_log_likelihood(weights, dy, yf_mu, yf_sigma, w_mu, diag_idx, opt_param='
         nll = np.mean(-ldet +
                       np.einsum('ij,ijk,ik->i', offset, sigma_inv, offset)) + \
               alpha * (np.mean(w_mu[1:, :] ** 2) + np.mean(w_sigma[1:, :] ** 2))
+
+
     return nll
 
 

@@ -231,6 +231,7 @@ def submit_summary(args):
     summary_dir = f'{args.study_dir}/SummaryMeasurements'
 
     os.makedirs(summary_dir, exist_ok=True)
+
     if len(glob.glob(summary_dir + '/subj_*.nii.gz')) == len(args.data):
         print('Summary measurements already exist in the specified path.'
               'If you want to re-compute them, delete the current files.')
@@ -268,7 +269,7 @@ def submit_summary(args):
                                                             output_add=f'{args.study_dir}/SummaryMeasurements')
 
             res = Parallel(n_jobs=-1, verbose=True)(delayed(func)(i) for i in range(len(args.data)))
-            # for i in range(len(args.data)):
+            #for i in range(len(args.data)):
             #    func(i)
 
             job_id = 0
