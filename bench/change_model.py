@@ -317,13 +317,12 @@ class ChangeModel:
                             amount[vec_idx] = pos_expected if pos_int > neg_int else neg_expected
 
                     except np.linalg.LinAlgError as err:
-                        if 'Singular matrix' in str(err):
-                            log_prob[vec_idx] = -np.inf
-                            warnings.warn(f'noise covariance is singular for sample {sam_idx}'
+
+                        log_prob[vec_idx] = -np.inf
+                        amount[vec_idx] = 0
+                        warnings.warn(f'noise covariance is singular for sample {sam_idx}'
                                           f'with variances {np.diag(sigma_n_s)}')
-                        else:
-                            print(f'crashed at sample {sam_idx}.\n')
-                            raise
+                        print(f'crashed at sample {sam_idx}.\n')
 
             if np.isnan(log_prob).any():
                 print(sam_idx, np.argwhere(np.isnan(log_prob)))
