@@ -79,8 +79,8 @@ def parse_args(argv):
                                 required=False)
     train_optional.add_argument("-ps", default=1, type=int, help="polynomial degree for sigma design matrix(default=1)",
                                 required=False)
-    train_optional.add_argument("-d", default=4, type=int,
-                                help=" maximum degree for summary measures (must be even numbers, default=4)",
+    train_optional.add_argument("-d", default=2, type=int,
+                                help=" maximum degree for summary measures (must be even numbers, default=2)",
                                 required=False)
     train_optional.add_argument("--alpha", default=0.0, type=float,
                                 help="regularisation weight (default=0)", required=False)
@@ -132,13 +132,16 @@ def parse_args(argv):
     glm_parser.add_argument("--mask", help='Path to the mask', required=True)
 
     # inference arguments:
-    inference_parser.add_argument("--model", help="Forward model, either name of a standard model or full path to"
-                                                  "a trained change model file", default=None, required=True)
-    inference_parser.add_argument('--study-dir', help="Path to store posterior probability maps")
-    inference_parser.add_argument("--mask", help='Path to the mask', default=None, required=False)
+    inference_parser.add_argument("--model", help="Path to a trained model of change (output of bench diff-train)", default=None, required=True)
+    inference_parser.add_argument('--study-dir', help="Path to the study dir")
+    inference_parser.add_argument("--mask", help='Path to the mask (if none passed uses the valid_mask in glm folder)', default=None, required=False)
     inference_parser.add_argument("--integral-bound",
-                                  help='The bound for integrating over the amount of change(default=1)',
+                                  help='The maximum value for integrating over the amount of change. (default=1)',
                                   default=1.0, required=False)
+    inference_parser.add_argument('--force-local',
+                                     help='forces running computions locally rather than submitting'
+                                          ' to the available cluster or running in parallel', dest='force_local',
+                                     action='store_true', default=False)
 
     args = parser.parse_args(argv)
 
@@ -176,6 +179,8 @@ def submit_train(args):
             args.change_vecs = [line.rstrip() for line in reader]
 
     summary_names = summary_measures.summary_names(acq, shm_degree=args.d)
+    print('The model is trained using the following summary measurements:')
+    print(summary_names)
     trainer = change_model.Trainer(
         forward_model=diffusion_models.bench_decorator(forward_model, summary_type=args.summary),
         kwargs=func_args,
@@ -335,7 +340,7 @@ def submit_glm(args):
         summary_measures.normalize_summaries(data, summary_names, delta_data, sigma_n)
 
     image_io.write_glm_results(y_norm, dy_norm, sigma_n_norm, args.mask, invalid_vox, glm_dir + '_normalised')
-    print(f'GLM is done. Results are in written in {args.glm_dir}')
+    print(f'GLM is done. Results are in written in {glm_dir}')
 
 
 def submit_inference(args):
@@ -344,8 +349,8 @@ def submit_inference(args):
 
     # perform inference:
     ch_mdl = change_model.ChangeModel.load(args.model)
-    posteriors, predictions, peaks, bad_samples = ch_mdl.infer(data, delta_data, sigma_n,
-                                                               integral_bound=float(args.integral_bound), parallel=True)
+    posteriors, predictions, peaks, bad_samples = ch_mdl.infer(
+        data, delta_data, sigma_n, integral_bound=float(args.integral_bound), parallel=not args.force_local)
 
     # save the results:
     maps_dir = f'{args.study_dir}/Results/{ch_mdl.forward_model_name}'

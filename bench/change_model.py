@@ -261,6 +261,7 @@ class ChangeModel:
         n_models = len(self.models)
 
         def func(sam_idx):
+            np.seterr(over='ignore')
             log_prob = np.zeros(n_models)
             amount = np.zeros(n_models)
 
@@ -273,7 +274,12 @@ class ChangeModel:
                 warnings.warn("Received nan inputs for inference.")
 
             else:
-                log_prob[0] = self.models[0].log_posterior(0, y_s, dy_s, sigma_n_s)
+                if np.linalg.matrix_rank(sigma_n_s) < sigma_n_s.shape[0]:
+                    warnings.warn(f'noise covariance is singular for sample {sam_idx}'
+                                  f'with variances {np.diag(sigma_n_s)}')
+                    log_prob[0] = -np.inf
+                else:
+                    log_prob[0] = self.models[0].log_posterior(0, y_s, dy_s, sigma_n_s)
 
                 for vec_idx, ch_mdl in enumerate(self.models[1:], 1):
                     try:
@@ -319,8 +325,6 @@ class ChangeModel:
                     except:
                         log_prob[vec_idx] = -np.inf
                         amount[vec_idx] = 0
-                        warnings.warn(f'noise covariance is singular for sample {sam_idx}'
-                                          f'with variances {np.diag(sigma_n_s)}')
                         print(f'crashed at sample {sam_idx}.\n')
 
             if np.isnan(log_prob).any():

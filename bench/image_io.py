@@ -124,6 +124,7 @@ def sample_from_native_space(image, xfm, mask, def_field=None):
     mask_img = Image(mask)
     subj_indices, valid_vox = transform_indices(data_img, mask_img, def_field)
     data_vox = data_img.data[tuple(subj_indices[valid_vox, :].T)].astype(float)
+    os.remove(def_field)
     return data_vox, valid_vox
 
 
