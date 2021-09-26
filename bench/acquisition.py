@@ -31,6 +31,7 @@ class ShellParameters:
     b_delta: float = 1.
     b_eta: float = 0.
     lmax: Optional[int] = 8
+    anisotropy: Optional[bool] = False
 
     def __post_init__(self):
         if self.bval is None:
@@ -40,7 +41,7 @@ class ShellParameters:
 
     @property
     def no_anisotropy(self):
-        return (self.bval < b0_tresh) or (self.b_delta == 0)
+        return (self.anisotropy is False) or (self.b_delta == 0)
 
     @classmethod
     def add_to_parser(cls, parser: argparse.ArgumentParser):
@@ -187,6 +188,7 @@ class Acquisition:
     idx_shells: np.ndarray
     bvecs: np.ndarray
     name: str = ''
+    anisotropy_threshold = 1.0
 
     @classmethod
     def load(cls, name='unnamed', acq_path='/Users/hossein/PycharmProjects/deltamicro_analysis/data/Acquisitions'):

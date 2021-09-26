@@ -85,6 +85,8 @@ class MLChangeVector:
         :param y: the baseline measurement.
         :param dy: the amount of change in the measurements
         :param sigma_n: noise covaraince in the measurements
+        :param no_sigmap: Dont use degenracy covariance for the estimation.
+
         :return: log of likelihood function (scalar)
         """
         mu, sigma_p = self.distribution(y)
@@ -271,7 +273,7 @@ class ChangeModel:
 
             if np.isnan(y_s).any() or np.isnan(dy_s).any() or np.isnan(sigma_n_s).any():
                 log_prob = np.ones(n_models) / n_models
-                warnings.warn("Received nan inputs for inference.")
+                warnings.warn(f"Received nan inputs for inference at sample {sam_idx}.")
 
             else:
                 if np.linalg.matrix_rank(sigma_n_s) < sigma_n_s.shape[0]:

@@ -3,20 +3,21 @@
 """
 This module contains functions for fitting spherical harmonics to diffusion data.
 """
+import warnings
 
 import numpy as np
 from dipy.reconst.shm import real_sym_sh_basis
 from bench import acquisition, image_io
 import os
 
-Default_LOG_L = True # default flag to log transform l measures or not.
+Default_LOG_L = True  # default flag to log transform l measures or not.
 
 
 def summary_names(acq, shm_degree, cg=False):
     names = []
     for sh in acq.shells:
         names.append(f"b{sh.bval:1.1f}_mean")
-        if sh.lmax > 0:
+        if sh.bval >= acq.anisotropy_threshold:
             for degree in np.arange(2, shm_degree + 1, 2):
                 names.append(f"b{sh.bval:1.1f}_l{degree}")
             if cg:
@@ -51,8 +52,12 @@ def fit_shm(signal, acq, shm_degree, log_l=Default_LOG_L):
 
         sum_meas.append(shell_signal.mean(axis=-1))
 
-        if this_shell.lmax > 0:
-            y, l = normalized_shms(bvecs, this_shell.lmax)
+        if this_shell.bval >= acq.anisotropy_threshold:
+            y, l = normalized_shms(bvecs, shm_degree)
+            if bvecs.shape[0] < y.shape[1]:
+                warnings.warn(f'{this_shell.bval} shell directions is fewer than '
+                              f'required coefficients to estimate anisotropy.')
+
             y_inv = np.linalg.pinv(y.T)
             coeffs = shell_signal @ y_inv
             for degree in np.arange(2, shm_degree + 1, 2):

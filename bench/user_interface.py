@@ -75,6 +75,8 @@ def parse_args(argv):
     train_optional = diff_train_parser.add_argument_group("optional arguments")
     train_optional.add_argument("-n", default=10000, type=int, help="number of training samples (default=10000)",
                                 required=False)
+    train_optional.add_argument("-anisotropy-thresh", default=1, type=float,
+                                help="b-value threshold for anisotropy summary measure (default=1)")
     train_optional.add_argument("-p", default=2, type=int, help="polynomial degree for mu design matrix (default=2)",
                                 required=False)
     train_optional.add_argument("-ps", default=1, type=int, help="polynomial degree for sigma design matrix(default=1)",
@@ -105,6 +107,8 @@ def parse_args(argv):
     diff_summary_parser.add_argument("--shm-degree", default=2,
                                      help=" Degree for spherical harmonics summary measurements",
                                      required=False, type=int)
+    diff_summary_parser.add_argument("-anisotropy-thresh", default=1, type=float,
+                                     help="b-value threshold for anisotropy summary measure (default=1)")
     diff_summary_parser.add_argument("--study-dir", help="Path to the output directory", required=True)
     diff_summary_parser.add_argument('--force-local',
                                      help='forces running computions locally rather than submitting'
