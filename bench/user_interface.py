@@ -301,6 +301,7 @@ def submit_summary_single_subject(args):
         :param args: list of strings containing all required parameters for fit_summary_single_subj()
         """
     output_add = args.output_add + '/SummaryMeasurements'
+    print(args)
     summary_measures.fit_summary_single_subject(diff_add=args.diff_add,
                                                 bvec_add=args.bvec_add,
                                                 bval_add=args.bval_add,
