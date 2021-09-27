@@ -128,7 +128,7 @@ def sample_from_native_space(image, xfm, mask, def_field=None):
     return data_vox, valid_vox
 
 
-def write_glm_results(data, delta_data, sigma_n, mask, invalid_vox, glm_dir):
+def write_glm_results(data, delta_data, sigma_n, summary_names, mask, invalid_vox, glm_dir):
     """
     Writes the results of GLM into files,
     :param data: baseline measurement matrix (n_vox, n_sm)
@@ -152,6 +152,10 @@ def write_glm_results(data, delta_data, sigma_n, mask, invalid_vox, glm_dir):
 
     valid_mask = np.ones((data.shape[0], 1))
     write_nifti(valid_mask, mask, glm_dir + '/valid_mask.nii.gz', invalid_vox)
+    with open(f'{glm_dir}/summary_names.txt', 'w') as f:
+        for t in summary_names:
+            f.write("%s\n" % t)
+        f.close()
 
 
 def read_glm_results(glm_dir, mask_add=None):
@@ -179,7 +183,10 @@ def read_glm_results(glm_dir, mask_add=None):
         sigma_n[i] = sigma_n[i] + sigma_n[i].T
         sigma_n[i][diag_idx] /= 2
 
-    return data, delta_data, sigma_n
+    with open(f'{glm_dir}/summary_names.txt', 'r') as reader:
+        summary_names = [line.rstrip() for line in reader]
+
+    return data, delta_data, sigma_n, summary_names
 
 
 def read_glm_weights(data: List[str], xfm: List[str],  mask: str, save_xfm_path: str, parallel=True):

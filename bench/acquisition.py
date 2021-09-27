@@ -182,38 +182,42 @@ def to_string(shells: Sequence[ShellParameters]):
 @dataclass
 class Acquisition:
     """
-    Class that contains acquisition protocol
+    Class that contains acquisition protocol.
     """
     shells: List[ShellParameters]
     idx_shells: np.ndarray
     bvecs: np.ndarray
-    name: str = ''
-    anisotropy_threshold = 1.0
+    name: str
+    anisotropy_threshold: float
 
     @classmethod
-    def load(cls, name='unnamed', acq_path='/Users/hossein/PycharmProjects/deltamicro_analysis/data/Acquisitions'):
+    def load(cls, name, acq_path, anisotropy_thresh):
         """
         reads acquisition protocol parameters from bval and bvec text files
         :param name: name of acq protocol
         :param acq_path: path to acquisition files
+        :param anisotropy_thresh: threshold to compute anisotropy measures.
         :return acq: an acquisition object containing shells, shell indices of
         each measurement, and gradient directions
         """
-        bvec_add = acq_path + '/' + name + '/bvecs'
-        bval_add = acq_path + '/' + name + '/bvals'
-        args = Namespace(bvec=bvec_add, bval=bval_add)
+
+        bvec_path = acq_path + '/' + name + '/bvecs'
+        bval_path = acq_path + '/' + name + '/bvals'
+        args = Namespace(bvec=bvec_path, bval=bval_path)
+
         idx_shells, shells = ShellParameters.from_parser_args(args)
         bvecs = np.genfromtxt(args.bvec).T
+
         print('loaded input shells:')
         print(to_string(shells))
         print('')
-        return cls(shells, idx_shells, bvecs, name)
+        return cls(shells, idx_shells, bvecs, name, anisotropy_thresh)
 
     @classmethod
-    def from_bval_bvec(cls, bval_add, bvec_add):
-        bvecs = np.genfromtxt(bvec_add)
+    def from_bval_bvec(cls, bval_path, bvec_path, anisotropy_thresh):
+        bvecs = np.genfromtxt(bvec_path)
         if bvecs.shape[1] > bvecs.shape[0]:
             bvecs = bvecs.T
-        bvals = np.genfromtxt(bval_add)
+        bvals = np.genfromtxt(bval_path)
         idx_shells, shells = ShellParameters.create_shells(bval=bvals)
-        return cls(shells, idx_shells, bvecs)
+        return cls(shells, idx_shells, bvecs, ' ', anisotropy_thresh)

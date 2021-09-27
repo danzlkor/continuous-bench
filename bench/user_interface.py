@@ -107,7 +107,7 @@ def parse_args(argv):
     diff_summary_parser.add_argument("--shm-degree", default=2,
                                      help=" Degree for spherical harmonics summary measurements",
                                      required=False, type=int)
-    diff_summary_parser.add_argument("-anisotropy-thresh", default=1, type=float,
+    diff_summary_parser.add_argument("--anisotropy-thresh", default=1, type=float,
                                      help="b-value threshold for anisotropy summary measure (default=1)")
     diff_summary_parser.add_argument("--study-dir", help="Path to the output directory", required=True)
     diff_summary_parser.add_argument('--force-local',
@@ -122,7 +122,8 @@ def parse_args(argv):
     diff_single_subj_summary_parser.add_argument('mask_add')
     diff_single_subj_summary_parser.add_argument('xfm_add')
     diff_single_subj_summary_parser.add_argument('output_add')
-    diff_single_subj_summary_parser.add_argument('shm_degree', type=int, default=2)
+    diff_single_subj_summary_parser.add_argument('shm_degree')
+    diff_single_subj_summary_parser.add_argument('anisotropy-thresh')
 
     # normalization args
     diff_normalize_parse.add_argument('--study-dir', default=None,
@@ -173,7 +174,11 @@ def submit_train(args):
     bvecs = np.array(diffusion_models.spherical2cart(
         *diffusion_models.uniform_sampling_sphere(len(idx_shells)))).T
 
-    acq = acquisition.Acquisition(shells, idx_shells, bvecs)
+    acq = acquisition.Acquisition(shells,
+                                  idx_shells,
+                                  bvecs,
+                                  '',
+                                  args.anisotropy_thresh)
     func_args = {'acq': acq, 'noise_level': 0}
     if args.summary == 'shm':
         func_args['shm_degree'] = args.d
@@ -252,7 +257,7 @@ def submit_summary(args):
         task_list = list()
         for subj_idx, (x, d, bval, bvec) in enumerate(zip(args.xfm, args.data, args.bval, args.bvecs)):
             cmd = f'bench diff-single-summary {subj_idx} {d} {bvec} ' \
-                  f'{bval} {args.mask} {x} {args.study_dir} {args.shm_degree}'
+                  f'{bval} {args.mask} {x} {args.study_dir} {args.shm_degree} {args.anisotropy_thresh}'
             task_list.append(cmd)
         # main(cmd.split()[1:]) # just for debugging.
 
@@ -268,7 +273,7 @@ def submit_summary(args):
 
                 print(f'Jobs were submitted to SGE with job id {job_id[0]}.')
         else:
-            print(f'No clusters were found. The jobs are running locally.')
+            print(f'The summary estimation jobs are running locally.')
 
             # processes = [subprocess.Popen(t.split(), shell=False, env=os.environ) for t in task_list]
             # [p.wait() for p in processes]
@@ -278,12 +283,13 @@ def submit_summary(args):
                 summary_measures.fit_summary_single_subject(diff_add=d, bvec_add=bvec, bval_add=bval,
                                                             mask_add=args.mask, xfm_add=x,
                                                             shm_degree=args.shm_degree, subj_idx=subj_idx,
-                                                            output_add=f'{args.study_dir}/SummaryMeasurements')
-
-            res = Parallel(n_jobs=-1, verbose=True)(delayed(func)(i) for i in range(len(args.data)))
-            #for i in range(len(args.data)):
-            #    func(i)
-
+                                                            output_add=f'{args.study_dir}/SummaryMeasurements',
+                                                            anisotropy_thresh=args.anisotropy_thresh)
+            if args.force_local:
+                for i in range(len(args.data)):
+                    func(i)
+            else:
+                res = Parallel(n_jobs=-1, verbose=True)(delayed(func)(i) for i in range(len(args.data)))
             job_id = 0
 
     return job_id
@@ -295,10 +301,15 @@ def submit_summary_single_subject(args):
         :param args: list of strings containing all required parameters for fit_summary_single_subj()
         """
     output_add = args.output_add + '/SummaryMeasurements'
-    summary_measures.fit_summary_single_subject(diff_add=args.diff_add, bvec_add=args.bvec_add, bval_add=args.bval_add,
-                                                mask_add=args.mask_add, xfm_add=args.xfm_add,
+    summary_measures.fit_summary_single_subject(diff_add=args.diff_add,
+                                                bvec_add=args.bvec_add,
+                                                bval_add=args.bval_add,
+                                                mask_add=args.mask_add,
+                                                xfm_add=args.xfm_add,
                                                 shm_degree=args.shm_degree,
-                                                subj_idx=args.subj_idx, output_add=output_add)
+                                                subj_idx=args.subj_idx,
+                                                output_add=output_add,
+                                                anisotropy_thresh=args.anisotropy_thresh)
 
 
 def submit_glm(args):
@@ -338,21 +349,22 @@ def submit_glm(args):
 
         data, delta_data, sigma_n = glm.group_glm(summaries, args.design_mat, args.design_con)
 
-    image_io.write_glm_results(data, delta_data, sigma_n, args.mask,
-                               invalid_vox, glm_dir)
+    image_io.write_glm_results(data, delta_data, sigma_n,summary_names,
+                               args.mask, invalid_vox, glm_dir)
     y_norm, dy_norm, sigma_n_norm = \
         summary_measures.normalize_summaries(data, summary_names, delta_data, sigma_n)
 
-    image_io.write_glm_results(y_norm, dy_norm, sigma_n_norm, args.mask, invalid_vox, glm_dir + '_normalised')
-    print(f'GLM is done. Results are in written in {glm_dir}')
+    image_io.write_glm_results(y_norm, dy_norm, sigma_n_norm, summary_names,
+                               args.mask, invalid_vox, glm_dir + '_normalised')
+    print(f'GLM is done. Results are stored in {glm_dir}')
 
 
 def submit_inference(args):
     glm_dir = f'{args.study_dir}/Glm/'
-    data, delta_data, sigma_n = image_io.read_glm_results(glm_dir)
-
+    data, delta_data, sigma_n, summary_names = image_io.read_glm_results(glm_dir)
     # perform inference:
     ch_mdl = change_model.ChangeModel.load(args.model)
+
     posteriors, predictions, peaks, bad_samples = ch_mdl.infer(
         data, delta_data, sigma_n, integral_bound=float(args.integral_bound), parallel=not args.force_local)
 

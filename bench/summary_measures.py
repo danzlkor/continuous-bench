@@ -146,9 +146,11 @@ def nan_mat(shape):
 #  image functions:
 def fit_summary_single_subject(diff_add: str, bvec_add: str, bval_add: str, mask_add: str,
                                xfm_add: str = None, shm_degree: int = 2,
-                               subj_idx: str = None, output_add: str = None, normalize=False):
+                               subj_idx: str = None, output_add: str = None,
+                               normalize=False, anisotropy_thresh=1.0):
     """
         the main function that fits summary measurements for a single subject
+        :param subj_idx: index of subject, used for naming files.
         :param diff_add: path to diffusion data
         :param bvec_add: path to bvec file
         :param bval_add: path to bval file
@@ -179,7 +181,9 @@ def fit_summary_single_subject(diff_add: str, bvec_add: str, bval_add: str, mask
         print('mask address: ' + mask_add)
         print('bval address: ' + bval_add)
         print('shm_degree: ' + str(shm_degree))
+        print('Anisotropy threshold: ', anisotropy_thresh)
         print('output path: ' + output_add)
+
 
     if xfm_add is None:
         print('no transformation is provided, the results will be in the same space as the input image.')
@@ -190,7 +194,7 @@ def fit_summary_single_subject(diff_add: str, bvec_add: str, bval_add: str, mask
         def_field = f"{output_add}/def_field_{subj_idx}.nii.gz"
         data, valid_vox = image_io.sample_from_native_space(diff_add, xfm_add, mask_add, def_field)
 
-    acq = acquisition.Acquisition.from_bval_bvec(bval_add, bvec_add)
+    acq = acquisition.Acquisition.from_bval_bvec(bval_add, bvec_add, anisotropy_thresh)
     summaries = fit_shm(data, acq, shm_degree=shm_degree)
     names = summary_names(acq, shm_degree)
 
