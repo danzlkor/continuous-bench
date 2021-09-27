@@ -123,7 +123,7 @@ def parse_args(argv):
     diff_single_subj_summary_parser.add_argument('xfm_add')
     diff_single_subj_summary_parser.add_argument('output_add')
     diff_single_subj_summary_parser.add_argument('shm_degree')
-    diff_single_subj_summary_parser.add_argument('anisotropy-thresh')
+    diff_single_subj_summary_parser.add_argument('anisotropy_thresh')
 
     # normalization args
     diff_normalize_parse.add_argument('--study-dir', default=None,
