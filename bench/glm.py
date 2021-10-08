@@ -29,7 +29,7 @@ def group_glm(data, design_mat, design_con):
         raise ValueError(f'number of subjects in design matrix is {x.shape[0]} but'
                          f' {data.shape[0]} summary measures were loaded.')
 
-    y = np.transpose(data, [1, 2, 0]) # make it (n_vox, n_dim, n_subj)
+    y = np.transpose(data, [1, 2, 0])  # make it (n_vox, n_dim, n_subj)
     beta = y @ np.linalg.pinv(x).T
     copes = beta @ c.T
 
@@ -59,7 +59,7 @@ def group_glm_paired(data):
     # sigma_n = np.array([np.cov(diffs[:, i, :].T) for i in range(diffs.shape[1])])
     offset = diffs - delta_data
     sigma_n = np.einsum('kij,kil->ijl', offset, offset) / (n_subj - 1)
-    sigma_n = sigma_n /n_subj
+    sigma_n = sigma_n / n_subj
 
     return data1, delta_data, sigma_n
 

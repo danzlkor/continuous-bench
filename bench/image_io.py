@@ -85,7 +85,7 @@ def convert_warp_to_deformation_field(warp_field, std_image, def_field, overwrit
         convertwarp(def_field, std_image, warp1=warp_field)
         img = Image(def_field)
         new_hdr = img.header.copy()
-        new_hdr['intent_code'] = 2006 # for displacement field style warps
+        new_hdr['intent_code'] = 2006  # for displacement field style warps
         Image(img.data, header=new_hdr).save(def_field)
 
 
@@ -105,7 +105,7 @@ def transform_indices(native_image, std_mask, def_field):
                  for j in range(native_indices.shape[0])]
 
     if not np.all(valid_vox):
-        warn('Some voxels in mask lie out of native space box.')
+        warn('Some voxels in mask lie out of native diffusion space.')
 
     return native_indices, valid_vox
 
@@ -272,8 +272,10 @@ def write_inference_results(path, model_names, predictions, posteriors, peaks, m
     os.makedirs(path, exist_ok=True)
     write_nifti(predictions[:, np.newaxis], mask, f'{path}/inferred_change.nii.gz')
     for i, m in enumerate(model_names):
-        write_nifti(posteriors[:, i][:, np.newaxis], mask, f'{path}/{m}_probability.nii.gz')
-        if i > 0:
+        if m == '[]':
+            write_nifti(posteriors[:, i][:, np.newaxis], mask, f'{path}/nochange_probability.nii.gz')
+        else:
+            write_nifti(posteriors[:, i][:, np.newaxis], mask, f'{path}/{m}_probability.nii.gz')
             write_nifti(peaks[:, i][:, np.newaxis], mask, f'{path}/{m}_amount.nii.gz')
 
 
@@ -293,10 +295,11 @@ def read_inference_results(maps_dir, mask_add=None):
     posteriors = dict()
     amounts = dict()
     for i, m in enumerate(model_names):
-        posteriors[m] = Image(f'{maps_dir}/{m}_probability.nii.gz').data[mask_img > 0]
         if m == '[]':
+            posteriors[m] = Image(f'{maps_dir}/nochange_probability.nii.gz').data[mask_img > 0]
             amounts[m] = np.zeros_like(posteriors[m])
         else:
+            posteriors[m] = Image(f'{maps_dir}/{m}_probability.nii.gz').data[mask_img > 0]
             amounts[m] = Image(f'{maps_dir}/{m}_amount.nii.gz').data[mask_img > 0]
 
     return posteriors, amounts

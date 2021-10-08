@@ -28,9 +28,6 @@ def main(argv=None):
         submit_summary(args)
     elif args.commandname == 'diff-single-summary':
         submit_summary_single_subject(args)
-    elif args.commandname == 'diff-normalize':
-        print('Normalization is performed while loading the data.')
-        # submit_normalize(args)
     elif args.commandname == 'glm':
         submit_glm(args)
     elif args.commandname == 'inference':
@@ -350,7 +347,7 @@ def submit_glm(args):
 
         data, delta_data, sigma_n = glm.group_glm(summaries, args.design_mat, args.design_con)
 
-    image_io.write_glm_results(data, delta_data, sigma_n,summary_names,
+    image_io.write_glm_results(data, delta_data, sigma_n, summary_names,
                                args.mask, invalid_vox, glm_dir)
     y_norm, dy_norm, sigma_n_norm = \
         summary_measures.normalize_summaries(data, summary_names, delta_data, sigma_n)
