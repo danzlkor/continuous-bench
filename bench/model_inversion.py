@@ -379,8 +379,9 @@ def infer_change(model, priors, sig1, sig2, noise_level):
     infered_change = np.argmax(zvals)
     if pvals[infered_change] > 0.05:
         infered_change = 0
+        amount = 0
     else:
+        amount = pe2[infered_change] - pe1[infered_change]
         infered_change += 1
 
-    amount = pe2[infered_change] - pe1[infered_change]
     return infered_change, amount
