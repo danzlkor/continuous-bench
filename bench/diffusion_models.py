@@ -678,3 +678,25 @@ def bench_decorator(model, summary_type='shm'):
 
     func.__name__ = model.__name__
     return func
+
+
+def bench_shm_decorator(model, acq, shm_degree, noise_level):
+    """
+    Decorates a diffusion model with a summary measure type.
+    The return function directly maps microstructural parameters to the summary measurements.
+
+    :param model: a diffusion model (function)
+    :param acq: acquisition protocol
+    :param shm_degree: degree to comupte rotatinally invariant measurements
+    :param noise_level: noise level (additive gaussian to the signal)
+    :return:
+     rotationally invariant measures = f(microstructural params)
+    """
+    def func(**params):
+        sig = simulate_signal(model, acq, params)
+        noise = np.random.randn(*sig.shape) * noise_level
+        sm = summary_measures.fit_shm(sig + noise, acq, shm_degree=shm_degree)
+        return sm
+
+    func.__name__ = model.__name__
+    return func

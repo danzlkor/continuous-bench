@@ -387,6 +387,13 @@ class ChangeModel:
 
         return dv, offset, deviation
 
+    def test_model(self,n_samples):
+        """
+        generates test data and computes the confusion matrix.
+        :param n_samples:
+        :return:
+        """
+
     @classmethod
     def load(cls, filename):
         if os.path.exists(filename):
