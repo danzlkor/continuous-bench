@@ -41,6 +41,17 @@ def log_posterior_sig(params, priors, model, signal, noise_level):
 
 
 def map_fit_sig(model: Callable, priors: dict, signal: np.ndarray, noise_level: float):
+    """
+    inverts the model on the signal using maximum a posteriori estimation
+
+    :param model: a callable that takes the params as input and produces signals as output
+    :param priors: dictionary for prior distributions
+    :param signal: measured signal (n_measurements, )
+    :param noise_level: level of noise.
+    :return:
+      - estimated parameters.
+      - std of the parameter estimations
+    """
     x0 = np.array([getattr(v, 'mean', lambda:0.5)() for v in priors.values()])
     bounds = [getattr(v, 'support', lambda:[0, 1])() for v in priors.values()]
 
@@ -86,22 +97,22 @@ def log_posterior_smm(params, priors, model, acq, sph_degree, y, sigma_n):
              + log_prior(param_dict, priors))
 
 
-def map_fit_smm(model: Callable, acq: acquisition.Acquisition, sph_degree: int,
+def map_fit_smm(model: Callable, acq: acquisition.Acquisition, shm_degree: int,
             priors: dict, y: np.ndarray, noise_level):
     x0 = np.array([v.mean() for v in priors.values()])
     bounds = [v.interval(1 - 1e-6) for v in priors.values()]
     p = optimize.minimize(log_posterior_smm,
-                          args=(priors, model, acq, sph_degree, y, noise_level),
+                          args=(priors, model, acq, shm_degree, y, noise_level),
                           x0=x0,  bounds=bounds, options={'disp': False})
 
-    f = lambda p: log_posterior_smm(p, priors, model, acq, sph_degree, y, noise_level)
+    f = lambda p: log_posterior_smm(p, priors, model, acq, shm_degree, y, noise_level)
     h = hessian(f, p.x)
     std = 1 / np.sqrt(np.diag(h))
 
     return p.x, std
 
 
-def fit_model_smm(diffusion_sig, forward_model_name, bvals, bvecs, sph_degree):
+def fit_model_smm(diffusion_sig, forward_model_name, bvals, bvecs, shm_degree):
     forward_model_name = forward_model_name.lower()
     available_models = list(dm.prior_distributions.keys())
     funcdict = {name: f for (name, f) in dm.__dict__.items() if name in available_models}
@@ -114,10 +125,10 @@ def fit_model_smm(diffusion_sig, forward_model_name, bvals, bvecs, sph_degree):
 
     idx_shells, shells = acquisition.ShellParameters.create_shells(bval=bvals)
     acq = acquisition.Acquisition(shells, idx_shells, bvecs)
-    y, sigma_n = summary_measures.fit_shm(diffusion_sig, acq, sph_degree)
+    y, sigma_n = summary_measures.fit_shm(diffusion_sig, acq, shm_degree)
     pe = np.zeros((y.shape[0], len(priors)))
     for i in range(y.shape[0]):
-        pe[i] = map_fit_smm(func, acq, sph_degree, priors, y[i], sigma_n[i])
+        pe[i] = map_fit_smm(func, acq, shm_degree, priors, y[i], sigma_n[i])
 
     return pe
 
@@ -348,3 +359,28 @@ def inference_parse_args(argv):
             raise FileNotFoundError(f'{args.design_con} file not found.')
 
     return args
+
+
+def infer_change(model, priors, sig1, sig2, noise_level):
+    """
+    infers the changed parameters given two signals and the noise level
+    :param model: callable f(p)=m
+    :param priors: dictionary of the priors
+    :param sig1: signal 1
+    :param sig2: signal 2
+    :param noise_level: std of noise
+    :return:
+    """
+    pe1, std_pe1 = map_fit_sig(model, priors, sig1, noise_level=noise_level)
+    pe2, std_pe2 = map_fit_sig(model, priors, sig2, noise_level=noise_level)
+    zvals = (pe2 - pe1) / (std_pe1 + std_pe2)
+    pvals = st.norm.sf(abs(zvals)) * 2  # twosided
+
+    infered_change = np.argmax(zvals)
+    if pvals[infered_change] > 0.05:
+        infered_change = 0
+    else:
+        infered_change += 1
+
+    amount = pe2[infered_change] - pe1[infered_change]
+    return infered_change, amount
