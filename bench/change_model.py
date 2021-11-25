@@ -224,7 +224,11 @@ class ChangeModel:
         :param sigma_n: numpy array or list (..., n_dim, n_dim)
         :param integral_bound: the bound to integrate over delta v.
         :param parallel: flag to run infrence in parallel
-        :return: posterior probabilities for each voxel (..., n_vecs)
+        :return:
+            - (n_sample, n_changevecs) posterior probabilities for each voxel (..., n_vecs)
+            - (n_samples, ) inferred change
+            - (n_samples, n_changevecs) estimated amount of change per vec
+            - index of samples with nan outputs.
         """
 
         print(f'running inference for {data.shape[0]} samples ...')
