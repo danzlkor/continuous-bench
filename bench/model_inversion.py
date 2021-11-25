@@ -18,7 +18,7 @@ from bench import diffusion_models as dm, summary_measures, user_interface, acqu
 
 
 def log_prior(params, priors):
-    return np.sum([priors[k].logpdf(params[k]) for k in params.keys()])
+    return np.sum([priors[k].logpdf(params[k]) for k in params.keys() if hasattr(priors[k], 'logpdf')])
 
 
 def log_likelihood_sig(params, model, signal, noise_level):
