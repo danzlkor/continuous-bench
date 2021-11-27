@@ -521,6 +521,7 @@ class Trainer:
         self.vec_names = [dict_to_string(s) for s in self.change_vecs]
         self.n_vecs = len(self.change_vecs)
 
+
         for idx in range(self.n_vecs):
             for pname in self.change_vecs[idx].keys():
                 if pname not in self.param_names:
@@ -547,6 +548,9 @@ class Trainer:
             raise ex
         if self.n_dim == 1:
             raise ValueError('The forward model must produce at least two dimensional output.')
+
+        if self.summary_names is None:
+            self.summary_names = [f'meas{i}' for i in range(self.n_dim)]
 
         self.training_done = False
 
