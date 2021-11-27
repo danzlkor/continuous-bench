@@ -193,7 +193,8 @@ class ChangeModel:
         n_samples, d = data.shape
         assert d == len(self.summary_names)
         n_models = len(self.models)
-        y_norm = summary_measures.normalize_summaries(data, self.summary_names)
+        if 'b0.0_mean' in self.summary_names:
+            y_norm = summary_measures.normalize_summaries(data, self.summary_names)
         mu = np.zeros((n_samples, n_models, d))
         sigma_p = np.zeros((n_samples, n_models, d, d))
 
