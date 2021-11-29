@@ -590,7 +590,11 @@ class Trainer:
         print(f'Generating {n_samples} training samples...')
         y_1, y_2 = self.generate_train_samples(n_samples, dv0)
         dy = (y_2 - y_1) / dv0
-        y = y_1[:, 1:]  # drop b0
+        if 'b0.0_mean' in self.summary_names:
+            y = y_1[:, 1:]  # drop b0
+        else:
+            y = y_1
+
         kde = gaussian_kde(y.T)
         mean_y = y.mean(axis=0, keepdims=True)
 
