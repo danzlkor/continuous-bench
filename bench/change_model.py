@@ -193,12 +193,15 @@ class ChangeModel:
         n_samples, d = data.shape
         assert d == len(self.summary_names)
         n_models = len(self.models)
-        if 'b0.0_mean' in self.summary_names:
-            y_norm = summary_measures.normalize_summaries(data, self.summary_names)
+        if 'b0.0_mean' in self.summary_names:  # check if its a diffusion data
+            data_norm = summary_measures.normalize_summaries(data, self.summary_names)
+        else:
+            data_norm = data
+
         mu = np.zeros((n_samples, n_models, d))
         sigma_p = np.zeros((n_samples, n_models, d, d))
 
-        for i, y in enumerate(y_norm):
+        for i, y in enumerate(data_norm):
             for j, mdl in enumerate(self.models):
                 mu[i, j], sigma_p[i, j] = mdl.distribution(y)
         return np.squeeze(mu), np.squeeze(sigma_p)
