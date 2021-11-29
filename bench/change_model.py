@@ -236,7 +236,11 @@ class ChangeModel:
         """
 
         print(f'running inference for {data.shape[0]} samples ...')
-        y, dy, sn = summary_measures.normalize_summaries(data, self.summary_names, delta_data, sigma_n)
+        if 'b0.0_mean' in self.summary_names:
+            y, dy, sn = summary_measures.normalize_summaries(data, self.summary_names, delta_data, sigma_n)
+        else:
+            y, dy, sn = data, delta_data, sigma_n
+
         lls, amounts = self.compute_log_likelihood(y, dy, sn, parallel=parallel, integral_bound=integral_bound)
         priors = np.array([m.prior for m in self.models])  # the 1 is for empty set
         priors = priors / priors.sum()
