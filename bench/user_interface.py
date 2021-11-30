@@ -367,7 +367,7 @@ def submit_inference(args):
         data, delta_data, sigma_n, integral_bound=float(args.integral_bound), parallel=not args.force_local)
 
     # save the results:
-    maps_dir = f'{args.study_dir}/Results/{ch_mdl.forward_model_name}'
+    maps_dir = f'{args.study_dir}/Results/{ch_mdl.forward_model}'
     image_io.write_inference_results(maps_dir, ch_mdl.model_names, predictions, posteriors, peaks,
                                      f'{args.study_dir}/Glm/valid_mask')
 
