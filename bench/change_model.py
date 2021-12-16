@@ -771,8 +771,9 @@ class Trainer:
                     params_2 = {k: v + models[tc - 1].vec.get(k, 0) * effect_size[s_idx] * sign
                                 for k, v in params_1.items()}
 
-                    valid = np.all([self.param_prior_dists[k].pdf(params_2[k]) > 0 for k in params_2.keys()
-                                    if k in self.param_prior_dists and hasattr(self.param_prior_dists[k], 'pdf')])
+                    valid = np.all([self.param_prior_dists[k].pdf(params_2[k]) > 0
+                                    if k in self.param_prior_dists and hasattr(self.param_prior_dists[k], 'pdf')
+                                    else 0<=params_2[k]<=1 for k in params_2.keys()])
 
                     if not valid and base_params is not None:
                         raise ValueError("...")

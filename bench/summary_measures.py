@@ -184,7 +184,6 @@ def fit_summary_single_subject(diff_add: str, bvec_add: str, bval_add: str, mask
         print('Anisotropy threshold: ', anisotropy_thresh)
         print('output path: ' + output_add)
 
-
     if xfm_add is None:
         print('no transformation is provided, the results will be in the same space as the input image.')
         data = image_io.read_image(diff_add, mask_add)
