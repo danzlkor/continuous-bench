@@ -759,7 +759,7 @@ class Trainer:
                 if base_params is None:
                     params_1 = sample_params(self.param_prior_dists)
                 else:
-                    params_1 = base_params
+                    params_1 = base_params[s_idx]
 
                 tc = true_change[s_idx]
                 if tc == 0:
