@@ -41,15 +41,15 @@ def read_summary_images(summary_dir: str, mask: str):
     :return: 3d numpy array containing summary measurements, inclusion mask
     """
     mask_img = np.nan_to_num(Image(mask).data)
-    n_subj = len(glob.glob(summary_dir + '/subj_*.nii.gz'))
+    summary_files = glob.glob(summary_dir + '/*.nii.gz')
+    n_subj = len(summary_files)
     print(summary_dir)
     if n_subj == 0:
         raise Exception('No summary measures found in the specified directory.')
 
     summary_list = list()
-    for subj_idx in range(n_subj):
-        f = f'{summary_dir}/subj_{subj_idx}.nii.gz'
-        summary_list.append(Image(f).data[mask_img > 0, :])
+    for subj in summary_files:
+        summary_list.append(Image(subj).data[mask_img > 0, :])
 
     print(f'loaded summaries from {n_subj} subjects')
     all_summaries = np.array(summary_list)  # n_subj, n_vox, n_dim
@@ -63,8 +63,12 @@ def read_summary_images(summary_dir: str, mask: str):
     if invalid_voxs.sum() > 0:
         warn(f'{invalid_voxs.sum()} voxels are excluded since they were '
              f'outside of the image in at least one subject.')
-    with open(f'{summary_dir}/summary_names.txt', 'r') as reader:
-        names = [line.rstrip() for line in reader]
+    names_file = f'{summary_dir}/summary_names.txt'
+    if os.path.exists(names_file):
+        with open(names_file, 'r') as reader:
+            names = [line.rstrip() for line in reader]
+    else:
+        names = [f'sm_{i}' for i in np.arange(all_summaries.shape[-1])]
 
     return all_summaries, invalid_voxs, names
 

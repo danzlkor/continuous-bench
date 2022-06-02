@@ -22,6 +22,7 @@ def group_glm(data, design_mat, design_con):
     """
     x = loadDesignMat(design_mat)
     c_names, c = loadcontrast(design_con)
+    n_subj, n_vox, n_dim = data.shape
 
     if data.shape[0] == x.shape[0]:
         print(f'running glm for {data.shape[0]} subjects')
@@ -40,6 +41,10 @@ def group_glm(data, design_mat, design_con):
     data1 = copes[:, :, 0]
     delta_data = copes[:, :, 1]
     sigma_n = varcopes[..., 1]
+
+    if n_subj <= n_dim:
+        Warning.warn('fewer samples than features, regularising sigma_n with 0.1 on diagonals')
+        sigma_n += 0.1 * np.eye(sigma_n.shape[-1])
 
     return data1, delta_data, sigma_n
 

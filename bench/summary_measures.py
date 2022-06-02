@@ -32,10 +32,10 @@ def summary_names(acq, summarytype='shm', shm_degree=2, cg=False):
     return names
 
 
-def normalized_shms(bvecs, lmax):
+def normalised_shms(bvecs, lmax):
     _, phi, theta = cart2spherical(*bvecs.T)
     y, m, l = real_sym_sh_basis(lmax, theta, phi)
-    y = y  # /y[0, 0]  # normalization is required to make the first summary measure represent mean signal
+    y = y  # /y[0, 0]  # normalisation is required to make the first summary measure represent mean signal
     return y, l
 
 
@@ -60,7 +60,7 @@ def fit_shm(signal, acq, shm_degree, log_l=Default_LOG_L):
         sum_meas.append(shell_signal.mean(axis=-1))
 
         if this_shell.bval >= acq.b0_threshold:
-            y, l = normalized_shms(bvecs, shm_degree)
+            y, l = normalised_shms(bvecs, shm_degree)
             if bvecs.shape[0] < y.shape[1]:
                 warnings.warn(f'{this_shell.bval} shell directions is fewer than '
                               f'required coefficients to estimate anisotropy.')
@@ -88,7 +88,7 @@ def shm_cov(sum_meas, acq, sph_degree, noise_level):
         variances[:, s_idx] = 1 / ng * (noise_level ** 2)
         s_idx += 1
         if this_shell.lmax > 0:
-            y, l = normalized_shms(acq.bvecs[acq.idx_shells == shell_idx], this_shell.lmax)
+            y, l = normalised_shms(acq.bvecs[acq.idx_shells == shell_idx], this_shell.lmax)
             c = y[0].T @ y[0]
             for degree in np.arange(2, sph_degree + 1, 2):
                 f = (noise_level ** 2) / c
@@ -102,7 +102,7 @@ def shm_cov(sum_meas, acq, sph_degree, noise_level):
 def shm_jacobian(signal, bvecs, lmax=6, max_degree=4):
     assert lmax == 0 or lmax >= max_degree
 
-    y, l = normalized_shms(bvecs, lmax)
+    y, l = normalised_shms(bvecs, lmax)
     y_inv = np.linalg.pinv(y.T)
 
     def derivatives(degree):
@@ -150,10 +150,10 @@ def nan_mat(shape):
     return a
 
 
-def normalize_summaries(y1: np.ndarray, names, dy=None, sigma_n=None, log_l=Default_LOG_L):
+def normalise_summaries(y1: np.ndarray, names, dy=None, sigma_n=None, log_l=Default_LOG_L):
     """
     Normalises summary measures for all subjects. (divide by average attenuation)
-    :param names: name of summaries, is required for knowing how to normalize
+    :param names: name of summaries, is required for knowing how to normalise
     :param y1: array of summaries for baseline measurements
     :param dy: array of summaries for second group, or the change
     :param sigma_n: array or list of covariance matrices

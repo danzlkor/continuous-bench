@@ -4,14 +4,11 @@ This module is to parse inputs from commandline and call the proper functions fr
 """
 
 import argparse
-import glob
 import os
 from file_tree import FileTree
-from warnings import warn
 import numpy as np
-from fsl.utils.run import run
 from bench import change_model, glm, summary_measures, diffusion_models, acquisition, image_io
-from joblib import delayed, Parallel
+from fsl.utils.fslsub import submit
 
 
 def main(argv=None):
@@ -23,13 +20,6 @@ def main(argv=None):
     """
     args = parse_args(argv)
     args.func(args)
-
-
-def print_avail_commands():
-    print('BENCH: Bayesian EstimatioN of CHange')
-    print('usage: bench <command> [options]')
-    print('')
-    print('available commands: diff-train, diff-summary,diff-single-summary,diff-normalize,glm,inference')
 
 
 def parse_args(argv):
@@ -46,8 +36,8 @@ def parse_args(argv):
     subparsers = parser.add_subparsers(dest='commandname')
     diff_train_parser = subparsers.add_parser('diff-train')
     diff_summary_parser = subparsers.add_parser('diff-summary')
-    diff_single_subj_summary_parser = subparsers.add_parser('diff-single-summary')
-    diff_normalize_parse = subparsers.add_parser('diff-normalize')
+    submit_summary_parser = subparsers.add_parser('submit-summary')
+    diff_normalise_parser = subparsers.add_parser('diff-normalise')
     glm_parser = subparsers.add_parser('glm')
     inference_parser = subparsers.add_parser('inference')
 
@@ -57,7 +47,7 @@ def parse_args(argv):
     train_required.add_argument(
         "--model", help=f"name of the forward model. Available models:\n{available_models}", required=True)
     train_required.add_argument("--output", help="name of the trained model", required=True)
-    train_required.add_argument("--bval", help="b-values for training", required=True)
+    train_required.add_argument("--bvals", help="b-values for training", required=True)
 
     train_optional = diff_train_parser.add_argument_group("optional arguments")
     train_optional.add_argument("-n", default=10000, type=int, help="number of training samples (default=10000)",
@@ -76,75 +66,77 @@ def parse_args(argv):
     train_optional.add_argument("--summarytype", default='shm', type=str,
                                 help='type of summary measurements. Either shm (spherical harmonic model)'
                                      ' or dtm (diffusion tensor model) (default shm)', required=False)
-    train_optional.add_argument("--bvec", help="gradient directions", required=False)
+    train_optional.add_argument("--bvecs", help="gradient directions", required=False)
 
     train_optional.add_argument('--verbose', help='flag for printing optimisation outputs', dest='verbose',
                                 action='store_true', default=False)
     diff_train_parser.set_defaults(func=train_from_cli)
 
     # fit summary arguments:
-    diff_summary_parser.add_argument("--mask", help="Mask in standard space.", required=True)
-    diff_summary_parser.add_argument("--data", nargs='+', help="List of dMRI data in subject native space", required=True)
-    diff_summary_parser.add_argument("--xfm", help="Warp fields from diffusion space to the standard",
-                                     nargs='+', metavar='xfm.nii', required=True)
-    diff_summary_parser.add_argument("--bvecs", nargs='+', metavar='bvec', required=True,
-                                     help="Gradient orientations for each subject")
-    diff_summary_parser.add_argument("--bval", nargs='+', metavar='bval', required=True,
-                                     help="b_values in fsl format (all subjects should have same shells)")
-    diff_summary_parser.add_argument("--shm-degree", default=2,
-                                     help=" Degree for spherical harmonics summary measurements",
-                                     required=False, type=int)
-    diff_summary_parser.add_argument("--b0-thresh", default=10, type=float,
-                                     help="b0-threshhold (default=10)")
-    diff_summary_parser.add_argument("--study-dir", help="Path to the output directory", required=True)
-    diff_summary_parser.add_argument('--force-local',
-                                     help='forces running computions locally rather than submitting'
-                                          ' to the available cluster', dest='force_local',
-                                     action='store_true', default=False)
-    diff_summary_parser.add_argument("--summarytype", default='shm', type=str,
-                                help='type of summary measurements. Either shm (spherical harmonic model)'
-                                     ' or dtm (diffusion tensor model) (default shm)', required=False)
+    submit_summary_parser.add_argument("--file-tree", help="file-tree text file", required=True)
+    submit_summary_parser.add_argument("--mask", help="mask in standard space.", required=True)
+    submit_summary_parser.add_argument("--summarytype", default='shm', type=str,
+        help='type of summary measurements. either shm (spherical harmonics)'
+        ' or dtm (diffusion tensor) (default shm)', required=False)
 
-    diff_summary_parser.set_defaults(func=submit_summary)
+    submit_summary_parser.add_argument("--shm-degree", default=2,
+                                     help=" degree for spherical harmonics (even number)",
+                                     required=False, type=int)
+    submit_summary_parser.add_argument("--b0-thresh", default=1, type=float,
+                                     help="b0-threshhold (default=10)")
+    submit_summary_parser.add_argument("--logdir",
+                                       help=" log directory")
+    submit_summary_parser.set_defaults(func=submit_summary)
 
     # single subject summary:
-    diff_single_subj_summary_parser.add_argument('subj_idx')
-    diff_single_subj_summary_parser.add_argument('diff_add')
-    diff_single_subj_summary_parser.add_argument('bvec_add')
-    diff_single_subj_summary_parser.add_argument('bval_add')
-    diff_single_subj_summary_parser.add_argument('mask_add')
-    diff_single_subj_summary_parser.add_argument('xfm_add')
-    diff_single_subj_summary_parser.add_argument('output_add')
-    diff_single_subj_summary_parser.add_argument('shm_degree', type=int)
-    diff_single_subj_summary_parser.add_argument('b0_threshold',type=float)
+    diff_summary_parser.add_argument('--data', required=True)
+    diff_summary_parser.add_argument('--bvecs', required=True)
+    diff_summary_parser.add_argument('--bvals', required=True)
+    diff_summary_parser.add_argument('--mask', required=True)
+    diff_summary_parser.add_argument('--xfm',
+                                     help='Transformation from diffusion to mask', required=False)
+    diff_summary_parser.add_argument('--output', required=True)
+    diff_summary_parser.add_argument('--shm-degree', default=2, type=int, required=False)
+    diff_summary_parser.add_argument('--summarytype', default='shm', required=False)
+    diff_summary_parser.add_argument('--b0-thresh', default=1, type=float, required=False)
+    diff_summary_parser.add_argument('--normalise', dest='normalise', action='store_true')
+
     diff_summary_parser.set_defaults(func=summary_from_cli)
 
     # normalization args
-    diff_normalize_parse.add_argument('--study-dir', default=None,
-                                      help='Path to the un-normalized summary measurements', required=True)
+    diff_normalise_parser.add_argument('--study-dir', default=None,
+                                      help='Path to the un-normalised summary measurements', required=True)
 
     # glm arguments:
-    glm_parser.add_argument("--design-mat", help="Design matrix for the group glm", required=False)
-    glm_parser.add_argument("--design-con", help="Design contrast for the group glm", required=False)
-    glm_parser.add_argument('--paired', dest='paired', action='store_true')
-    glm_parser.add_argument("--study-dir", help='Path to save the outputs', default='./')
+    glm_parser.add_argument("--summarydir", help='Path to summary measurements folder',required=True)
     glm_parser.add_argument("--mask", help='Path to the mask', required=True)
+    glm_parser.add_argument("--designmat", help="Design matrix for the group glm", required=False)
+    glm_parser.add_argument("--designcon", help="Design contrast for the group glm", required=False)
+    glm_parser.add_argument('--paired', dest='paired', action='store_true')
+    glm_parser.add_argument("--output", help='Output directory', required=True)
+    glm_parser.set_defaults(func=glm_from_cli)
 
     # inference arguments:
-    inference_parser.add_argument("--model", help="Path to a trained model of change (output of bench diff-train)", default=None, required=True)
-    inference_parser.add_argument('--study-dir', help="Path to the study dir")
+    inference_parser.add_argument("--model", help="Path to a trained model of change (output of bench diff-train)",
+                                  default=None, required=True)
+    inference_parser.add_argument('--glmdir', help="Path to the glm dir", required=True)
+    inference_parser.add_argument('--output', help="Path to the output dir", required=True)
     inference_parser.add_argument("--mask", help='Path to the mask (if none passed uses the valid_mask in glm folder)', default=None, required=False)
     inference_parser.add_argument("--integral-bound",
                                   help='The maximum value for integrating over the amount of change. (default=1)',
                                   default=1.0, required=False)
-    inference_parser.add_argument('--force-local',
-                                     help='forces running computions locally rather than submitting'
-                                          ' to the available cluster or running in parallel', dest='force_local',
-                                     action='store_true', default=False)
+    inference_parser.set_defaults(func=inference_from_cli)
 
     args = parser.parse_args(argv)
 
     return args
+
+
+def print_avail_commands(argv=None):
+    print('BENCH: Bayesian EstimatioN of CHange')
+    print('usage: bench <command> [options]')
+    print('')
+    print('available commands: diff-train, diff-summary,diff-single-summary,diff-normalise,glm,inference')
 
 
 def train_from_cli(args):
@@ -162,12 +154,12 @@ def train_from_cli(args):
     forward_model = funcdict[args.model]
     param_dist = diffusion_models.prior_distributions[args.model]
 
-    bvals = acquisition.read_bvals(args.bval)
+    bvals = acquisition.read_bvals(args.bvals)
     idx_shells, shells = acquisition.ShellParameters.create_shells(bval=bvals)
-    if args.bvec is None:
+    if args.bvecs is None:
         bvecs = np.array(diffusion_models.spherical2cart(*diffusion_models.uniform_sampling_sphere(len(idx_shells)))).T
     else:
-        bvecs = acquisition.read_bvecs(args.bvec)
+        bvecs = acquisition.read_bvecs(args.bvecs)
 
     acq = acquisition.Acquisition(shells, idx_shells, bvals, bvecs, '', args.b0_thresh)
     func_args = {'acq': acq, 'noise_level': 0}
@@ -201,6 +193,39 @@ def train_from_cli(args):
     print('All change models were trained successfully')
 
 
+def summary_from_cli(args):
+    """
+        Wrapper function that parses the input from commandline
+        :param args: list of strings containing all required parameters for fit_summary_single_subj()
+        """
+    print('args', args)
+
+    if args.xfm is None:
+        print('no transformation is provided, the results will be in the same space as the input image.')
+        data = image_io.read_image(args.data, args.mask)
+        valid_vox = np.ones(data.shape[0])
+    else:
+        def_field = f"tmp.nii.gz"
+        data, valid_vox = image_io.sample_from_native_space(args.data, args.xfm, args.mask, def_field)
+
+    acq = acquisition.Acquisition.from_bval_bvec(args.bvals, args.bvecs, args.b0_thresh)
+    summaries = summary_measures.fit_shm(data, acq, shm_degree=args.shm_degree)
+    names = summary_measures.summary_names(acq, args.summarytype, args.shm_degree)
+
+    if args.normalise:
+        print('Summary measures are normalised by b0_mean.')
+        summaries = summary_measures.normalise_summaries(summaries, names)
+        names = [f'{n}/b0' for n in names[1:]]
+
+    # write to nifti:
+    image_io.write_nifti(summaries, args.mask, args.output, np.logical_not(valid_vox))
+    with open(f'./summary_names.txt', 'w') as f:
+        for t in names:
+            f.write("%s\n" % t)
+        f.close()
+    print(f'Summary measurements are computed.')
+
+
 def submit_summary(args):
     """
     submits jobs to cluster (or runs serially) to compute summary measurements for the given subjects
@@ -208,198 +233,81 @@ def submit_summary(args):
     (masks, transformations, diffusion data, bvalues, and bvecs) and output folder
     :return: job ids (the results are saved to files once the jobs are done)
     """
-    if not os.path.exists(args.mask):
-        raise FileNotFoundError('Mask file was not found.')
-
-    if os.path.isdir(args.study_dir):
-        warn('Output directory already exists, contents might be overwritten.')
-        if not os.access(args.study_dir, os.W_OK):
-            raise PermissionError('User does not have permission to write in the output location.')
-    else:
-        os.makedirs(args.study_dir, exist_ok=True)
-
-    n_subjects = min(len(args.xfm), len(args.data), len(args.bvecs))
-    if len(args.data) > n_subjects:
-        raise ValueError(f"Got more diffusion MRI dataset than transformations/bvecs: {args.data[n_subjects:]}")
-    if len(args.xfm) > n_subjects:
-        raise ValueError(f"Got more transformations than diffusion MRI data/bvecs: {args.xfm[n_subjects:]}")
-    if len(args.bvecs) > n_subjects:
-        raise ValueError(f"Got more bvecs than diffusion MRI data/transformations: {args.bvecs[n_subjects:]}")
-
-    if len(args.bval) == 1:  # if a single bval passed.
-        args.bval = args.bval * len(args.bvecs)
-
-    for subj_idx, (nl, d, bvec, bval) in \
-            enumerate(zip(args.xfm, args.data, args.bvecs, args.bval), 1):
-        print(f'Scan {subj_idx}: dMRI ({d} with {bvec} and {bval}); transform ({nl})')
-        for f in [nl, d, bvec, bval]:
-            if not os.path.exists(f):
-                raise FileNotFoundError(f'{f} not found.')
-
-    summary_dir = f'{args.study_dir}/SummaryMeasurements'
-
-    os.makedirs(summary_dir, exist_ok=True)
-
-    if len(glob.glob(summary_dir + '/subj_*.nii.gz')) == len(args.data):
-        print('Summary measurements already exist in the specified path.'
-              'If you want to re-compute them, delete the current files.')
-        job_id = 0
-    else:
-        task_list = list()
-        for subj_idx, (x, d, bval, bvec) in enumerate(zip(args.xfm, args.data, args.bval, args.bvecs)):
-            cmd = f'bench diff-single-summary {subj_idx} {d} {bvec} ' \
-                  f'{bval} {args.mask} {x} {args.study_dir} {args.shm_degree} {args.b0_thresh}'
-            task_list.append(cmd)
-        # main(cmd.split()[1:]) # just for debugging.
-
-        if 'SGE_ROOT' in os.environ.keys() and not args.force_local:
-            with open(f'{args.study_dir}/summary_tasklist.txt', 'w') as f:
-                for t in task_list:
-                    f.write("%s\n" % t)
-                f.close()
-
-                job_id = run(f'fsl_sub --export PATH -t {args.study_dir}/summary_tasklist.txt '
-                             f'-T 200 -R 4 -N bench_summary -l {args.study_dir}/log',
-                             env=os.environ, exitcode=True, stderr=True)
-
-                print(f'Jobs were submitted to SGE with job id {job_id[0]}.')
-        else:
-            print(f'The summary estimation jobs are running locally.')
-
-            # processes = [subprocess.Popen(t.split(), shell=False, env=os.environ) for t in task_list]
-            # [p.wait() for p in processes]
-
-            def func(subj_idx):
-                x, d, bval, bvec = args.xfm[subj_idx], args.data[subj_idx], args.bval[subj_idx], args.bvecs[subj_idx]
-                summary_measures.fit_summary_single_subject(diff_add=d, bvec_add=bvec, bval_add=bval,
-                                                            mask_add=args.mask, xfm_add=x,
-                                                            shm_degree=args.shm_degree, subj_idx=subj_idx,
-                                                            output_add=f'{args.study_dir}/SummaryMeasurements',
-                                                            b0_threshold=args.b0_threshold)
-            if args.force_local:
-                for i in range(len(args.data)):
-                    func(i)
-            else:
-                res = Parallel(n_jobs=-1, verbose=True)(delayed(func)(i) for i in range(len(args.data)))
-            job_id = 0
-
-    return job_id
-
-
-def summary_from_cli(args):
-    """
-        Wrapper function that parses the input from commandline
-        :param args: list of strings containing all required parameters for fit_summary_single_subj()
-        """
     print(args)
+    tree = FileTree.read(args.file_tree).update_glob("data")
+    subject_jobs = []
 
-    if args.output is None:
-        output = '.'
+    for subject_tree in tree.iter("data"):
+        cmd = (
+            "bench", "diff-summary",
+            "--data", subject_tree.get("data"),
+            "--bvals", subject_tree.get("bvals"),
+            "--bvecs", subject_tree.get("bvecs"),
+            "--xfm", subject_tree.get("diff2std"),
+            "--mask", args.mask,
+            "--summarytype", args.summarytype,
+            "--shm-degree", str(args.shm_degree),
+            "--b0-thresh", str(args.b0_thresh),
+            "--output", subject_tree.get("subject_summary_dir", make_dir=True)
+        )
+        # main(cmd[1:])
+        subject_jobs.append(submit(cmd, logdir=args.logdir, job_name=f'bench.summary'))
 
-    if args.subj_idx is None:
-        subj_idx = 'summary'
-        fname = f"{output}/{subj_idx}.nii.gz"
-    else:
-        fname = f"{output}/subj_{args.subj_idx}.nii.gz"
-        if os.path.exists(fname):
-            print(f'Summary measurements already exists for {args.subj_idx}.\n'
-                  f' delete the current file or use a different name.')
-            return 2
-
-    if args.xfm is None:
-        print('no transformation is provided, the results will be in the same space as the input image.')
-        data = image_io.read_image(args.data, args.mask)
-        valid_vox = np.ones(data.shape[0])
-    else:
-        def_field = f"{output}/def_field_{subj_idx}.nii.gz"
-        data, valid_vox = image_io.sample_from_native_space(args.data, args.xfm, args.mask, def_field)
-
-    acq = acquisition.Acquisition.from_bval_bvec(args.bval, args.bvec, args.b0_thresh)
-    summaries = summary_measures.fit_shm(data, acq, shm_degree=args.shm_degree)
-    names = summary_measures.summary_names(acq, args.summarytype, args.shm_degree)
-
-    if args.normalize:
-        summaries = summary_measures.normalize_summaries(summaries, names)
-        names = [f'{n}/b0' for n in names[1:]]
-
-    # write to nifti:
-    image_io.write_nifti(summaries, args.mask, fname, np.logical_not(valid_vox))
-    if not os.path.exists(f'{output}/summary_names.txt'):  # write summary names to a text file in the folder.
-        with open(f'{output}/summary_names.txt', 'w') as f:
-            for t in names:
-                f.write("%s\n" % t)
-            f.close()
-
+    acq = acquisition.Acquisition.from_bval_bvec(subject_tree.get("bvals"), subject_tree.get("bvecs"))
+    summary_names = summary_measures.summary_names(acq, args.summarytype, args.shm_degree)
+    with open(f'{subject_tree.get("summary_dir")}/summary_names.txt', 'w') as f:
+        for t in summary_names:
+            f.write("%s\n" % t)
+        f.close()
     print(f'Summary measurements are computed.')
-    return 0
 
 
-def submit_glm(args):
+def glm_from_cli(args):
     """
     Runs glm on the summary meausres.
     :param args: output from argparse, should contain desing matrix anc contrast addresss, summary_dir and masks
     :return:
     """
-    assert args.paired or (args.design_mat is not None and args.design_con is not None)
+    assert args.paired or (args.designmat is not None and args.designcon is not None)
 
-    glm_dir = f'{args.study_dir}/Glm'
-    if os.path.exists(args.study_dir + '/SummaryMeasurements'):
-        summary_dir = args.study_dir + '/SummaryMeasurements'
-    else:
-        summary_dir = args.study_dir
-
-    if not os.path.isdir(glm_dir):
-        os.makedirs(glm_dir)
-
-    summaries, invalid_vox, summary_names = image_io.read_summary_images(
-        summary_dir=summary_dir, mask=args.mask)
-
+    os.makedirs(args.output, exist_ok=True)
+    summaries, invalid_vox, summary_names = image_io.read_summary_images(summary_dir=args.summarydir, mask=args.mask)
     summaries = summaries[:, invalid_vox == 0, :]
 
     if args.paired:
         data, delta_data, sigma_n = glm.group_glm_paired(summaries)
     else:
-        if args.design_mat is None:
-            raise RuntimeError('For inference you have to provide a design matrix file.')
-        elif not os.path.exists(args.design_mat):
-            raise FileNotFoundError(f'{args.design_mat} file not found.')
-
-        if args.design_con is None:
-            raise RuntimeError('For inference you need to provide a design contrast file.')
-        elif not os.path.exists(args.design_con):
-            raise FileNotFoundError(f'{args.design_con} file not found.')
-
-        data, delta_data, sigma_n = glm.group_glm(summaries, args.design_mat, args.design_con)
+        data, delta_data, sigma_n = glm.group_glm(summaries, args.designmat, args.designcon)
 
     image_io.write_glm_results(data, delta_data, sigma_n, summary_names,
-                               args.mask, invalid_vox, glm_dir)
+                               args.mask, invalid_vox, args.output)
     y_norm, dy_norm, sigma_n_norm = \
-        summary_measures.normalize_summaries(data, summary_names, delta_data, sigma_n)
+        summary_measures.normalise_summaries(data, summary_names, delta_data, sigma_n)
 
     image_io.write_glm_results(y_norm, dy_norm, sigma_n_norm, summary_names,
-                               args.mask, invalid_vox, glm_dir + '_normalised')
-    print(f'GLM is done. Results are stored in {glm_dir}')
+                               args.mask, invalid_vox, args.output + '_normalised')
+    print(f'GLM is done. Results are stored in {args.output}')
 
 
-def submit_inference(args):
-    glm_dir = f'{args.study_dir}/Glm/'
-    data, delta_data, sigma_n, summary_names = image_io.read_glm_results(glm_dir)
+def inference_from_cli(args):
+
+    data, delta_data, sigma_n, summary_names = image_io.read_glm_results(args.glmdir)
     # perform inference:
     ch_mdl = change_model.ChangeModel.load(args.model)
 
     posteriors, predictions, peaks, bad_samples = ch_mdl.infer(
-        data, delta_data, sigma_n, integral_bound=float(args.integral_bound), parallel=not args.force_local)
+        data, delta_data, sigma_n, integral_bound=float(args.integral_bound), parallel=False)
 
     # save the results:
-    maps_dir = f'{args.study_dir}/Results/{ch_mdl.forward_model}'
-    image_io.write_inference_results(maps_dir, ch_mdl.model_names, predictions, posteriors, peaks,
-                                     f'{args.study_dir}/Glm/valid_mask')
+    image_io.write_inference_results(args.output, ch_mdl.model_names, predictions, posteriors, peaks,
+                                     f'{args.glmdir}/valid_mask')
 
-    dv, offset, deviation = ch_mdl.estimate_quality_of_fit(data, delta_data, sigma_n, predictions, peaks)
-    image_io.write_nifti(deviation[:, np.newaxis], f'{args.study_dir}/Glm/valid_mask',
-                         f'{maps_dir}/sigma_deviations.nii.gz')
+    dv, offset, deviation = ch_mdl.estimate_quality_of_fit(
+        data, delta_data, sigma_n, predictions, peaks)
 
-    print(f'Analysis completed successfully, the posterior probability maps are stored in {maps_dir}')
+    image_io.write_nifti(deviation[:, np.newaxis], f'{args.glmdir}/valid_mask',
+                         f'{args.output}/sigma_deviations.nii.gz')
+    print(f'Analysis completed successfully.')
 
 
 if __name__ == '__main__':
