@@ -5,13 +5,9 @@ This module contains functions to simulate diffusion signals using diffusion_mod
 using summary_measures.py
 """
 import argparse
-from argparse import Namespace
 from dataclasses import dataclass, fields
-
 import numpy as np
-from typing import List
-from typing import Optional
-from typing import Sequence
+from typing import List, Optional, Sequence
 
 b0_tresh = 0.1
 
@@ -203,7 +199,7 @@ class Acquisition:
 
         bvec_path = acq_path + '/' + name + '/bvecs'
         bval_path = acq_path + '/' + name + '/bvals'
-        args = Namespace(bvec=bvec_path, bval=bval_path)
+        args = argparse.Namespace(bvec=bvec_path, bval=bval_path)
 
         idx_shells, shells = ShellParameters.from_parser_args(args)
         bvecs = np.genfromtxt(args.bvec).T
@@ -214,10 +210,49 @@ class Acquisition:
         return cls(shells, idx_shells, bvecs, name, anisotropy_thresh)
 
     @classmethod
-    def from_bval_bvec(cls, bval_path, bvec_path, anisotropy_thresh):
+    def from_bval_bvec(cls, bval_path, bvec_path, anisotropy_thresh=b0_tresh):
         bvecs = np.genfromtxt(bvec_path)
         if bvecs.shape[1] > bvecs.shape[0]:
             bvecs = bvecs.T
         bvals = np.genfromtxt(bval_path)
         idx_shells, shells = ShellParameters.create_shells(bval=bvals)
         return cls(shells, idx_shells, bvecs, ' ', anisotropy_thresh)
+
+    @classmethod
+    def generate(cls, n_b0=10, n_dir=64, b=(1, 2, 3)):
+        """
+        Generates diffusion protocol.
+        :param n_b0: number of b0 images
+        :param n_dir: number of directions per shell
+        :param b: bvalues for each shell (tuple)
+        :return: acquisition class.
+        """
+        bvals = np.zeros(n_b0)
+        bvecs = fibonacci_sphere(n_b0)
+
+        for b_ in b:
+            bvals = np.concatenate([bvals, np.ones(n_dir) * b_])
+            bvecs = np.concatenate([bvecs, fibonacci_sphere(n_dir)])
+        idx_shells, shells = ShellParameters.create_shells(bval=bvals)
+        return cls(shells, idx_shells, bvecs, ' ', b0_tresh)
+
+
+def fibonacci_sphere(samples=1):
+    """
+    Creates N points uniformly-ish distributed on the sphere
+
+    Args:
+        samples : int
+    """
+    phi = np.pi * (3. - np.sqrt(5.))  # golden angle in radians
+
+    i = np.arange(samples)
+    y = 1 - 2. * (i / float(samples - 1))
+    r = np.sqrt(1 - y * y)
+    t = phi * i
+    x = np.cos(t) * r
+    z = np.sin(t) * r
+
+    points = np.asarray([x, y, z]).T
+
+    return points
