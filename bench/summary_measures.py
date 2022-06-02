@@ -13,15 +13,22 @@ import os
 Default_LOG_L = True  # default flag to log transform l measures or not.
 
 
-def summary_names(acq, shm_degree, cg=False):
-    names = []
-    for sh in acq.shells:
-        names.append(f"b{sh.bval:1.1f}_mean")
-        if sh.bval >= acq.anisotropy_threshold:
-            for degree in np.arange(2, shm_degree + 1, 2):
-                names.append(f"b{sh.bval:1.1f}_l{degree}")
-            if cg:
-                names.append(f"b{sh.bval:1.1f}_l2_cg")
+def summary_names(acq, summarytype='shm', shm_degree=2, cg=False):
+    if summarytype == 'shm':
+        names = []
+        for sh in acq.shells:
+            names.append(f"b{sh.bval:1.1f}_mean")
+            if sh.bval >= acq.b0_threshold:
+                for degree in np.arange(2, shm_degree + 1, 2):
+                    names.append(f"b{sh.bval:1.1f}_l{degree}")
+                if cg:
+                    names.append(f"b{sh.bval:1.1f}_l2_cg")
+    elif summarytype == 'dti':
+        names = []
+        for sh in acq.shells:
+            names.append(f"b{sh.bval:1.1f}_md")
+            names.append(f"b{sh.bval:1.1f}_fa")
+
     return names
 
 
@@ -52,7 +59,7 @@ def fit_shm(signal, acq, shm_degree, log_l=Default_LOG_L):
 
         sum_meas.append(shell_signal.mean(axis=-1))
 
-        if this_shell.bval >= acq.anisotropy_threshold:
+        if this_shell.bval >= acq.b0_threshold:
             y, l = normalized_shms(bvecs, shm_degree)
             if bvecs.shape[0] < y.shape[1]:
                 warnings.warn(f'{this_shell.bval} shell directions is fewer than '
@@ -141,76 +148,6 @@ def nan_mat(shape):
     else:
         a = np.NAN
     return a
-
-
-#  image functions:
-def fit_summary_single_subject(diff_add: str, bvec_add: str, bval_add: str, mask_add: str,
-                               xfm_add: str = None, shm_degree: int = 2,
-                               subj_idx: str = None, output_add: str = None,
-                               normalize=False, anisotropy_thresh=1.0):
-    """
-        the main function that fits summary measurements for a single subject
-        :param subj_idx: index of subject, used for naming files.
-        :param diff_add: path to diffusion data
-        :param bvec_add: path to bvec file
-        :param bval_add: path to bval file
-        :param mask_add: path to mask
-        :param xfm_add: path to transformation from native space to standard space,
-            if not provided, uses the same space as input.
-        :param shm_degree: degree for summary measuremnets (needs to be an even number)
-        :param output_fname: used to name the summary files.
-        :param output_add: path to output directory, used to save extra files (names, transformation)
-        :return: saves file to the address,
-            returns a code for the process (1: for succeed, 2: already exists)
-        """
-    if output_add is None:
-        output_add = '.'
-    # print(os.environ)
-    if subj_idx is None:
-        subj_idx = 'summary'
-        fname = f"{output_add}/{subj_idx}.nii.gz"
-    else:
-        fname = f"{output_add}/subj_{subj_idx}.nii.gz"
-        if os.path.exists(fname):
-            print(f'Summary measurements already exists for {subj_idx}.\n'
-                  f' delete the current file or use a different name.')
-            return 2
-
-        print('diffusion data address:' + diff_add)
-        print('bvec address: ' + bvec_add)
-        print('mask address: ' + mask_add)
-        print('bval address: ' + bval_add)
-        print('shm_degree: ' + str(shm_degree))
-        print('Anisotropy threshold: ', anisotropy_thresh)
-        print('output path: ' + output_add)
-
-    if xfm_add is None:
-        print('no transformation is provided, the results will be in the same space as the input image.')
-        data = image_io.read_image(diff_add, mask_add)
-        valid_vox = np.ones(data.shape[0])
-    else:
-        print('xfm address:' + xfm_add)
-        def_field = f"{output_add}/def_field_{subj_idx}.nii.gz"
-        data, valid_vox = image_io.sample_from_native_space(diff_add, xfm_add, mask_add, def_field)
-
-    acq = acquisition.Acquisition.from_bval_bvec(bval_add, bvec_add, anisotropy_thresh)
-    summaries = fit_shm(data, acq, shm_degree=shm_degree)
-    names = summary_names(acq, shm_degree)
-
-    if normalize:
-        summaries = normalize_summaries(summaries, names)
-        names = [f'{n}/b0' for n in names[1:]]
-
-    # write to nifti:
-    image_io.write_nifti(summaries, mask_add, fname, np.logical_not(valid_vox))
-    if not os.path.exists(f'{output_add}/summary_names.txt'):  # write summary names to a text file in the folder.
-        with open(f'{output_add}/summary_names.txt', 'w') as f:
-            for t in names:
-                f.write("%s\n" % t)
-            f.close()
-
-    print(f'Summary measurements for {diff_add} are computed.')
-    return 1
 
 
 def normalize_summaries(y1: np.ndarray, names, dy=None, sigma_n=None, log_l=Default_LOG_L):

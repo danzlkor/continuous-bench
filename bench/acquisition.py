@@ -9,7 +9,7 @@ from dataclasses import dataclass, fields
 import numpy as np
 from typing import List, Optional, Sequence
 
-b0_tresh = 0.1
+b0_thresh = 0.1
 
 
 @dataclass
@@ -107,7 +107,7 @@ class ShellParameters:
             parameters['bval'] /= 1e3
             parameters['bval'] = np.round(parameters['bval'], 1)
 
-        parameters['bval'][parameters['bval'] < b0_tresh] = 0
+        parameters['bval'][parameters['bval'] < b0_thresh] = 0
 
         within_range = np.ones((nparams, nparams), dtype='bool')
         for name, params in parameters.items():
@@ -115,7 +115,7 @@ class ShellParameters:
             if arr.size == 1:
                 continue
             if name == 'bval':
-                within_range &= abs(arr[:, None] - arr[None, :]) < b0_tresh
+                within_range &= abs(arr[:, None] - arr[None, :]) < b0_thresh
             else:
                 within_range &= arr[:, None] == arr[None, :]
 
@@ -182,17 +182,18 @@ class Acquisition:
     """
     shells: List[ShellParameters]
     idx_shells: np.ndarray
+    bvals: np.array
     bvecs: np.ndarray
     name: str
-    anisotropy_threshold: float
+    b0_threshold: float = b0_thresh
 
     @classmethod
-    def load(cls, name, acq_path, anisotropy_thresh):
+    def load(cls, name, acq_path, b0_threshold=b0_thresh):
         """
         reads acquisition protocol parameters from bval and bvec text files
         :param name: name of acq protocol
         :param acq_path: path to acquisition files
-        :param anisotropy_thresh: threshold to compute anisotropy measures.
+        :param b0_threshold: threshold to compute anisotropy measures.
         :return acq: an acquisition object containing shells, shell indices of
         each measurement, and gradient directions
         """
@@ -202,21 +203,20 @@ class Acquisition:
         args = argparse.Namespace(bvec=bvec_path, bval=bval_path)
 
         idx_shells, shells = ShellParameters.from_parser_args(args)
+        bvals = read_bvals(args.bval)
         bvecs = np.genfromtxt(args.bvec).T
 
         print('loaded input shells:')
         print(to_string(shells))
         print('')
-        return cls(shells, idx_shells, bvecs, name, anisotropy_thresh)
+        return cls(shells, idx_shells, bvals, bvecs, name, b0_threshold)
 
     @classmethod
-    def from_bval_bvec(cls, bval_path, bvec_path, anisotropy_thresh=b0_tresh):
-        bvecs = np.genfromtxt(bvec_path)
-        if bvecs.shape[1] > bvecs.shape[0]:
-            bvecs = bvecs.T
-        bvals = np.genfromtxt(bval_path)
+    def from_bval_bvec(cls, bval_path, bvec_path, b0_threshold=b0_thresh):
+        bvecs = read_bvecs(bvec_path)
+        bvals = read_bvals(bval_path)
         idx_shells, shells = ShellParameters.create_shells(bval=bvals)
-        return cls(shells, idx_shells, bvecs, ' ', anisotropy_thresh)
+        return cls(shells, idx_shells, bvals, bvecs, ' ', b0_threshold)
 
     @classmethod
     def generate(cls, n_b0=10, n_dir=64, b=(1, 2, 3)):
@@ -234,7 +234,25 @@ class Acquisition:
             bvals = np.concatenate([bvals, np.ones(n_dir) * b_])
             bvecs = np.concatenate([bvecs, fibonacci_sphere(n_dir)])
         idx_shells, shells = ShellParameters.create_shells(bval=bvals)
-        return cls(shells, idx_shells, bvecs, ' ', b0_tresh)
+        return cls(shells, idx_shells, bvals, bvecs, ' ', b0_thresh)
+
+
+def read_bvals(fname, b0thresh=b0_thresh, maxb=100, scale=1000):
+    bvals = np.genfromtxt(fname)
+    if bvals.max() > maxb:
+        bvals /= scale
+
+    bvals[bvals < b0thresh] = 0
+    bvals = np.around(bvals, 2)
+    return bvals
+
+
+def read_bvecs(fname):
+    bvecs = np.genfromtxt(fname)
+    if bvecs.shape[1] > bvecs.shape[0]:
+        bvecs = bvecs.T
+
+    return bvecs
 
 
 def fibonacci_sphere(samples=1):

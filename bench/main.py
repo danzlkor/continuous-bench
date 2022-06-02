@@ -22,19 +22,7 @@ def main(argv=None):
     :return: saves the output images to the specified path
     """
     args = parse_args(argv)
-
-    if args.commandname == 'diff-train':
-        submit_train(args)
-    elif args.commandname == 'diff-summary':
-        submit_summary(args)
-    elif args.commandname == 'diff-single-summary':
-        submit_summary_single_subject(args)
-    elif args.commandname == 'glm':
-        submit_glm(args)
-    elif args.commandname == 'inference':
-        submit_inference(args)
-    else:
-        print_avail_commands()
+    args.func(args)
 
 
 def print_avail_commands():
@@ -53,8 +41,9 @@ def parse_args(argv):
     """
 
     parser = argparse.ArgumentParser("BENCH: Bayesian EstimatioN of CHange")
-    subparsers = parser.add_subparsers(dest='commandname')
+    parser.set_defaults(func=print_avail_commands)
 
+    subparsers = parser.add_subparsers(dest='commandname')
     diff_train_parser = subparsers.add_parser('diff-train')
     diff_summary_parser = subparsers.add_parser('diff-summary')
     diff_single_subj_summary_parser = subparsers.add_parser('diff-single-summary')
@@ -65,53 +54,59 @@ def parse_args(argv):
     # train arguments:
     train_required = diff_train_parser.add_argument_group("required arguments")
     available_models = list(diffusion_models.prior_distributions.keys())
-    train_required.add_argument("--model",
-                                help=f"name of the forward model. Available models:\n{available_models}", required=True)
+    train_required.add_argument(
+        "--model", help=f"name of the forward model. Available models:\n{available_models}", required=True)
     train_required.add_argument("--output", help="name of the trained model", required=True)
-    train_required.add_argument("--bval", required=True)
+    train_required.add_argument("--bval", help="b-values for training", required=True)
 
     train_optional = diff_train_parser.add_argument_group("optional arguments")
     train_optional.add_argument("-n", default=10000, type=int, help="number of training samples (default=10000)",
                                 required=False)
-    train_optional.add_argument("-anisotropy-thresh", default=1, type=float,
-                                help="b-value threshold for anisotropy summary measure (default=1)")
-    train_optional.add_argument("-p", default=2, type=int, help="polynomial degree for mu design matrix (default=2)",
-                                required=False)
-    train_optional.add_argument("-ps", default=1, type=int, help="polynomial degree for sigma design matrix(default=1)",
+    train_optional.add_argument("-b0-thresh", default=1, type=float,
+                                help="threshold for b0 (default=1)")
+    train_optional.add_argument("-p", default=2, type=int, help="polynomial degree for mean (default=2)", required=False)
+    train_optional.add_argument("-ps", default=1, type=int, help="polynomial degree for variance (default=1)",
                                 required=False)
     train_optional.add_argument("-d", default=2, type=int,
                                 help=" maximum degree for summary measures (must be even numbers, default=2)",
                                 required=False)
     train_optional.add_argument("--alpha", default=0.0, type=float,
-                                help="regularisation weight (default=0)", required=False)
-    train_optional.add_argument("--change-vecs", help="vectors of change", default=None, required=False)
-    train_optional.add_argument("--summary", default='shm', type=str,
+                                help="regularisation weight for training regression models(default=0)", required=False)
+    train_optional.add_argument("--change-vecs", help="text file for defining vectors of change (refer to documentations)", default=None, required=False)
+    train_optional.add_argument("--summarytype", default='shm', type=str,
                                 help='type of summary measurements. Either shm (spherical harmonic model)'
                                      ' or dtm (diffusion tensor model) (default shm)', required=False)
+    train_optional.add_argument("--bvec", help="gradient directions", required=False)
+
     train_optional.add_argument('--verbose', help='flag for printing optimisation outputs', dest='verbose',
                                 action='store_true', default=False)
+    diff_train_parser.set_defaults(func=train_from_cli)
+
     # fit summary arguments:
-    diff_summary_parser.add_argument("--mask",
-                                     help="Mask in standard space indicating which voxels to analyse", required=True)
-    diff_summary_parser.add_argument("--data", nargs='+', help="List of dMRI data in subject native space",
-                                     required=True)
-    diff_summary_parser.add_argument("--xfm",
-                                     help="Non-linear warp fields from diffusion space to the standard",
+    diff_summary_parser.add_argument("--mask", help="Mask in standard space.", required=True)
+    diff_summary_parser.add_argument("--data", nargs='+', help="List of dMRI data in subject native space", required=True)
+    diff_summary_parser.add_argument("--xfm", help="Warp fields from diffusion space to the standard",
                                      nargs='+', metavar='xfm.nii', required=True)
     diff_summary_parser.add_argument("--bvecs", nargs='+', metavar='bvec', required=True,
                                      help="Gradient orientations for each subject")
     diff_summary_parser.add_argument("--bval", nargs='+', metavar='bval', required=True,
-                                     help="b_values (should be the same for all subjects")
+                                     help="b_values in fsl format (all subjects should have same shells)")
     diff_summary_parser.add_argument("--shm-degree", default=2,
                                      help=" Degree for spherical harmonics summary measurements",
                                      required=False, type=int)
-    diff_summary_parser.add_argument("--anisotropy-thresh", default=1, type=float,
-                                     help="b-value threshold for anisotropy summary measure (default=1)")
+    diff_summary_parser.add_argument("--b0-thresh", default=10, type=float,
+                                     help="b0-threshhold (default=10)")
     diff_summary_parser.add_argument("--study-dir", help="Path to the output directory", required=True)
     diff_summary_parser.add_argument('--force-local',
                                      help='forces running computions locally rather than submitting'
                                           ' to the available cluster', dest='force_local',
                                      action='store_true', default=False)
+    diff_summary_parser.add_argument("--summarytype", default='shm', type=str,
+                                help='type of summary measurements. Either shm (spherical harmonic model)'
+                                     ' or dtm (diffusion tensor model) (default shm)', required=False)
+
+    diff_summary_parser.set_defaults(func=submit_summary)
+
     # single subject summary:
     diff_single_subj_summary_parser.add_argument('subj_idx')
     diff_single_subj_summary_parser.add_argument('diff_add')
@@ -122,6 +117,7 @@ def parse_args(argv):
     diff_single_subj_summary_parser.add_argument('output_add')
     diff_single_subj_summary_parser.add_argument('shm_degree', type=int)
     diff_single_subj_summary_parser.add_argument('b0_threshold',type=float)
+    diff_summary_parser.set_defaults(func=summary_from_cli)
 
     # normalization args
     diff_normalize_parse.add_argument('--study-dir', default=None,
@@ -151,45 +147,42 @@ def parse_args(argv):
     return args
 
 
-def submit_train(args):
+def train_from_cli(args):
     available_models = list(diffusion_models.prior_distributions.keys())
     if args.model in available_models:
         param_prior_dists = diffusion_models.prior_distributions[args.model]
         p_names = [i for p in param_prior_dists.keys() for i in ([p] if isinstance(p, str) else p)]
-        print(f'Parameters of {args.model}:{p_names}')
+        print(f'Parameters of {args.model} are:{p_names}')
     else:
         model_names = ', '.join(list(diffusion_models.prior_distributions.keys()))
         raise ValueError(f'model {args.model} is not defined in the library. '
-                         f'Defined models are:\n {model_names}')
+                         f'Current defined models are:\n {model_names}')
 
     funcdict = {name: f for (name, f) in diffusion_models.__dict__.items() if name in available_models}
     forward_model = funcdict[args.model]
     param_dist = diffusion_models.prior_distributions[args.model]
 
-    bvals = np.genfromtxt(args.bval)
+    bvals = acquisition.read_bvals(args.bval)
     idx_shells, shells = acquisition.ShellParameters.create_shells(bval=bvals)
+    if args.bvec is None:
+        bvecs = np.array(diffusion_models.spherical2cart(*diffusion_models.uniform_sampling_sphere(len(idx_shells)))).T
+    else:
+        bvecs = acquisition.read_bvecs(args.bvec)
 
-    bvecs = np.array(diffusion_models.spherical2cart(
-        *diffusion_models.uniform_sampling_sphere(len(idx_shells)))).T
-
-    acq = acquisition.Acquisition(shells,
-                                  idx_shells,
-                                  bvecs,
-                                  '',
-                                  args.b0_threshold)
+    acq = acquisition.Acquisition(shells, idx_shells, bvals, bvecs, '', args.b0_thresh)
     func_args = {'acq': acq, 'noise_level': 0}
-    if args.summary == 'shm':
+    if args.summarytype == 'shm':
         func_args['shm_degree'] = args.d
 
     if args.change_vecs is not None:
         with open(args.change_vecs, 'r') as reader:
             args.change_vecs = [line.rstrip() for line in reader]
 
-    summary_names = summary_measures.summary_names(acq, shm_degree=args.d)
+    summary_names = summary_measures.summary_names(acq, args.summarytype, shm_degree=args.d)
     print('The model is trained using the following summary measurements:')
     print(summary_names)
     trainer = change_model.Trainer(
-        forward_model=diffusion_models.bench_decorator(forward_model, summary_type=args.summary),
+        forward_model=diffusion_models.bench_decorator(forward_model, summary_type=args.summarytype),
         kwargs=func_args,
         change_vecs=args.change_vecs,
         summary_names=summary_names,
@@ -203,7 +196,7 @@ def submit_train(args):
                                 verbose=args.verbose)
 
     ch_model.forward_model_name = forward_model.__name__
-    ch_model.meausrement_names = summary_measures.summary_names(acq, args.d)
+    ch_model.meausrement_names = summary_measures.summary_names(acq, args.summarytype, args.d)
     ch_model.save(path='', file_name=args.output)
     print('All change models were trained successfully')
 
@@ -255,7 +248,7 @@ def submit_summary(args):
         task_list = list()
         for subj_idx, (x, d, bval, bvec) in enumerate(zip(args.xfm, args.data, args.bval, args.bvecs)):
             cmd = f'bench diff-single-summary {subj_idx} {d} {bvec} ' \
-                  f'{bval} {args.mask} {x} {args.study_dir} {args.shm_degree} {args.b0_threshold}'
+                  f'{bval} {args.mask} {x} {args.study_dir} {args.shm_degree} {args.b0_thresh}'
             task_list.append(cmd)
         # main(cmd.split()[1:]) # just for debugging.
 
@@ -293,22 +286,52 @@ def submit_summary(args):
     return job_id
 
 
-def submit_summary_single_subject(args):
+def summary_from_cli(args):
     """
         Wrapper function that parses the input from commandline
         :param args: list of strings containing all required parameters for fit_summary_single_subj()
         """
-    output_add = args.output_add + '/SummaryMeasurements'
     print(args)
-    summary_measures.fit_summary_single_subject(diff_add=args.diff_add,
-                                                bvec_add=args.bvec_add,
-                                                bval_add=args.bval_add,
-                                                mask_add=args.mask_add,
-                                                xfm_add=args.xfm_add,
-                                                shm_degree=args.shm_degree,
-                                                subj_idx=args.subj_idx,
-                                                output_add=output_add,
-                                                b0_threshold=args.b0_threshold)
+
+    if args.output is None:
+        output = '.'
+
+    if args.subj_idx is None:
+        subj_idx = 'summary'
+        fname = f"{output}/{subj_idx}.nii.gz"
+    else:
+        fname = f"{output}/subj_{args.subj_idx}.nii.gz"
+        if os.path.exists(fname):
+            print(f'Summary measurements already exists for {args.subj_idx}.\n'
+                  f' delete the current file or use a different name.')
+            return 2
+
+    if args.xfm is None:
+        print('no transformation is provided, the results will be in the same space as the input image.')
+        data = image_io.read_image(args.data, args.mask)
+        valid_vox = np.ones(data.shape[0])
+    else:
+        def_field = f"{output}/def_field_{subj_idx}.nii.gz"
+        data, valid_vox = image_io.sample_from_native_space(args.data, args.xfm, args.mask, def_field)
+
+    acq = acquisition.Acquisition.from_bval_bvec(args.bval, args.bvec, args.b0_thresh)
+    summaries = summary_measures.fit_shm(data, acq, shm_degree=args.shm_degree)
+    names = summary_measures.summary_names(acq, args.summarytype, args.shm_degree)
+
+    if args.normalize:
+        summaries = summary_measures.normalize_summaries(summaries, names)
+        names = [f'{n}/b0' for n in names[1:]]
+
+    # write to nifti:
+    image_io.write_nifti(summaries, args.mask, fname, np.logical_not(valid_vox))
+    if not os.path.exists(f'{output}/summary_names.txt'):  # write summary names to a text file in the folder.
+        with open(f'{output}/summary_names.txt', 'w') as f:
+            for t in names:
+                f.write("%s\n" % t)
+            f.close()
+
+    print(f'Summary measurements are computed.')
+    return 0
 
 
 def submit_glm(args):

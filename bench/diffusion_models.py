@@ -6,11 +6,9 @@ This module contains definition of some microstructural diffusion models and a p
 import numba
 import numpy as np
 from scipy import stats
-
 from bench import summary_measures, dti
 
 # prior distributions:
-
 dif_coeff = 1.7  # unit: um^2/ms
 
 

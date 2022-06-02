@@ -3,7 +3,7 @@ dipy
 numba
 nibabel
 scipy
-numpy
+numpy~=1.21.5
 progressbar
 torch
 # dataclasses~=0.7
