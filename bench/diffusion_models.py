@@ -21,8 +21,8 @@ def sample_signal(n_samples):
     tissue_type = np.random.choice(3, n_samples, p=[0.0, .2, .8])
     # 0: Pure CSF, 1: CSF partial volume , 2: brain tissue
     s_iso = stats.uniform(loc=0, scale=.9).rvs(n_samples)
-    s_in = stats.truncnorm(loc=.5, scale=.2, a=-.4 / .2, b=1/0.2).rvs(n_samples)
-    s_ex = stats.truncnorm(loc=.5, scale=.2, a=-.4 / .2, b=1/0.2).rvs(n_samples)
+    s_in = stats.truncnorm(loc=.5, scale=.2, a=-.4 / .2, b=1 / 0.2).rvs(n_samples)
+    s_ex = stats.truncnorm(loc=.5, scale=.2, a=-.4 / .2, b=1 / 0.2).rvs(n_samples)
 
     # CSF:
     s_iso[tissue_type == 0] = 1 - 1e-4
@@ -88,17 +88,17 @@ prior_distributions = dict(
                                },
 
     watson_noddi_diffusivities={
-                  'd_iso': stats.truncnorm(loc=3, scale=.1, a=-3 / .1, b=np.Inf),
-                  'd_a_in': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
-                  'd_a_ex': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
-                  'tortuosity': stats.uniform(loc=0.01, scale=.98),
-                  'odi': stats.beta(a=1, b=4),
-                  },
+        'd_iso': stats.truncnorm(loc=3, scale=.1, a=-3 / .1, b=np.Inf),
+        'd_a_in': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
+        'd_a_ex': stats.truncnorm(loc=dif_coeff, scale=.3, a=-dif_coeff / 0.3, b=np.Inf),
+        'tortuosity': stats.uniform(loc=0.01, scale=.98),
+        'odi': stats.beta(a=1, b=4),
+    },
 )
 
 
 # basic compartment definitions:
-def ball(bval=0, bvec=np.array([0, 0, 1]), d_iso=1., s0=1.0):
+def ball(bval, bvec, d_iso, s0=1):
     """
     Simulates diffusion signal for isotropic diffusion
 
@@ -123,7 +123,7 @@ def ball(bval=0, bvec=np.array([0, 0, 1]), d_iso=1., s0=1.0):
     return s0 * np.exp(-bval * d_iso)
 
 
-def stick(bval=0, bvec=np.array([0, 0, 1]), d_a=1., theta=0., phi=0.0, s0=1.0):
+def stick(bval, bvec, d_a, theta, phi, s0=1.0):
     """
     Simulates diffusion signal from single stick model
 
@@ -147,8 +147,7 @@ def stick(bval=0, bvec=np.array([0, 0, 1]), d_a=1., theta=0., phi=0.0, s0=1.0):
     return s0 * np.exp(-bval * (d_a * orientation.dot(bvec.T) ** 2))
 
 
-def cigar(bval=0, bvec=np.array([0, 0, 1]), theta=0., phi=0,
-          d_a=1., d_r=0., s0=1.0):
+def cigar(bval, bvec, d_a, d_r, theta=0., phi=0, s0=1.0):
     """
     Simulates diffusion signal from single stick model
 
@@ -170,8 +169,7 @@ def cigar(bval=0, bvec=np.array([0, 0, 1]), theta=0., phi=0,
     return s0 * np.exp(-bval * (d_r + (d_a - d_r) * bvec.dot(orientation) ** 2))
 
 
-def bingham_zeppelin(bval=0., bvec=np.array([[0, 0, 1]]), d_a=1., d_r=0.,
-                     odi=.99, odi2=None, theta=0., phi=0., psi=0., s0=1.):
+def bingham_zeppelin(bval, bvec, d_a, d_r, odi, odi2=None, theta=0., phi=0., psi=0., s0=1.):
     """
     Simulates diffusion signal for a bingham-distributed ODF
 
@@ -238,8 +236,7 @@ def bingham_zeppelin(bval=0., bvec=np.array([[0, 0, 1]]), d_a=1., d_r=0.,
     return s0[:, np.newaxis] * num / denom[:, np.newaxis]
 
 
-def watson_zeppelin_numerical(bval=0, bvec=np.array([[0, 0, 1]]), d_a=1., d_r=0.,
-                              odi=1, theta=0., phi=0., s0=1., n_samples=10000):
+def watson_zeppelin_numerical(bval, bvec, d_a, d_r, odi, theta=0., phi=0., s0=1., n_samples=10000):
     """
     Simulates diffusion signal for a watson distribution with numerical integration
 
@@ -272,15 +269,14 @@ def watson_zeppelin_numerical(bval=0, bvec=np.array([[0, 0, 1]]), d_a=1., d_r=0.
 
     s = np.zeros_like(bval)
     for g_i, (b, g) in enumerate(zip(bval, bvec)):
-        resp = cigar(b, g, d_a=d_a, d_r=d_r, s0=s0, theta=theta_samples, phi=phi_samples)
+        resp = cigar(b, g, d_a=d_a, d_r=d_r, theta=theta_samples, phi=phi_samples, s0=s0)
         s[g_i] = (resp * wat_pdf_samples).sum()
     return np.array(s)
 
 
 # multi-compartment models:
 
-def ball_stick(bval=0, bvec=np.array([0, 0, 1]), theta=0., phi=0.0, d_a=dif_coeff / 2, d_iso=dif_coeff,
-               s_iso=1, s_a=1, s0=1.0):
+def ball_stick(bval, bvec, d_a, d_iso, s_a, s_iso, theta=0., phi=0.0, s0=1.0):
     """
     Simulates diffusion signal from ball and stick model
 
@@ -304,10 +300,9 @@ def ball_stick(bval=0, bvec=np.array([0, 0, 1]), theta=0., phi=0.0, d_a=dif_coef
            + ball(bval, bvec, d_iso, s0) * s_iso[:, np.newaxis]
 
 
-def watson_noddi(bval=0, bvec=np.array([0, 0, 1]),
-                 s_iso=0.5, s_in=0.5, s_ex=.5,
-                 d_iso=1., d_a_in=1., d_a_ex=1.,
-                 tortuosity=.5, odi=.5,
+def watson_noddi(bval, bvec, s_iso, s_in, s_ex,
+                 d_iso, d_a_in, d_a_ex,
+                 tortuosity, odi,
                  theta=0., phi=0., s0=1.):
     """
     Simulates diffusion signal with Watson dispressed NODDI model
@@ -341,10 +336,10 @@ def watson_noddi(bval=0, bvec=np.array([0, 0, 1]),
     return (a_iso + a_int + a_ext) * s0
 
 
-def bingham_noddi(bval=0, bvec=np.array([0, 0, 1]),
-                  s_iso=0.5, s_in=0.5, s_ex=.5,
-                  d_iso=1., d_a_in=1., d_a_ex=1., tortuosity=0.5,
-                  odi=1, odi_ratio=1, psi=0, theta=0., phi=0., s0=1.):
+def bingham_noddi(bval, bvec,
+                  s_iso, s_in, s_ex,
+                  d_iso, d_a_in, d_a_ex, tortuosity,
+                  odi, odi_ratio, psi=0, theta=0., phi=0., s0=1.):
     """
     Simulates diffusion signal with Bingham dispressed NODDI model
 
@@ -377,7 +372,7 @@ def bingham_noddi(bval=0, bvec=np.array([0, 0, 1]),
     return (a_iso + a_int + a_ext) * s0
 
 
-def watson_noddi_constrained(bval, bvec, s_iso, s_in, s_ex, odi, theta=0., phi=0., psi=0., s0=1.):
+def watson_noddi_constrained(bval, bvec, s_iso, s_in, s_ex, odi, theta=0., phi=0., s0=1.):
     # fixed parameters:
     d_iso = 3
     dax_int = 1.7
@@ -407,10 +402,10 @@ def bingham_noddi_constrained(bval, bvec, s_iso, s_in, s_ex, odi, odi_ratio, the
     return signal
 
 
-def watson_noddi_diffusivities(bval=0, bvec=np.array([0, 0, 1]),
-                 d_iso=1., d_a_in=1., d_a_ex=1.,
-                 tortuosity=.5, odi=.5,
-                 theta=0., phi=0., s0=1.):
+def watson_noddi_diffusivities(bval, bvec,
+                               d_iso, d_a_in, d_a_ex,
+                               tortuosity, odi,
+                               theta=0., phi=0., s0=1.):
     """
     Simulates diffusion signal with Watson dispressed NODDI model
 
@@ -690,6 +685,7 @@ def bench_shm_decorator(model, acq, shm_degree):
     :return:
      rotationally invariant measures = f(microstructural params)
     """
+
     def func(noise_level, **params):
         sig = simulate_signal(model, acq, params)
         noise = np.random.randn(*sig.shape) * noise_level
