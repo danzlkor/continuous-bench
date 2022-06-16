@@ -7,25 +7,26 @@ import warnings
 
 import numpy as np
 from dipy.reconst.shm import real_sym_sh_basis
-from bench import acquisition, image_io
-import os
+from bench import acquisition
 
 Default_LOG_L = True  # default flag to log transform l measures or not.
 
 
-def summary_names(acq, summarytype='shm', shm_degree=2, cg=False):
+def summary_names(bvals, b0_threshold=0.05, summarytype='shm', shm_degree=None, cg=False):
+    idx_shells, shells = acquisition.ShellParameters.create_shells(bval=bvals, b0_thresh=b0_threshold)
     if summarytype == 'shm':
         names = []
-        for sh in acq.shells:
+        for sh in shells:
             names.append(f"b{sh.bval:1.1f}_mean")
-            if sh.bval >= acq.b0_threshold:
+            if sh.bval >= b0_threshold:
                 for degree in np.arange(2, shm_degree + 1, 2):
                     names.append(f"b{sh.bval:1.1f}_l{degree}")
                 if cg:
                     names.append(f"b{sh.bval:1.1f}_l2_cg")
+
     elif summarytype == 'dti':
         names = []
-        for sh in acq.shells:
+        for sh in shells:
             names.append(f"b{sh.bval:1.1f}_md")
             names.append(f"b{sh.bval:1.1f}_fa")
 
@@ -39,11 +40,12 @@ def normalised_shms(bvecs, lmax):
     return y, l
 
 
-def fit_shm(signal, acq, shm_degree, log_l=Default_LOG_L):
+def fit_shm(signal, bval, bvec, shm_degree, log_l=Default_LOG_L):
     """
     Cumputes summary measurements from spherical harmonics fit.
     :param signal: diffusion signal
-    :param acq: acquistion protocol
+    :param bval: bvalues
+    :param bvec: gradient directions
     :param shm_degree: maximum degree for summary measurements
     :param log_l: flag for taking the logarithm of l measures or not
     :return: summary measurements
@@ -51,6 +53,7 @@ def fit_shm(signal, acq, shm_degree, log_l=Default_LOG_L):
     if signal.ndim == 1:
         signal = signal[np.newaxis, :]
 
+    acq = acquisition.Acquisition.from_bval_bvec(bvals=bval, bvecs=bvec)
     sum_meas = list()
     for shell_idx, this_shell in enumerate(acq.shells):
         dir_idx = acq.idx_shells == shell_idx

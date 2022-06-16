@@ -5,6 +5,7 @@ Summary metrics based on diffusion tensor fit
 import numpy as np
 import torch
 from scipy.linalg import block_diag
+from bench import acquisition
 
 
 def summary_names(acq):
@@ -17,11 +18,12 @@ def summary_names(acq):
     return names
 
 
-def fit_dtm(signal, acq):
+def fit_dtm(signal, bval, bvec):
     if signal.ndim == 1:
         signal = signal[np.newaxis, :]
 
     sum_meas = list()
+    acq = acquisition.Acquisition.from_bval_bvec(bval, bvec)
     for shell_idx, this_shell in enumerate(acq.shells):
         dir_idx = acq.idx_shells == shell_idx
         bvecs = acq.bvecs[dir_idx]

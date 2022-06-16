@@ -634,63 +634,28 @@ def hyp_sapprox(x, res):
         res[0] = c1
 
 
-def simulate_signal(model, acq, model_params):
-    """
-    simulates diffusion MRI signals for test from the specified model
-
-    :param model: function object from diffusion models
-    :param acq: Acquisition object containing acquisition parameters
-    :param model_params: dictionary of model parameter with shape S
-    :return: diffusion signal (S..., ndirs)
-    """
-    bvals = np.array([s.bval for s in acq.shells])
-    return model(bval=bvals[acq.idx_shells], bvec=acq.bvecs, s0=1, **model_params)
-
-
-def bench_decorator(model, summary_type='shm'):
+def bench_decorator(model, bval, bvec, noise_level, summary_type='shm', shm_degree=2):
     """
     Decorates a diffusion model with a summary measure type. The return function can
-    be used for training models of change in bench. it still requires acq, (shm degree), noise
+    be used like sm = f(micro params).
     :param model: a diffusion model (function)
     :param summary_type: either 'shm' or 'dti'
     :return:
+        function f that maps micro structural parameters to summary measurements.
     """
     if summary_type == 'shm':
-        def func(acq, shm_degree, noise_level, **params):
-            sig = simulate_signal(model, acq, params)
+        def func(noise_level=noise_level, **params):
+            sig = model(bval, bvec, **params)
             noise = np.random.randn(*sig.shape) * noise_level
-            sm = summary_measures.fit_shm(sig + noise, acq, shm_degree=shm_degree)
+            sm = summary_measures.fit_shm(sig + noise, bval, bvec, shm_degree=shm_degree)
             return sm
 
     elif summary_type == 'dtm':
-        def func(acq, noise_level, **params):
-            sig = simulate_signal(model, acq, params)
+        def func(noise_level=noise_level, **params):
+            sig = model(bval, bvec, **params)
             noise = np.random.randn(*sig.shape) * noise_level
-            sm = dti.fit_dtm(sig + noise, acq)
+            sm = dti.fit_dtm(sig + noise, bval, bvec)
             return sm
-
-    func.__name__ = model.__name__
-    return func
-
-
-def bench_shm_decorator(model, acq, shm_degree):
-    """
-    Decorates a diffusion model with a summary measure type.
-    The return function directly maps microstructural parameters to the summary measurements.
-
-    :param model: a diffusion model (function)
-    :param acq: acquisition protocol
-    :param shm_degree: degree to comupte rotatinally invariant measurements
-    :param noise_level: noise level (additive gaussian to the signal)
-    :return:
-     rotationally invariant measures = f(microstructural params)
-    """
-
-    def func(noise_level, **params):
-        sig = simulate_signal(model, acq, params)
-        noise = np.random.randn(*sig.shape) * noise_level
-        sm = summary_measures.fit_shm(sig + noise, acq, shm_degree=shm_degree)
-        return sm
 
     func.__name__ = model.__name__
     return func

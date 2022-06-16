@@ -1,10 +1,8 @@
 joblib
 dipy
 numba
-nibabel
 scipy
-numpy~=1.21.5
-progressbar
+numpy
 torch
 # dataclasses~=0.7
 sklearn
@@ -12,4 +10,6 @@ scikit-learn
 setuptools
 pytest
 bench
-fslpy
+tqdm
+matplotlib
+seaborn

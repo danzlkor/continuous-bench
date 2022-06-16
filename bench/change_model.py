@@ -3,26 +3,20 @@
 """
 This module contains classes and functions to train a change model and make inference on new data.
 """
-
+import sys
 import inspect
 import os
 import pickle
 import warnings
 from dataclasses import dataclass
 import numpy as np
-from joblib import Parallel, delayed
-from scipy.integrate import quad
-from scipy.optimize import minimize_scalar, root_scalar
-from scipy.spatial import KDTree
-from scipy.cluster.vq import whiten
-from scipy.stats import rv_continuous, lognorm, gaussian_kde
-from sklearn import linear_model
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import PolynomialFeatures
+from joblib import Parallel, delayed, cpu_count
+import scipy
+import sklearn
 from typing import Callable, List, Any, Union, Sequence, Mapping
-from scipy import optimize
 import numba
 from bench import summary_measures
+import tqdm
 
 BOUNDS = {'negative': (-np.inf, 0), 'positive': (0, np.inf), 'twosided': (-np.inf, np.inf)}
 INTEGRAL_LIMITS = list(BOUNDS.keys())
@@ -52,17 +46,16 @@ class MLChangeVector:
         if self.name is None:
             self.name = dict_to_string(self.vec)
 
-        self.mu_feature_extractor = PolynomialFeatures(degree=self.mu_poly_degree)
-        self.sigma_feature_extractor = PolynomialFeatures(degree=self.sigma_poly_degree)
+        self.mu_feature_extractor = sklearn.preprocessing.PolynomialFeatures(degree=self.mu_poly_degree)
+        self.sigma_feature_extractor = sklearn.preprocessing.PolynomialFeatures(degree=self.sigma_poly_degree)
         if self.mu_weight is not None:
             tril_idx = np.tril_indices(self.mu_weight.shape[-1])
             self.diag_idx = np.argwhere(tril_idx[0] == tril_idx[1])
 
-    def distribution(self, y, lam=1e-12):
+    def distribution(self, y):
         """
         estimate mu and sigma from y using the trained regression models.
         :param y: normalized baseline measurements
-        :param lam: regularization factor in case the regressed inverse matrix is singular.
         :return: mu and sigma
         """
         y = np.atleast_2d(y)
@@ -70,11 +63,7 @@ class MLChangeVector:
         yf_sigma = self.sigma_feature_extractor.fit_transform(y - self.mean_y)
         mu, sigma_inv, _ = regression_model(yf_mu, yf_sigma, self.mu_weight, self.sig_weight, self.diag_idx)
         sigma = np.linalg.inv(sigma_inv)
-        # if np.linalg.cond(sigma_inv) < 1 / np.sys.float_info.epsilon:
-        #     sigma = np.linalg.inv(sigma_inv)
-        # else:
-        #     sigma = np.linalg.inv(sigma_inv + lam * np.eye(sigma_inv.shape[-1]))
-        #     warnings.warn('estimated inverse matrix is singular.')
+
         return mu, sigma
 
     def log_lh(self, dv, y, dy, sigma_n, no_sigmap=False):
@@ -104,7 +93,7 @@ class MLChangeVector:
         elif self.lim == 'twosided':
             dv = np.abs(dv)
 
-        p = lognorm(s=np.log(10), scale=self.scale).logpdf(x=dv)  # norm(scale=scale, loc=0).pdf(x=dv)  #
+        p = scipy.stats.lognorm(s=np.log(10), scale=self.scale).logpdf(x=dv)  # norm(scale=scale, loc=0).pdf(x=dv)  #
 
         if self.lim == 'twosided':
             p -= np.log(2)
@@ -125,6 +114,7 @@ class MLChangeVector:
 
 @dataclass
 class NoChangeModel:
+    """ no change class. """
     name: str = 'No change'
     prior: float = 1.0
     scale: float = 1.0
@@ -160,15 +150,15 @@ class ChangeModel:
     baseline_kde: Any  # scipy or sklearn kde class.
     forward_model: str = 'unnamed'
 
-    @property
-    def model_names(self, ):
-        return [m.name.replace('_twosided', '') for m in self.models]
-
     def __post_init__(self):
         null_model = NoChangeModel(prior=1,
                                    name='[]')
 
         self.models.insert(0, null_model)
+
+    @property
+    def model_names(self, ):
+        return [m.name.replace('_twosided', '') for m in self.models]
 
     def save(self, file_name=None, path=''):
         """
@@ -194,7 +184,7 @@ class ChangeModel:
         assert d == len(self.summary_names)
         n_models = len(self.models)
         if 'b0.0_mean' in self.summary_names:  # check if its a diffusion data
-            data_norm = summary_measures.normalize_summaries(data, self.summary_names)
+            data_norm = summary_measures.normalise_summaries(data, self.summary_names)
         else:
             data_norm = data
 
@@ -227,7 +217,7 @@ class ChangeModel:
         :param delta_data: numpy array (..., n_dim) containing the change between groups.
         :param sigma_n: numpy array or list (..., n_dim, n_dim)
         :param integral_bound: the bound to integrate over delta v.
-        :param parallel: flag to run infrence in parallel
+        :param parallel: flag to run inference in parallel across samples. put false for debugging.
         :return:
             - (n_sample, n_changevecs) posterior probabilities for each voxel (..., n_vecs)
             - (n_samples, ) inferred change
@@ -308,7 +298,7 @@ class ChangeModel:
                                 neg_int = 0
                                 neg_expected = 0
                             else:
-                                neg_int = quad(post_pdf, lower, upper, points=[neg_peak], epsrel=1e-3)[0]
+                                neg_int = scipy.integrate.quad(post_pdf, lower, upper, points=[neg_peak], epsrel=1e-3)[0]
                                 neg_expected = estimate_mode(post_pdf, [lower, upper])
 
                         if ch_mdl.lim == 'negative':
@@ -319,7 +309,7 @@ class ChangeModel:
                                 pos_int = 0
                                 pos_expected = 0
                             else:
-                                pos_int = quad(post_pdf, lower, upper, points=[pos_peak], epsrel=1e-3)[0]
+                                pos_int = scipy.integrate.quad(post_pdf, lower, upper, points=[pos_peak], epsrel=1e-3)[0]
                                 pos_expected = estimate_mode(post_pdf, [lower, upper])
 
                         integral = pos_int + neg_int
@@ -344,16 +334,7 @@ class ChangeModel:
                 print(sam_idx, np.argwhere(np.isnan(log_prob)))
             return log_prob, amount
 
-        if parallel:
-            res = Parallel(n_jobs=-1, verbose=True)(delayed(func)(i) for i in range(n_samples))
-        else:
-            res = []
-            for i in range(n_samples):
-                res.append(func(i))
-
-        log_probs = np.array([d[0] for d in res])
-        amounts = np.array([d[1] for d in res])
-
+        log_probs, amounts = run_parallel(func, n_samples, debug=not parallel, prefer='threads')
         return log_probs, amounts
 
     def estimate_confusion_matrix(self, data, sigma_n, effect_size, n_samples=1000):
@@ -398,7 +379,7 @@ class ChangeModel:
 
         return dv, offset, deviation
 
-    def test_model(self,n_samples):
+    def test_model(self, n_samples):
         """
         generates test data and computes the confusion matrix.
         :param n_samples:
@@ -413,12 +394,6 @@ class ChangeModel:
                 return mdl
         else:
             raise SystemExit('model file not found')
-
-
-def make_pipeline(degree: int, alpha: float) -> Pipeline:
-    steps = [('features', PolynomialFeatures(degree=degree)),
-             ('reg', linear_model.Ridge(alpha=alpha, fit_intercept=True))]
-    return Pipeline(steps=steps)
 
 
 def string_to_dict(str_):
@@ -498,14 +473,14 @@ class Trainer:
         change_vecs: list of change vectors.
     """
     forward_model: Callable
-    """ The forward model, it must be function of the form f(args, **params) that returns a numpy array. """
-    param_prior_dists: Mapping[str, rv_continuous]
+    """ The forward model  must be function of the form f(args, **params) that returns a numpy array."""
+    param_prior_dists: Mapping[str, scipy.stats.rv_continuous]
     kwargs: Mapping[str, Any] = None
     change_vecs: List[Mapping] = None
     lims: List = None
     summary_names: List[str] = None
-
-    priors: Union[float, Sequence] = 1  # model priors (different from param/change priors)
+    amount_priors: Union[float, Sequence] = 1  # model priors (different from param/change priors)
+    training_done = False
 
     def __post_init__(self):
 
@@ -528,19 +503,18 @@ class Trainer:
         self.vec_names = [dict_to_string(s) for s in self.change_vecs]
         self.n_vecs = len(self.change_vecs)
 
-
         for idx in range(self.n_vecs):
             for pname in self.change_vecs[idx].keys():
                 if pname not in self.param_names:
-                    raise KeyError(f"parameter {pname} is not defined as a free parameters of the forward model."
+                    raise KeyError(f"parameter {pname} is not defined in the forward model."
                                    f"The parameters are {self.param_names}")
             # normalize change vectors to have a unit L2 norm:
             # scale = np.linalg.norm(list(self.change_vecs[idx].values()))
             # self.change_vecs[idx] = {k: v / scale for k, v in self.change_vecs[idx].items()}
 
-        if np.isscalar(self.priors):
-            self.priors = [self.priors] * self.n_vecs
-        elif len(self.priors) != self.n_vecs:
+        if np.isscalar(self.amount_priors):
+            self.amount_priors = [self.amount_priors] * self.n_vecs
+        elif len(self.amount_priors) != self.n_vecs:
             raise ("priors must be either a scalar (same for all change models) "
                    "or a sequence with size of number of change models.")
 
@@ -594,20 +568,21 @@ class Trainer:
         else:
             y = y_1
 
-        kde = gaussian_kde(y.T)
+        kde = scipy.stats.gaussian_kde(y.T)
         mean_y = y.mean(axis=0, keepdims=True)
 
-        yf_mu = PolynomialFeatures(degree=mu_poly_degree).fit_transform(y - mean_y)
-        yf_sigma = PolynomialFeatures(degree=sigma_poly_degree).fit_transform(y - mean_y)
+        yf_mu = sklearn.preprocessing.PolynomialFeatures(degree=mu_poly_degree).fit_transform(y - mean_y)
+        yf_sigma = sklearn.preprocessing.PolynomialFeatures(degree=sigma_poly_degree).fit_transform(y - mean_y)
         n_mu_features = yf_mu.shape[-1]
 
-        print('Training models of change, this may take up to a few hours ...')
+        print(f'Training models of change for {self.vec_names}. '
+              f'This may take up to a few hours depending on the number of samples and change vectors.')
 
         def func(idx):
-            mu_weights = optimize.minimize(neg_log_likelihood,
-                                           x0=np.zeros(self.n_dim * n_mu_features),
-                                           method=None,
-                                           args=(dy[idx], yf_mu, yf_sigma, None, self.diag_idx, 'mu', alpha))
+            mu_weights = scipy.optimize.minimize(neg_log_likelihood,
+                                  x0=np.zeros(self.n_dim * n_mu_features),
+                                  method=None,
+                                  args=(dy[idx], yf_mu, yf_sigma, None, self.diag_idx, 'mu', alpha))
             if verbose:
                 print(f' mu optimization for {self.vec_names[idx]}: {mu_weights.message}\n '
                       f'function value:{mu_weights.fun}, {mu_weights.nit}')
@@ -615,21 +590,18 @@ class Trainer:
                 print(f'optimized mu weights for {self.vec_names[idx]}')
 
             x0 = np.zeros((self.n_dim * (self.n_dim + 1) // 2) * yf_sigma.shape[-1])
-            sigma_weights = optimize.minimize(neg_log_likelihood, method='BFGS',
-                                              x0=x0,
-                                              args=(
-                                                  dy[idx], yf_mu, yf_sigma, mu_weights.x, self.diag_idx, 'sigma',
-                                                  alpha))
+            sigma_weights = scipy.optimize.minimize(neg_log_likelihood, method='BFGS', x0=x0,
+                            args=(dy[idx], yf_mu, yf_sigma, mu_weights.x, self.diag_idx, 'sigma', alpha))
             if verbose:
                 print(f' sigma optimization for {self.vec_names[idx]}: {sigma_weights.message}\n '
                       f'function value:{sigma_weights.fun}, {sigma_weights.nit}')
             else:
                 print(f'optimized sigma weights for {self.vec_names[idx]}')
 
-            all_weights = optimize.minimize(neg_log_likelihood,
-                                            method='BFGS',
-                                            x0=np.concatenate([mu_weights.x, sigma_weights.x]),
-                                            args=(dy[idx], yf_mu, yf_sigma, None, self.diag_idx, 'both', alpha))
+            all_weights = scipy.optimize.minimize(neg_log_likelihood,
+                                   method='BFGS',
+                                   x0=np.concatenate([mu_weights.x, sigma_weights.x]),
+                                   args=(dy[idx], yf_mu, yf_sigma, None, self.diag_idx, 'both', alpha))
             if verbose:
                 print(f' mu+sigma optimization for {self.vec_names[idx]}: {all_weights.message}\n '
                       f'function value:{all_weights.fun}, {all_weights.nit}')
@@ -649,7 +621,7 @@ class Trainer:
                                    mean_y=mean_y,
                                    mu_poly_degree=mu_poly_degree,
                                    sigma_poly_degree=sigma_poly_degree,
-                                   prior=self.priors[idx],
+                                   prior=self.amount_priors[idx],
                                    lim=l,
                                    name=str(self.vec_names[idx]) + '_' + l)
                 )
@@ -657,40 +629,35 @@ class Trainer:
                     print(f'Trained models for {models[-1].name}.')
             return models
 
-        if parallel:
-            models = Parallel(n_jobs=-1, verbose=True)(delayed(func)(i) for i in range(len(self.change_vecs)))
-            models = [m for a in models for m in a]
-        else:
-            models = []
-            for i in range(len(self.change_vecs)):
-                models.extend(func(i))
+        models = run_parallel(func, len(self.change_vecs), debug=not parallel, prefer='threads')
+        if len(models) == 1 and isinstance(models[0], (list, tuple)):
+            models = models[0]
 
         self.training_done = True
         return ChangeModel(models=models, summary_names=self.summary_names,
                            baseline_kde=kde, forward_model=self.forward_model.__name__)
 
-    # Todo: refactor the
-    def generate_train_samples(self, n_samples: int, dv0: float = 1e-6, all_params=None) -> tuple:
+    def generate_train_samples(self, n_samples: int, dv0: float = 1e-6, base_params=None) -> tuple:
         """
         generate samples to estimate derivatives.
         :param n_samples: number of samples
         :param dv0: the amount of change
         :return: M(V) , M(V+\Delta V).
         """
-        if all_params is None:
-            all_params = sample_params(self.param_prior_dists, n_samples=n_samples)
+        if base_params is None:
+            base_params = sample_params(self.param_prior_dists, n_samples=n_samples)
 
         for vec in self.change_vecs:
-            for (k, v) in all_params.items():
+            for (k, v) in base_params.items():
                 params_2 = v + vec.get(k, 0) * dv0
                 if k in self.param_prior_dists and hasattr(self.param_prior_dists[k], 'pdf'):
                     invalid = self.param_prior_dists[k].pdf(params_2) == 0
-                    all_params[k][invalid] -= vec.get(k, 0) * dv0
+                    base_params[k][invalid] -= vec.get(k, 0) * dv0
 
-        y1 = self.forward_model(**self.kwargs, **all_params)
+        y1 = self.forward_model(**self.kwargs, **base_params)
         y2 = []
         for vec in self.change_vecs:
-            params_2 = {k: v + vec.get(k, 0) * dv0 for k, v in all_params.items()}
+            params_2 = {k: v + vec.get(k, 0) * dv0 for k, v in base_params.items()}
             y2.append(self.forward_model(**self.kwargs, **params_2))
         y2 = np.stack(y2, 0)
 
@@ -699,6 +666,7 @@ class Trainer:
         y2 = y2[:, ~nans, :]
         if np.sum(nans) > 0:
             warnings.warn(f'{np.sum(nans)} nan samples were generated during training.')
+
         return y1, y2
 
     def generate_test_samples(self, n_samples=1000, effect_size=0.1, noise_level=0.0, n_repeats=1,
@@ -725,7 +693,7 @@ class Trainer:
         """
 
         models = []
-        for vec, name, prior, lims in zip(self.change_vecs, self.vec_names, self.priors, self.lims):
+        for vec, name, prior, lims in zip(self.change_vecs, self.vec_names, self.amount_priors, self.lims):
             for l in lims:
                 models.append(MLChangeVector(vec=vec, prior=prior, lim=l, mu_weight=None, sig_weight=None,
                                              mean_y=None, mu_poly_degree=None, sigma_poly_degree=None,
@@ -772,10 +740,11 @@ class Trainer:
 
                     valid = np.all([self.param_prior_dists[k].pdf(params_2[k]) > 0
                                     if k in self.param_prior_dists and hasattr(self.param_prior_dists[k], 'pdf')
-                                    else 0<=params_2[k]<=1 for k in params_2.keys()])
+                                    else 0 <= params_2[k] <= 1 for k in params_2.keys()])
 
                     if not valid and base_params is not None:
-                        raise ValueError("...")
+                        raise ValueError("Cant simulate a change with the baseline "
+                                         "parameters and the specified type/amount of change.")
 
             if has_noise_model:
                 y_1_r = np.zeros((n_repeats, self.n_dim))
@@ -792,22 +761,9 @@ class Trainer:
                 sigma_n = None
 
             return y_1, y_2, sigma_n
+        y_1, y_2, sigma_n = run_parallel(generator_func, n_samples, debug=not parallel)
 
-        if parallel:
-            res = Parallel(n_jobs=-1, verbose=True)(delayed(generator_func)(i) for i in range(n_samples))
-        else:
-            res = []
-            for i in range(n_samples):
-                res.append(generator_func(i))
-
-        y_1 = np.squeeze(np.stack([d[0] for d in res], 0))
-        y_2 = np.squeeze(np.stack([d[1] for d in res], 0))
-        if has_noise_model:
-            sigma_n = np.stack([d[2] for d in res], 0)
-        else:
-            sigma_n = np.eye(self.n_dim)[None, :, :] * noise_level ** 2
-
-        return true_change, y_1, y_2, sigma_n
+        return true_change, np.squeeze(y_1), np.squeeze(y_2), np.squeeze(sigma_n)
 
 
 # helper functions:
@@ -831,8 +787,8 @@ def knn_estimation(y, dy, k=100, lam=1e-12):
     idx = np.tril_indices(dim)
     diag_idx = np.argwhere(idx[0] == idx[1])
 
-    y_whitened = whiten(y)
-    tree = KDTree(y_whitened)
+    y_whitened = scipy.cluster.vq.whiten(y)
+    tree = scipy.spatial.KDTree(y_whitened)
     dists, neigbs = tree.query(y_whitened, k)
     weights = 1 / (dists + 1)
     print('KNN approximation of sample means and covariances:')
@@ -863,7 +819,6 @@ def l_to_sigma(l_vec, diag_idx):
 
     t = l_vec.shape[-1]
     dim = int((np.sqrt(8 * t + 1) - 1) / 2)  # t = dim*(dim+1)/2
-
 
     sigma = np.zeros((l_vec.shape[0], dim, dim))
     _mat_lower_diagonal(l_vec, sigma)
@@ -944,20 +899,20 @@ def find_range(f: Callable, bounds, scale=1e-3):
     # this warning caused by minimize scalar + numpy interaction.
     # filtered it because it clutters all other warnings
     warnings.filterwarnings("ignore", category=np.VisibleDeprecationWarning)
-    peak = minimize_scalar(neg_f, bounds=bounds, method='bounded').x
+    peak = scipy.optimize.minimize_scalar(neg_f, bounds=bounds, method='bounded').x
 
     f_norm = lambda dv: f(dv) - (f(peak) + np.log(scale))
     lower, upper = bounds
     if f_norm(lower) < 0:  # to check the function is not flat.
         try:
-            lower = root_scalar(f_norm, bracket=[lower, peak], method='brentq').root
+            lower = scipy.optimize.root_scalar(f_norm, bracket=[lower, peak], method='brentq').root
         except Exception as e:
             print(f"Error of type {e.__class__} occurred while finding the lower limit of integral."
                   f"The lower bound is used instead")
 
     if f_norm(upper) < 0:
         try:
-            upper = root_scalar(f_norm, bracket=[peak, upper], method='brentq').root
+            upper = scipy.optimize.root_scalar(f_norm, bracket=[peak, upper], method='brentq').root
         except Exception as e:
             print(f"Error of type {e.__class__} occurred, while finding higher limit of integral."
                   f"The upper bound is used instead")
@@ -974,7 +929,7 @@ def estimate_mean(pdf: Callable, bounds):
     """
     np.seterr(invalid='raise')
     xpx = lambda dv: pdf(dv) * dv
-    expected = quad(xpx, bounds[0], bounds[1], epsrel=1e-3)[0]
+    expected = scipy.integrate.quad(xpx, bounds[0], bounds[1], epsrel=1e-3)[0]
     return expected
 
 
@@ -986,7 +941,7 @@ def estimate_mode(pdf: Callable, bounds):
     :return:
     """
     px = lambda dv: -pdf(dv)
-    expected = minimize_scalar(px, bounds=bounds, method='bounded').x
+    expected = scipy.optimize.minimize_scalar(px, bounds=bounds, method='bounded').x
     return expected
 
 
@@ -1037,14 +992,14 @@ def performance_measures(posteriors, true_change, set_names):
     return accuracy, true_posteriors
 
 
-def neg_log_likelihood(weights, dy, yf_mu, yf_sigma, w_mu, diag_idx, opt_param='mu', alpha=0.1):
+def neg_log_likelihood(weights, dy, yf_mu, yf_sigma, w_mu,
+                       diag_idx, opt_param='mu', alpha=0.1):
     """
      Computes the negative log-liklihood for a set of weights given y and dy
     :param weights: vectorized weights (d * n_features), if fixed sigma is False + d(d+1)/2 * n_features
-    :param yf: features extracted from summary measurements (n, n_features)
+    :param yf_mu: features extracted from summary measurements (n, n_features)
     :param dy: derivatives (n, d)
     :param alpha: regularization weight
-    :param fixed_sigma: flag for fixing sigma
     :return: -log(P(dy | yf, weights)) + alpha * |weights|^2
     """
     n_samples, n_dim = dy.shape
@@ -1075,7 +1030,6 @@ def neg_log_likelihood(weights, dy, yf_mu, yf_sigma, w_mu, diag_idx, opt_param='
         nll = np.mean(-ldet +
                       np.einsum('ij,ijk,ik->i', offset, sigma_inv, offset)) + \
               alpha * (np.mean(w_mu[1:, :] ** 2) + np.mean(w_sigma[1:, :] ** 2))
-
 
     return nll
 
@@ -1148,4 +1102,46 @@ def estimate_observation_likelihood(forward_model, kwargs, param_priors, n_sampl
     """
     all_params = sample_params(param_priors, n_samples=n_samples)
     y1 = forward_model(kwargs, **all_params)
-    return gaussian_kde(y1)
+    return scipy.stats.gaussian_kde(y1)
+
+
+def run_parallel(func, n_iters, debug=False, print_progress=True, prefer=None):
+    """
+    runs a for loop in parallel.
+    Args:
+        func: callable function o = f(i)
+        n_iters: number of iterations
+        debug: set false to run normally (good for debugging)
+        print_progress: prints the progress bar to output
+        prefer: backend type. Any of {‘processes’, ‘threads’} or None
+    """
+    if debug is False:
+        iters = range(n_iters)
+        n_jobs = -1
+        if prefer == 'processes':
+            n_jobs = os.environ.get('{NSLOTS:-1}', default=cpu_count())
+            n_jobs = np.minimum(n_jobs, n_iters)
+            print(f'running jobs with {n_jobs} processes.')
+
+        if print_progress is True:
+            iters = tqdm.tqdm(iters, file=sys.stdout)
+
+        res = Parallel(n_jobs=n_jobs, prefer=prefer)(delayed(func)(i) for i in iters)
+    else:
+        res = []
+        for i in range(n_iters):
+            res.append(func(i))
+
+    if isinstance(res[0], (np.ndarray, int, float)):  # if output is a number return np.array
+        return np.stack(res, axis=0)
+
+    elif hasattr(res[0], '__len__'): # if output is multiple numbers return arrays for each if possible
+        out = []
+        for i in range(len(res[0])):
+            r = [r[i] for r in res]
+            if isinstance(res[0][i], (np.ndarray, int, float)):
+                r = np.stack(r, axis=0)
+            out.append(r)
+        return out
+    else:
+        return res

@@ -9,8 +9,6 @@ from dataclasses import dataclass, fields
 import numpy as np
 from typing import List, Optional, Sequence
 
-b0_thresh = 0.1
-
 
 @dataclass
 class ShellParameters:
@@ -78,10 +76,11 @@ class ShellParameters:
         return cls.create_shells(**to_shell)
 
     @classmethod
-    def create_shells(cls, **parameters):
+    def create_shells(cls, b0_thresh, **parameters):
         """
         Creates multiple shells from a sequence of parameters
 
+        :param b0_thresh: threshold to define a new shell from b0
         :param parameters: floats or sequence with values of the acquisition parameters for every volume
         :return: Tuple with:
 
@@ -185,10 +184,10 @@ class Acquisition:
     bvals: np.array
     bvecs: np.ndarray
     name: str
-    b0_threshold: float = b0_thresh
+    b0_threshold: float = 0.1
 
     @classmethod
-    def load(cls, name, acq_path, b0_threshold=b0_thresh):
+    def load(cls, name, acq_path, b0_threshold):
         """
         reads acquisition protocol parameters from bval and bvec text files
         :param name: name of acq protocol
@@ -212,19 +211,31 @@ class Acquisition:
         return cls(shells, idx_shells, bvals, bvecs, name, b0_threshold)
 
     @classmethod
-    def from_bval_bvec(cls, bval_path, bvec_path, b0_threshold=b0_thresh):
-        bvecs = read_bvecs(bvec_path)
-        bvals = read_bvals(bval_path)
-        idx_shells, shells = ShellParameters.create_shells(bval=bvals)
+    def from_bval_bvec(cls, bvals, bvecs, b0_threshold=0.1):
+        """
+
+        :param bvals: path to file or numpy array
+        :param bvecs: path to file or numpy array
+        :param b0_threshold: threshold for b0, scalar
+        :return:
+            Acquisition class
+        """
+        if bvecs is str:
+            bvecs = read_bvecs(bvecs)
+        if bvals is str:
+            bvals = read_bvals(bvals)
+
+        idx_shells, shells = ShellParameters.create_shells(b0_thresh=b0_threshold, bval=bvals)
         return cls(shells, idx_shells, bvals, bvecs, ' ', b0_threshold)
 
     @classmethod
-    def generate(cls, n_b0=10, n_dir=64, b=(1, 2, 3)):
+    def generate(cls, n_b0=10, n_dir=64, b=(1, 2, 3), b0_thresh=0.1):
         """
         Generates diffusion protocol.
         :param n_b0: number of b0 images
         :param n_dir: number of directions per shell
         :param b: bvalues for each shell (tuple)
+        :param b0_thresh:
         :return: acquisition class.
         """
         bvals = np.zeros(n_b0)
@@ -233,11 +244,11 @@ class Acquisition:
         for b_ in b:
             bvals = np.concatenate([bvals, np.ones(n_dir) * b_])
             bvecs = np.concatenate([bvecs, fibonacci_sphere(n_dir)])
-        idx_shells, shells = ShellParameters.create_shells(bval=bvals)
-        return cls(shells, idx_shells, bvals, bvecs, ' ', b0_thresh)
+        idx_shells, shells = ShellParameters.create_shells(b0_thresh, bval=bvals)
+        return cls(shells, idx_shells, bvals, bvecs, 'generated', b0_thresh)
 
 
-def read_bvals(fname, b0thresh=b0_thresh, maxb=100, scale=1000):
+def read_bvals(fname, b0thresh=0.1, maxb=100, scale=1000):
     bvals = np.genfromtxt(fname)
     if bvals.max() > maxb:
         bvals /= scale

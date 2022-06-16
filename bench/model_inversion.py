@@ -14,7 +14,7 @@ from joblib import delayed, Parallel
 from scipy import optimize
 from typing import Callable
 
-from bench import diffusion_models as dm, summary_measures, user_interface, acquisition, change_model
+from bench import diffusion_models as dm, summary_measures, acquisition, change_model, image_io
 
 
 def log_prior(params, priors):
@@ -142,7 +142,7 @@ def fit_model_sig(diffusion_sig, noise_level, forward_model_name, bvals, bvecs, 
         priors = dm.prior_distributions[forward_model_name]
 
         def func(params):
-            return dm.simulate_signal(funcdict[forward_model_name], acq, params)
+            return funcdict[forward_model_name](acq.bvals, acq.bvecs, **params)
 
     else:
         raise ValueError('Forward model is not available in the library.')
@@ -242,7 +242,7 @@ def pipeline(argv=None):
         # zvals = delta / np.sqrt(np.diagonal(sigma, axis1=1, axis2=2))
         for d, p in zip(p_values, param_names):
             fname = f'{args.output}/zmaps/{p}'
-            user_interface.write_nifti(d, args.mask, fname=fname , invalids=invalids)
+            image_io.write_nifti(d, args.mask, fname=fname , invalids=invalids)
         print(f'Analysis completed sucessfully, the z-maps are stored at {args.output}')
 
 
@@ -271,7 +271,7 @@ def single_sub_fit(subj_idx, diff_add, xfm_add, bvec_add, bval_add, mask_add, md
 
     # write down [pes, vpes] to 4d files
     fname = f"{output_add}/subj_{subj_idx}.nii.gz"
-    user_interface.write_nifti(params, mask_add, fname, np.logical_not(valid_vox))
+    image_io.write_nifti(params, mask_add, fname, np.logical_not(valid_vox))
     print(f'Model fitted to subject {subj_idx} data.')
 
 
