@@ -33,11 +33,106 @@ def read_image(fname, mask):
     return data
 
 
+class NNMapping:
+    """
+    Compute the voxel-wise rotations from src to target given a mask in the target space and the transformation
+    from source to mask. This function doesnt load data, it returns functions
+    Args:
+         src: address of the source image
+         mask: address of the mask image
+         xfm: transformation (warp field) from source to mask space, None if they are in the same space
+    Return:
+        mapping object with the methods:
+            load_native:
+            load_std:
+            clean:
+            restore:
+
+    """
+
+    def __init__(self, src, mask, xfm):
+        self.mask_img, self.src_img = Image(mask), Image(src)
+        self.ref_coords = np.array(np.where(np.nan_to_num(self.mask_img.data) > 0)).T
+        self.n_vox = self.ref_coords.shape[0]
+
+        if xfm is None:
+            self.src_coords = self.ref_coords.copy()
+            self.valid_indices = np.ones(self.src_coords.shape[0])
+            self.rot_mats = np.tile(np.eye(3), (self.n_vox, 1, 1))
+        else:
+            warp_img = Image(xfm)
+            transform = fnirt.readFnirt(fname=warp_img, src=self.src_img, ref=self.mask_img, intent=2006)
+            self.src_coords = np.around(transform.transform(self.ref_coords, 'voxel', 'voxel')).astype(int)
+            self.valid_indices = np.all((self.src_coords < self.src_img.shape[:3]) & (self.src_coords > 0), axis=1)
+
+            dx, dy, dz, _ = warp_img.pixdim
+            grads = np.stack(np.gradient(warp_img.data, dx, dy, dz, axis=(0, 1, 2)), axis=-1)
+            self.rot_mats = np.zeros((self.n_vox, 3, 3)) + np.eye(3)  # set default vaules to eye(3)
+            self.rot_mats[self.valid_indices] = grads[tuple(self.ref_coords[self.valid_indices].T)]
+
+            if transform.deformationType == 'relative':
+                self.rot_mats[self.valid_indices] += np.eye(3)
+
+        self.valid_src_coords = self.src_coords[self.valid_indices]
+        self.valid_ref_coords = self.ref_coords[self.valid_indices]
+
+        self.unique_src_coords, self.valid2uniqe_idx, self.unique2valid_idx = np.unique(
+            self.valid_src_coords, axis=0, return_index=True, return_inverse=True)
+
+        self.unique_ref_coords = self.valid_ref_coords[self.valid2uniqe_idx]
+        self.unique_vox = self.unique_ref_coords.shape[0]
+
+    def load_native(self, new_img):
+        """load data from new image"""
+        img = Image(new_img)
+        data = img.data[tuple(self.unique_src_coords.T)]
+        return data
+
+    def load_std(self, new_img):
+        img = Image(new_img)
+        data = img.data[tuple(self.unique_ref_coords.T)]
+        return data
+
+    def restore(self, data):
+        """ gets full data returns cleaned version"""
+        if data.ndim == 1:
+            shape = self.n_vox
+        elif data.ndim == 2:
+            shape = (self.n_vox, data.shape[1])
+        else:
+            shape = (self.n_vox, *data.shape[1:])
+        c = np.zeros(shape)
+        c[self.valid_indices == 1] = data[self.unique2valid_idx]
+        c[self.valid_indices == 0] = np.nan
+        return c
+
+    def clean(self, data):
+        """gets short versio reproduces the full version"""
+        return data[self.valid_indices == 1][self.valid2uniqe_idx]
+
+    def write_native(self, data, fname):
+        """ writes the data to the native space
+        Args:
+            data: must have n_unique_vox rows
+        """
+        assert data.shape[0] == self.unique_vox
+        write_nifti(self.restore(data), self.src_coords, self.src_img, fname)
+
+    def write_std(self, data, fname):
+        """
+        writes fata to std space
+        Args:
+            data: must have same rows as the unique voxels.
+        """
+        assert data.shape[0] == self.unique_vox
+        write_nifti(self.restore(data), self.ref_coords, self.mask_img, fname)
+
+
 def read_summary_images(summary_dir: str, mask: str):
     """
     Reads summary measure images
     :param summary_dir: path to the summary measurements
-    :param mask: roi mask file name
+    :param mask: roi mask in the standard space
     :return: 3d numpy array containing summary measurements, inclusion mask
     """
     mask_img = np.nan_to_num(Image(mask).data)
