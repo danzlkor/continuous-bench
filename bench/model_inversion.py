@@ -119,7 +119,7 @@ def fit_model_smm(diffusion_sig, forward_model_name, bvals, bvecs, shm_degree):
 
     if forward_model_name in available_models:
         priors = dm.prior_distributions[forward_model_name]
-        func = dm.bench_decorator(funcdict[forward_model_name])
+        func, names = dm.bench_decorator(funcdict[forward_model_name])
     else:
         raise ValueError('Forward model is not available in the library.')
 

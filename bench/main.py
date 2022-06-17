@@ -155,30 +155,21 @@ def train_from_cli(args):
     param_dist = diffusion_models.prior_distributions[args.model]
 
     bvals = acquisition.read_bvals(args.bvals)
-    idx_shells, shells = acquisition.ShellParameters.create_shells(bval=bvals)
     if args.bvecs is None:
-        bvecs = np.array(diffusion_models.spherical2cart(*diffusion_models.uniform_sampling_sphere(len(idx_shells)))).T
+        bvecs = np.array(diffusion_models.spherical2cart(*diffusion_models.uniform_sampling_sphere(len(bvals)))).T
     else:
         bvecs = acquisition.read_bvecs(args.bvecs)
-
-    acq = acquisition.Acquisition(shells, idx_shells, bvals, bvecs, '', args.b0_thresh)
-    func_args = {'acq': acq, 'noise_level': 0}
-    if args.summarytype == 'shm':
-        func_args['shm_degree'] = args.d
 
     if args.change_vecs is not None:
         with open(args.change_vecs, 'r') as reader:
             args.change_vecs = [line.rstrip() for line in reader]
 
-    summary_names = summary_measures.summary_names(acq, args.summarytype, shm_degree=args.d)
-    print('The model is trained using the following summary measurements:')
-    print(summary_names)
+    func, summary_names = diffusion_models.bench_decorator(
+        model=forward_model, bval=bvals, bvec=bvecs, summary_type=args.summarytype, shm_degree=int(args.d))
+    print('The model is trained using summary measurements:', summary_names)
     trainer = change_model.Trainer(
-        forward_model=diffusion_models.bench_decorator(forward_model, summary_type=args.summarytype),
-        kwargs=func_args,
-        change_vecs=args.change_vecs,
-        summary_names=summary_names,
-        param_prior_dists=param_dist)
+        forward_model=func, kwargs={'noise_level': 0.}, change_vecs=args.change_vecs,
+        summary_names=summary_names, param_prior_dists=param_dist)
 
     ch_model = trainer.train_ml(n_samples=int(args.n),
                                 mu_poly_degree=int(args.p),
@@ -188,9 +179,9 @@ def train_from_cli(args):
                                 verbose=args.verbose)
 
     ch_model.forward_model_name = forward_model.__name__
-    ch_model.meausrement_names = summary_measures.summary_names(acq, args.summarytype, args.d)
+    ch_model.measurement_names = summary_names
     ch_model.save(path='', file_name=args.output)
-    print('All change models were trained successfully')
+    print('All change models were trained successfully.')
 
 
 def summary_from_cli(args):

@@ -98,7 +98,7 @@ prior_distributions = dict(
 
 
 # basic compartment definitions:
-def ball(bval, bvec, d_iso, s0=1):
+def ball(bval, bvec, d_iso, s0=1.):
     """
     Simulates diffusion signal for isotropic diffusion
 
@@ -339,7 +339,7 @@ def watson_noddi(bval, bvec, s_iso, s_in, s_ex,
 def bingham_noddi(bval, bvec,
                   s_iso, s_in, s_ex,
                   d_iso, d_a_in, d_a_ex, tortuosity,
-                  odi, odi_ratio, psi=0, theta=0., phi=0., s0=1.):
+                  odi, odi_ratio, psi=0., theta=0., phi=0., s0=1.):
     """
     Simulates diffusion signal with Bingham dispressed NODDI model
 
@@ -411,9 +411,6 @@ def watson_noddi_diffusivities(bval, bvec,
 
     :param bval: b-values
     :param bvec: (,3) gradient directions(x, y, z)
-    :param s_iso: signal fraction of isotropic diffusion
-    :param s_in: signal fraction of intra-axonal diffusion
-    :param s_ex: signal fraction of extra-axonal water
     :param d_iso: isotropic diffusion coefficient
     :param d_a_in: axial diffusion coefficient
     :param d_a_ex: axial diffusion coefficient for extra-axonal compartment
@@ -634,14 +631,18 @@ def hyp_sapprox(x, res):
         res[0] = c1
 
 
-def bench_decorator(model, bval, bvec, noise_level, summary_type='shm', shm_degree=2):
+def bench_decorator(model, bval, bvec, noise_level=0., summary_type='shm', shm_degree=2):
     """
     Decorates a diffusion model with a summary measure type. The return function can
     be used like sm = f(micro params).
+    :param shm_degree:
+    :param noise_level: default noise level
+    :param bvec:
+    :param bval:
     :param model: a diffusion model (function)
     :param summary_type: either 'shm' or 'dti'
     :return:
-        function f that maps micro structural parameters to summary measurements.
+        function f that maps microstructural parameters to summary measurements, name of the summary measures
     """
     if summary_type == 'shm':
         def func(noise_level=noise_level, **params):
@@ -650,6 +651,7 @@ def bench_decorator(model, bval, bvec, noise_level, summary_type='shm', shm_degr
             sm = summary_measures.fit_shm(sig + noise, bval, bvec, shm_degree=shm_degree)
             return sm
 
+        summary_names = summary_measures.summary_names(bval, summary_type='shm', shm_degree=shm_degree)
     elif summary_type == 'dtm':
         def func(noise_level=noise_level, **params):
             sig = model(bval, bvec, **params)
@@ -657,5 +659,14 @@ def bench_decorator(model, bval, bvec, noise_level, summary_type='shm', shm_degr
             sm = dti.fit_dtm(sig + noise, bval, bvec)
             return sm
 
+        summary_names = summary_measures.summary_names(bval, summary_type='dtm')
+    else:
+        def func(noise_level=noise_level, **params):
+            sig = model(bval, bvec, **params)
+            noise = np.random.randn(*sig.shape) * noise_level
+            return sig + noise
+
+        summary_names = [f'{b:1.3f}-{g:1.3f}' for b, g in zip(bval, bvec)]
+
     func.__name__ = model.__name__
-    return func
+    return func, summary_names

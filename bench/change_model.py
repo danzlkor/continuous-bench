@@ -12,7 +12,7 @@ from dataclasses import dataclass
 import numpy as np
 from joblib import Parallel, delayed, cpu_count
 import scipy
-import sklearn
+from sklearn import preprocessing
 from typing import Callable, List, Any, Union, Sequence, Mapping
 import numba
 from bench import summary_measures
@@ -46,8 +46,8 @@ class MLChangeVector:
         if self.name is None:
             self.name = dict_to_string(self.vec)
 
-        self.mu_feature_extractor = sklearn.preprocessing.PolynomialFeatures(degree=self.mu_poly_degree)
-        self.sigma_feature_extractor = sklearn.preprocessing.PolynomialFeatures(degree=self.sigma_poly_degree)
+        self.mu_feature_extractor = preprocessing.PolynomialFeatures(degree=self.mu_poly_degree)
+        self.sigma_feature_extractor = preprocessing.PolynomialFeatures(degree=self.sigma_poly_degree)
         if self.mu_weight is not None:
             tril_idx = np.tril_indices(self.mu_weight.shape[-1])
             self.diag_idx = np.argwhere(tril_idx[0] == tril_idx[1])
@@ -93,6 +93,7 @@ class MLChangeVector:
         elif self.lim == 'twosided':
             dv = np.abs(dv)
 
+        # noinspection PyUnresolvedReferences
         p = scipy.stats.lognorm(s=np.log(10), scale=self.scale).logpdf(x=dv)  # norm(scale=scale, loc=0).pdf(x=dv)  #
 
         if self.lim == 'twosided':
@@ -261,6 +262,9 @@ class ChangeModel:
         """
 
         n_samples, n_dim = y.shape
+        if sigma_n.ndim == 2:
+            sigma_n = sigma_n[np.newaxis, :, :]
+
         n_models = len(self.models)
 
         def func(sam_idx):
@@ -337,7 +341,7 @@ class ChangeModel:
         log_probs, amounts = run_parallel(func, n_samples, debug=not parallel, prefer='threads')
         return log_probs, amounts
 
-    def estimate_confusion_matrix(self, data, sigma_n, effect_size, n_samples=1000):
+    def calc_confusion_matrix(self, data, sigma_n, effect_size, n_samples=1000):
         """
         given a baseline measurement, a noise covariance, and an effect size( the amount of change in eahc parameter)
         computes the expected confusion between change vectors.
@@ -571,8 +575,8 @@ class Trainer:
         kde = scipy.stats.gaussian_kde(y.T)
         mean_y = y.mean(axis=0, keepdims=True)
 
-        yf_mu = sklearn.preprocessing.PolynomialFeatures(degree=mu_poly_degree).fit_transform(y - mean_y)
-        yf_sigma = sklearn.preprocessing.PolynomialFeatures(degree=sigma_poly_degree).fit_transform(y - mean_y)
+        yf_mu = preprocessing.PolynomialFeatures(degree=mu_poly_degree).fit_transform(y - mean_y)
+        yf_sigma = preprocessing.PolynomialFeatures(degree=sigma_poly_degree).fit_transform(y - mean_y)
         n_mu_features = yf_mu.shape[-1]
 
         print(f'Training models of change for {self.vec_names}. '
