@@ -343,7 +343,7 @@ class ChangeModel:
 
     def calc_confusion_matrix(self, data, sigma_n, effect_size, n_samples=1000):
         """
-        given a baseline measurement, a noise covariance, and an effect size( the amount of change in eahc parameter)
+        given a baseline measurement, a noise covariance, and an effect size( the amount of change in each parameter)
         computes the expected confusion between change vectors.
         :param n_samples: number of samples
         :param data: (1, d) un normalized baseline summary measurements

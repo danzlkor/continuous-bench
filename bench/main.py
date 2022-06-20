@@ -44,29 +44,31 @@ def parse_args(argv):
     # train arguments:
     train_required = diff_train_parser.add_argument_group("required arguments")
     available_models = list(diffusion_models.prior_distributions.keys())
-    train_required.add_argument(
-        "--model", help=f"name of the forward model. Available models:\n{available_models}", required=True)
-    train_required.add_argument("--output", help="name of the trained model", required=True)
-    train_required.add_argument("--bvals", help="b-values for training", required=True)
+    train_required.add_argument("-m", "--model",
+                                help=f"name of the forward model. Available models:\n{available_models}", required=True)
+    train_required.add_argument("-o", "--output", help="name of the trained model", required=True)
+    train_required.add_argument("-b", "--bvals", help="b-values for training", required=True)
 
     train_optional = diff_train_parser.add_argument_group("optional arguments")
-    train_optional.add_argument("-n", default=10000, type=int, help="number of training samples (default=10000)",
+    train_optional.add_argument("-n", "--samples", default=10000, type=int, help="number of training samples (default=10000)",
                                 required=False)
-    train_optional.add_argument("-b0-thresh", default=1, type=float,
+    train_optional.add_argument("--bvecs", default=None, help="Gradient directions. (default: 64 uniform samples over sphere)",
+                                required=False)
+    train_optional.add_argument("--b0-thresh", default=1, type=float,
                                 help="threshold for b0 (default=1)")
-    train_optional.add_argument("-p", default=2, type=int, help="polynomial degree for mean (default=2)", required=False)
-    train_optional.add_argument("-ps", default=1, type=int, help="polynomial degree for variance (default=1)",
+    train_optional.add_argument("-p", "poly-degree", default=2, type=int, help="polynomial degree for mean (default=2)", required=False)
+    train_optional.add_argument("-ps", "poly-degree", default=1, type=int, help="polynomial degree for variance (default=1)",
                                 required=False)
+    train_optional.add_argument("--summarytype", default='shm', type=str,
+                                help='type of summary measurements. Either shm (spherical harmonic model)'
+                                     ' or dtm (diffusion tensor model) (default shm)', required=False)
+
     train_optional.add_argument("-d", default=2, type=int,
                                 help=" maximum degree for summary measures (must be even numbers, default=2)",
                                 required=False)
     train_optional.add_argument("--alpha", default=0.0, type=float,
                                 help="regularisation weight for training regression models(default=0)", required=False)
     train_optional.add_argument("--change-vecs", help="text file for defining vectors of change (refer to documentations)", default=None, required=False)
-    train_optional.add_argument("--summarytype", default='shm', type=str,
-                                help='type of summary measurements. Either shm (spherical harmonic model)'
-                                     ' or dtm (diffusion tensor model) (default shm)', required=False)
-    train_optional.add_argument("--bvecs", help="gradient directions", required=False)
 
     train_optional.add_argument('--verbose', help='flag for printing optimisation outputs', dest='verbose',
                                 action='store_true', default=False)

@@ -651,7 +651,7 @@ def bench_decorator(model, bval, bvec, noise_level=0., summary_type='shm', shm_d
             sm = summary_measures.fit_shm(sig + noise, bval, bvec, shm_degree=shm_degree)
             return sm
 
-        summary_names = summary_measures.summary_names(bval, summary_type='shm', shm_degree=shm_degree)
+        summary_names = summary_measures.summary_names(bval, summarytype='shm', shm_degree=shm_degree)
     elif summary_type == 'dtm':
         def func(noise_level=noise_level, **params):
             sig = model(bval, bvec, **params)
@@ -659,7 +659,7 @@ def bench_decorator(model, bval, bvec, noise_level=0., summary_type='shm', shm_d
             sm = dti.fit_dtm(sig + noise, bval, bvec)
             return sm
 
-        summary_names = summary_measures.summary_names(bval, summary_type='dtm')
+        summary_names = summary_measures.summary_names(bval, summarytype='dtm')
     else:
         def func(noise_level=noise_level, **params):
             sig = model(bval, bvec, **params)
