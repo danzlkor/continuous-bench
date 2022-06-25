@@ -38,7 +38,7 @@ def multi_shell():
 
 @pytest.fixture
 def trainer(multi_shell):
-    model = summary_measures.bench_decorator(diffusion_models.watson_noddi, summary_type='shm')
+    model = summary_measures.summary_decorator(diffusion_models.watson_noddi, summary_type='sh')
     return Trainer(
         model,
         dict(acq=multi_shell, shm_degree=4, noise_level=0),

@@ -14,9 +14,9 @@ from bench import acquisition
 Default_LOG_L = True  # default flag to log transform l measures or not.
 
 
-def summary_names(bvals, b0_threshold=0.05, summarytype='shm', shm_degree=None, cg=False):
+def summary_names(bvals, b0_threshold=0.05, summarytype='sh', shm_degree=None, cg=False):
     idx_shells, shells = acquisition.ShellParameters.create_shells(bval=bvals, b0_thresh=b0_threshold)
-    if summarytype == 'shm':
+    if summarytype == 'sh':
         names = []
         for sh in shells:
             names.append(f"b{sh.bval:1.1f}_mean")
@@ -26,7 +26,7 @@ def summary_names(bvals, b0_threshold=0.05, summarytype='shm', shm_degree=None, 
                 if cg:
                     names.append(f"b{sh.bval:1.1f}_l2_cg")
 
-    elif summarytype == 'dtm':
+    elif summarytype == 'dt':
         names = []
         for sh in shells:
             names.append(f"b{sh.bval:1.1f}_md")
@@ -218,40 +218,39 @@ def normalise_summaries(y1: np.ndarray, names, dy=None, sigma_n=None, log_l=Defa
         return tuple(res)
 
 
-def bench_decorator(model, bval, bvec, summary_type='shm', noise_std=0., shm_degree=2):
+def summary_decorator(model, bval, bvec, summary_type='sh', shm_degree=2):
     """
     Decorates a diffusion model to add noise and directly calculate a summary measurement. The return function can
-    be used like sm = f(micro params).
+    be used like sm = f(micro params, noise_std= default to zero).
 
-    :param noise_std: default standard deviation of noise
     :param bvec: array of b-values
     :param bval: array of b-vectors
     :param model: a diffusion model (function)
-    :param summary_type: either 'shm' (spherical harmonics), 'dtm' (diffusion tensor model), 'sig' (raw signal)
+    :param summary_type: either 'sh' (spherical harmonics), 'dt' (diffusion tensor model), 'sig' (raw signal)
     :param shm_degree: degree for spherical harmonics
     :return:
         function f that maps microstructural parameters to summary measurements, name of the summary measures
     """
-    if summary_type == 'shm':
-        def func(noise_level=noise_std, **params):
+    if summary_type == 'sh':
+        def func(noise_std=0.0, **params):
             sig = model(bval, bvec, **params)
-            noise = np.random.randn(*sig.shape) * noise_level
+            noise = np.random.randn(*sig.shape) * noise_std
             sm = fit_shm(sig + noise, bval, bvec, shm_degree=shm_degree)
             return sm
 
-        names = summary_names(bval, summarytype='shm', shm_degree=shm_degree)
-    elif summary_type == 'dtm':
-        def func(noise_level=noise_std, **params):
+        names = summary_names(bval, summarytype='sh', shm_degree=shm_degree)
+    elif summary_type == 'dt':
+        def func(noise_std=0.0, **params):
             sig = model(bval, bvec, **params)
-            noise = np.random.randn(*sig.shape) * noise_level
+            noise = np.random.randn(*sig.shape) * noise_std
             sm = dti.fit_dtm(sig + noise, bval, bvec)
             return sm
 
-        names = summary_names(bval, summarytype='dtm')
+        names = summary_names(bval, summarytype='dt')
     elif summary_type == 'sig':
-        def func(noise_level=noise_std, **params):
+        def func(noise_std=0.0, **params):
             sig = model(bval, bvec, **params)
-            noise = np.random.randn(*sig.shape) * noise_level
+            noise = np.random.randn(*sig.shape) * noise_std
             return sig + noise
 
         names = [f'{b:1.3f}-{g[0]:1.3f},{g[1]:1.3f},{g[2]:1.3f}' for b, g in zip(bval, bvec)]

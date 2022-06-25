@@ -7,9 +7,8 @@ import argparse
 import os
 from file_tree import FileTree
 import numpy as np
-
-import summary_measures
-from bench import change_model, glm, summary_measures, diffusion_models, acquisition, image_io
+from scipy import stats as st
+from bench import change_model, glm, summary_measures, diffusion_models, acquisition, image_io, model_inversion
 from fsl.utils.fslsub import submit
 
 
@@ -61,7 +60,7 @@ def parse_args(argv):
     train_optional.add_argument("-p", "poly-degree", default=2, type=int, help="polynomial degree for mean (default=2)", required=False)
     train_optional.add_argument("-ps", "poly-degree", default=1, type=int, help="polynomial degree for variance (default=1)",
                                 required=False)
-    train_optional.add_argument("--summarytype", default='shm', type=str,
+    train_optional.add_argument("--summarytype", default='sh', type=str,
                                 help='type of summary measurements. Either shm (spherical harmonic model)'
                                      ' or dtm (diffusion tensor model) (default shm)', required=False)
 
@@ -79,7 +78,7 @@ def parse_args(argv):
     # fit summary arguments:
     submit_summary_parser.add_argument("--file-tree", help="file-tree text file", required=True)
     submit_summary_parser.add_argument("--mask", help="mask in standard space.", required=True)
-    submit_summary_parser.add_argument("--summarytype", default='shm', type=str,
+    submit_summary_parser.add_argument("--summarytype", default='sh', type=str,
         help='type of summary measurements. either shm (spherical harmonics)'
         ' or dtm (diffusion tensor) (default shm)', required=False)
 
@@ -101,7 +100,7 @@ def parse_args(argv):
                                      help='Transformation from diffusion to mask', required=False)
     diff_summary_parser.add_argument('--output', required=True)
     diff_summary_parser.add_argument('--shm-degree', default=2, type=int, required=False)
-    diff_summary_parser.add_argument('--summarytype', default='shm', required=False)
+    diff_summary_parser.add_argument('--summarytype', default='sh', required=False)
     diff_summary_parser.add_argument('--b0-thresh', default=1, type=float, required=False)
     diff_summary_parser.add_argument('--normalise', dest='normalise', action='store_true')
 
@@ -168,12 +167,12 @@ def train_from_cli(args):
         with open(args.change_vecs, 'r') as reader:
             args.change_vecs = [line.rstrip() for line in reader]
 
-    func, summary_names = summary_measures.bench_decorator(
+    func, summary_names = summary_measures.summary_decorator(
         model=forward_model, bval=bvals, bvec=bvecs, summary_type=args.summarytype, shm_degree=int(args.d))
     print('The model is trained using summary measurements:', summary_names)
     trainer = change_model.Trainer(
         forward_model=func, kwargs={'noise_std': 0.}, change_vecs=args.change_vecs,
-        summary_names=summary_names, param_prior_dists=param_dist)
+        summary_names=summary_names, priors=param_dist)
 
     ch_model = trainer.train_ml(n_samples=int(args.n),
                                 mu_poly_degree=int(args.p),
@@ -204,7 +203,7 @@ def summary_from_cli(args):
         data, valid_vox = image_io.sample_from_native_space(args.data, args.xfm, args.mask, def_field)
 
     acq = acquisition.Acquisition.from_bval_bvec(args.bvals, args.bvecs, args.b0_thresh)
-    summaries = summary_measures.fit_shm(data, acq, shm_degree=args.shm_degree)
+    summaries = summary_measures.fit_shm(data, acq.bvals, acq.bvecs, shm_degree=args.shm_degree)
     names = summary_measures.summary_names(acq, args.summarytype, args.shm_degree)
 
     if args.normalise:
@@ -303,6 +302,87 @@ def inference_from_cli(args):
     image_io.write_nifti(deviation[:, np.newaxis], f'{args.glmdir}/valid_mask',
                          f'{args.output}/sigma_deviations.nii.gz')
     print(f'Analysis completed successfully.')
+
+
+def submit_invert(args):
+    os.makedirs(args.output, exist_ok=True)
+    pe_dir = f'{args.output}/pes/{args.model}'
+    os.makedirs(pe_dir, exist_ok=True)
+
+    py_file_path = os.path.realpath(__file__)
+    task_list = list()
+    for subj_idx, (x, d, bval, bvec) in enumerate(zip(args.xfm, args.data, args.bval, args.bvecs)):
+        task_list.append(
+            f'python {py_file_path} {subj_idx} {d} {x} {bvec} {bval} {args.mask} {args.model} {pe_dir}')
+
+    # if 'SGE_ROOT' in os.environ.keys():
+    #     print('Submitting jobs to SGE ...')
+    #     with open(f'{args.output}/tasklist.txt', 'w') as f:
+    #         for t in task_list:
+    #             f.write("%s\n" % t)
+    #         f.close()
+    #
+    #         job_id = run(f'fsl_sub -t {args.output}/tasklist.txt '
+    #                      f'-T 240 -N bench_inversion -l {pe_dir}/log')
+    #         print('jobs submitted to SGE ...')
+    #         fslsub.hold(job_id)
+    # else:
+    #     os.system('; '.join(task_list))
+
+    else:
+        print('parameter estimates already exist in the specified path')
+
+    # apply glm:
+    if args.design_mat is not None:
+        param_names = diffusion_models.prior_distributions[args.model].keys()
+        fit_results, invalids = image_io.read_pes(pe_dir, args.mask)
+        x = glm.loadDesignMat(args.design_mat)
+        if not fit_results.shape[0] == x.shape[0]:
+            raise ValueError(f'Design matrix with {x.shape[0]} subjects does not match with '
+                             f'loaded parameters for {fit_results.shape[0]} subjects.')
+
+        pe1 = fit_results[x[:, 0] == 1, :, :len(param_names)].mean(axis=0)
+        pe2 = fit_results[x[:, 1] == 1, :, :len(param_names)].mean(axis=0)
+
+        varpe1 = fit_results[x[:, 0] == 1, :, :len(param_names)].var(axis=0)
+        varpe2 = fit_results[x[:, 1] == 1, :, :len(param_names)].var(axis=0)
+
+        z_values = (pe2 - pe1) / np.sqrt(varpe1 / np.sqrt(x[:, 0].sum()) + varpe2 / np.sqrt(x[:, 1].sum()))
+        p_values = st.norm.sf(abs(z_values)) * 2  # two-sided
+
+        for d, p in zip(p_values, param_names):
+            fname = f'{args.output}/zmaps/{p}'
+            image_io.write_nifti(d, args.mask, fname=fname, invalids=invalids)
+        print(f'Analysis completed sucessfully, the z-maps are stored at {args.output}')
+
+
+def invert_from_cli(subj_idx, diff_add, xfm_add, bvec_add, bval_add, mask_add, mdl_name, output_add):
+    print('diffusion data address:' + diff_add)
+    print('xfm address:' + xfm_add)
+    print('bvec address: ' + bvec_add)
+    print('bval address: ' + bval_add)
+    print('mask address: ' + mask_add)
+    print('model name: ' + mdl_name)
+    print('output path: ' + output_add)
+
+    bvals = np.genfromtxt(bval_add)
+    bvals = np.round(bvals / 1000, 1)
+    bvecs = np.genfromtxt(bvec_add)
+    if bvecs.shape[1] > bvecs.shape[0]:
+        bvecs = bvecs.T
+
+    def_field_dir = f"{output_add}/def_fields/"
+    os.makedirs(def_field_dir, exist_ok=True)
+    def_field = f"{def_field_dir}/{subj_idx}.nii.gz"
+    data, valid_vox = summary_measures.sample_from_native_space(diff_add, xfm_add, mask_add, def_field)
+    data = data / 1000
+    params, stds = model_inversion.map_fit(data, 0.01, mdl_name, bvals, bvecs)
+    print(f'subject {subj_idx} parameters estimated.')
+
+    # write down [pes, vpes] to 4d files
+    fname = f"{output_add}/subj_{subj_idx}.nii.gz"
+    image_io.write_nifti(params, mask_add, fname, np.logical_not(valid_vox))
+    print(f'Model fitted to subject {subj_idx} data.')
 
 
 if __name__ == '__main__':

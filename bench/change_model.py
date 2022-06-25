@@ -864,6 +864,7 @@ def _mat_lower_diagonal(l_vec, l_sigma):
         for j in range(i):
             l_sigma[:, i, j] = l_sigma[:, j, i]
 
+log2pi = np.log(2 * np.pi)
 
 def log_mvnpdf(x, mean, cov):
     """
@@ -881,7 +882,7 @@ def log_mvnpdf(x, mean, cov):
 
     expo = -0.5 * np.einsum('ij,ijk,ik->i', offset, np.linalg.inv(cov), offset)
     # expo = -0.5 * (x - mean) @ np.linalg.inv(cov) @ (x - mean).T
-    nc = -0.5 * np.log(((2 * np.pi) ** d) * abs(np.linalg.det(cov.astype(float))))
+    nc = -0.5 * (log2pi * d + np.linalg.slogdet(cov)[1]) #  we expect the covariance be PD
 
     # var2 = np.log(multivariate_normal(mean=mean, cov=cov).pdf(x))
     return expo + nc
@@ -1077,14 +1078,14 @@ def plot_conf_mat(conf_mat, param_names, f_name=None, title=None):
     plt.show()
 
 
-def sample_params(param_prior_dists, n_samples=1):
+def sample_params(priors, n_samples=1):
     """Sample from the prior distributions
 
     Prior distributions are given by a dictionary from parameter names to a sampling function or scipy distribution.
     Independent parameters can map to a 1D prior distribution or we can map from a list of dependent parameters to a multi-dimensional distribution.
     """
     params = {}
-    for p, dist in param_prior_dists.items():
+    for p, dist in priors.items():
         func = getattr(dist, 'rvs', dist)
         if isinstance(p, str):
             params[p] = func(n_samples)
