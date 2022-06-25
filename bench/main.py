@@ -7,6 +7,8 @@ import argparse
 import os
 from file_tree import FileTree
 import numpy as np
+
+import summary_measures
 from bench import change_model, glm, summary_measures, diffusion_models, acquisition, image_io
 from fsl.utils.fslsub import submit
 
@@ -166,11 +168,11 @@ def train_from_cli(args):
         with open(args.change_vecs, 'r') as reader:
             args.change_vecs = [line.rstrip() for line in reader]
 
-    func, summary_names = diffusion_models.bench_decorator(
+    func, summary_names = summary_measures.bench_decorator(
         model=forward_model, bval=bvals, bvec=bvecs, summary_type=args.summarytype, shm_degree=int(args.d))
     print('The model is trained using summary measurements:', summary_names)
     trainer = change_model.Trainer(
-        forward_model=func, kwargs={'noise_level': 0.}, change_vecs=args.change_vecs,
+        forward_model=func, kwargs={'noise_std': 0.}, change_vecs=args.change_vecs,
         summary_names=summary_names, param_prior_dists=param_dist)
 
     ch_model = trainer.train_ml(n_samples=int(args.n),

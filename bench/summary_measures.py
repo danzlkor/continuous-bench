@@ -7,6 +7,8 @@ import warnings
 
 import numpy as np
 from dipy.reconst.shm import real_sym_sh_basis
+
+import dti
 from bench import acquisition
 
 Default_LOG_L = True  # default flag to log transform l measures or not.
@@ -24,11 +26,12 @@ def summary_names(bvals, b0_threshold=0.05, summarytype='shm', shm_degree=None, 
                 if cg:
                     names.append(f"b{sh.bval:1.1f}_l2_cg")
 
-    elif summarytype == 'dti':
+    elif summarytype == 'dtm':
         names = []
         for sh in shells:
             names.append(f"b{sh.bval:1.1f}_md")
-            names.append(f"b{sh.bval:1.1f}_fa")
+            if sh.bval >= b0_threshold:
+                names.append(f"b{sh.bval:1.1f}_fa")
 
     return names
 
@@ -80,7 +83,7 @@ def fit_shm(signal, bval, bvec, shm_degree, log_l=Default_LOG_L):
     return sum_meas
 
 
-def shm_cov(sum_meas, acq, sph_degree, noise_level):
+def shm_cov(sum_meas, acq, sph_degree, noise_sigma):
     if sum_meas.ndim == 1:
         sum_meas = sum_meas[np.newaxis, :]
 
@@ -88,13 +91,13 @@ def shm_cov(sum_meas, acq, sph_degree, noise_level):
     s_idx = 0
     for shell_idx, this_shell in enumerate(acq.shells):
         ng = np.sum(acq.idx_shells == shell_idx)
-        variances[:, s_idx] = 1 / ng * (noise_level ** 2)
+        variances[:, s_idx] = 1 / ng * (noise_sigma ** 2)
         s_idx += 1
         if this_shell.lmax > 0:
             y, l = normalised_shms(acq.bvecs[acq.idx_shells == shell_idx], this_shell.lmax)
             c = y[0].T @ y[0]
             for degree in np.arange(2, sph_degree + 1, 2):
-                f = (noise_level ** 2) / c
+                f = (noise_sigma ** 2) / c
                 variances[:, s_idx] = f * (2 * sum_meas[:, s_idx] + f) / (2 * degree + 1)
                 s_idx += 1
 
@@ -213,3 +216,46 @@ def normalise_summaries(y1: np.ndarray, names, dy=None, sigma_n=None, log_l=Defa
         return y1_norm
     else:
         return tuple(res)
+
+
+def bench_decorator(model, bval, bvec, summary_type='shm', noise_std=0., shm_degree=2):
+    """
+    Decorates a diffusion model to add noise and directly calculate a summary measurement. The return function can
+    be used like sm = f(micro params).
+
+    :param noise_std: default standard deviation of noise
+    :param bvec: array of b-values
+    :param bval: array of b-vectors
+    :param model: a diffusion model (function)
+    :param summary_type: either 'shm' (spherical harmonics), 'dtm' (diffusion tensor model), 'sig' (raw signal)
+    :param shm_degree: degree for spherical harmonics
+    :return:
+        function f that maps microstructural parameters to summary measurements, name of the summary measures
+    """
+    if summary_type == 'shm':
+        def func(noise_level=noise_std, **params):
+            sig = model(bval, bvec, **params)
+            noise = np.random.randn(*sig.shape) * noise_level
+            sm = fit_shm(sig + noise, bval, bvec, shm_degree=shm_degree)
+            return sm
+
+        names = summary_names(bval, summarytype='shm', shm_degree=shm_degree)
+    elif summary_type == 'dtm':
+        def func(noise_level=noise_std, **params):
+            sig = model(bval, bvec, **params)
+            noise = np.random.randn(*sig.shape) * noise_level
+            sm = dti.fit_dtm(sig + noise, bval, bvec)
+            return sm
+
+        names = summary_names(bval, summarytype='dtm')
+    elif summary_type == 'sig':
+        def func(noise_level=noise_std, **params):
+            sig = model(bval, bvec, **params)
+            noise = np.random.randn(*sig.shape) * noise_level
+            return sig + noise
+
+        names = [f'{b:1.3f}-{g[0]:1.3f},{g[1]:1.3f},{g[2]:1.3f}' for b, g in zip(bval, bvec)]
+    else:
+        raise ValueError(f'Summary measurement type {summary_type} is not defined. Must be shm, dtm or sig.')
+    func.__name__ = model.__name__
+    return func, names

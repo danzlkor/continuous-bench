@@ -8,16 +8,6 @@ from scipy.linalg import block_diag
 from bench import acquisition
 
 
-def summary_names(acq):
-    names = list()
-    for sh in acq.shells:
-        names.append(f'b{sh.bval}_MD')
-        if sh.lmax > 0:
-            names.append(f'b{sh.bval}_FA')
-            names.append(f'b{sh.bval}_Vol')
-    return names
-
-
 def fit_dtm(signal, bval, bvec):
     if signal.ndim == 1:
         signal = signal[np.newaxis, :]
@@ -29,16 +19,15 @@ def fit_dtm(signal, bval, bvec):
         bvecs = acq.bvecs[dir_idx]
         shell_signal = signal[..., dir_idx]
         sm = summary_np(shell_signal, bvecs, this_shell.bval, 1)
-        if this_shell.lmax == 0:
-            sm = {'MD': sm['MD']}
-
+        if sm['FA'] is None:
+            del sm['FA']
         sum_meas.extend(list(sm.values()))
 
     sum_meas = np.array(sum_meas).T
     return sum_meas
 
 
-def dtm_cov(signal, acq, noise_level):
+def dtm_cov(signal, acq, noise_std):
     if signal.ndim == 1:
         signal = signal[np.newaxis, :]
 
@@ -47,7 +36,7 @@ def dtm_cov(signal, acq, noise_level):
         dir_idx = acq.idx_shells == shell_idx
         bvecs = acq.bvecs[dir_idx]
         shell_signal = signal[..., dir_idx]
-        v = noise_variance(shell_signal, bvecs, this_shell.bval, noise_level, 1)
+        v = noise_variance(shell_signal, bvecs, this_shell.bval, noise_std, 1)
         variances.append(v)
 
     cov = block_diag(*variances)

@@ -478,7 +478,7 @@ class Trainer:
     """
     forward_model: Callable
     """ The forward model  must be function of the form f(args, **params) that returns a numpy array."""
-    param_prior_dists: Mapping[str, scipy.stats.rv_continuous]
+    priors: Mapping[str, scipy.stats.rv_continuous]
     kwargs: Mapping[str, Any] = None
     change_vecs: List[Mapping] = None
     lims: List = None
@@ -522,7 +522,7 @@ class Trainer:
             raise ("priors must be either a scalar (same for all change models) "
                    "or a sequence with size of number of change models.")
 
-        params_test = sample_params(self.param_prior_dists)
+        params_test = sample_params(self.priors)
         try:
             self.n_dim = self.forward_model(**self.kwargs, **params_test).size
             tril_idx = np.tril_indices(self.n_dim)
@@ -541,7 +541,7 @@ class Trainer:
 
     @property
     def param_names(self, ):
-        return [i for p in self.param_prior_dists.keys()
+        return [i for p in self.priors.keys()
                 for i in ([p] if isinstance(p, str) else p)]
 
     def vec_to_dict(self, vec: np.ndarray):
@@ -649,13 +649,13 @@ class Trainer:
         :return: M(V) , M(V+\Delta V).
         """
         if base_params is None:
-            base_params = sample_params(self.param_prior_dists, n_samples=n_samples)
+            base_params = sample_params(self.priors, n_samples=n_samples)
 
         for vec in self.change_vecs:
             for (k, v) in base_params.items():
                 params_2 = v + vec.get(k, 0) * dv0
-                if k in self.param_prior_dists and hasattr(self.param_prior_dists[k], 'pdf'):
-                    invalid = self.param_prior_dists[k].pdf(params_2) == 0
+                if k in self.priors and hasattr(self.priors[k], 'pdf'):
+                    invalid = self.priors[k].pdf(params_2) == 0
                     base_params[k][invalid] -= vec.get(k, 0) * dv0
 
         y1 = self.forward_model(**self.kwargs, **base_params)
@@ -673,19 +673,19 @@ class Trainer:
 
         return y1, y2
 
-    def generate_test_samples(self, n_samples=1000, effect_size=0.1, noise_level=0.0, n_repeats=1,
+    def generate_test_samples(self, n_samples=1000, effect_size=0.1, noise_std=0.0, n_repeats=1,
                               base_params=None, true_change=None, parallel=False):
         """
         Generate signal and covariance matrix for baseline parameters and parameters shifted across change vector
 
         Important note: for this feature the forward model needs to have an internal noise model that 
-        accepts the parameter 'noise_level'. Otherwise, gaussian white noise is added to the measurements.
+        accepts the parameter 'noise_std'. Otherwise, gaussian white noise is added to the measurements.
 
         :param true_change: index of true parameter change for each sample (0 for no change), array or list
-        :param base_params: parameter values for the baseline
+        :param base_params: parameter values for the baseline (dict)
         :param n_samples: number of samples
         :param effect_size: the amount of change
-        :param noise_level: level of measurement noise
+        :param noise_std: standard deviation of measurement noise
         :param n_repeats: number of repeats to estimate noise covariance.
         :param parallel: use joblib to make the process parallel.
         :return: for N samples and M observational parameters returns tuple with
@@ -706,10 +706,8 @@ class Trainer:
         if true_change is None:
             # draw random samples for true change from the models.
             true_change = np.random.randint(0, len(models) + 1, n_samples)
-        elif n_samples is None:
-            n_samples = len(true_change)
         else:
-            assert n_samples == len(true_change)
+            n_samples = len(true_change)
 
         if np.isscalar(effect_size):
             effect_size = np.ones(n_samples) * effect_size
@@ -717,10 +715,10 @@ class Trainer:
             assert n_samples == len(effect_size)
 
         kwargs = self.kwargs.copy()
-        has_noise_model = 'noise_level' in inspect.getfullargspec(self.forward_model).args
+        has_noise_model = 'noise_std' in inspect.getfullargspec(self.forward_model).args
 
         if has_noise_model:
-            kwargs['noise_level'] = noise_level
+            kwargs['noise_std'] = noise_std
 
         print(f'Generating {n_samples} test samples:')
 
@@ -728,9 +726,9 @@ class Trainer:
             valid = False
             while not valid:
                 if base_params is None:
-                    params_1 = sample_params(self.param_prior_dists)
+                    params_1 = sample_params(self.priors)
                 else:
-                    params_1 = base_params[s_idx]
+                    params_1 = base_params
 
                 tc = true_change[s_idx]
                 if tc == 0:
@@ -742,8 +740,8 @@ class Trainer:
                     params_2 = {k: v + models[tc - 1].vec.get(k, 0) * effect_size[s_idx] * sign
                                 for k, v in params_1.items()}
 
-                    valid = np.all([self.param_prior_dists[k].pdf(params_2[k]) > 0
-                                    if k in self.param_prior_dists and hasattr(self.param_prior_dists[k], 'pdf')
+                    valid = np.all([self.priors[k].pdf(params_2[k]) > 0
+                                    if k in self.priors and hasattr(self.priors[k], 'pdf')
                                     else 0 <= params_2[k] <= 1 for k in params_2.keys()])
 
                     if not valid and base_params is not None:
@@ -760,9 +758,9 @@ class Trainer:
                 y_2 = y_2_r[0]
                 sigma_n = np.cov((y_2_r - y_1_r).T)
             else:
-                y_1 = self.forward_model(**kwargs, **params_1) + np.random.randn(self.n_dim) * noise_level
-                y_2 = self.forward_model(**kwargs, **params_2) + np.random.randn(self.n_dim) * noise_level
-                sigma_n = None
+                y_1 = self.forward_model(**kwargs, **params_1) + np.random.randn(self.n_dim) * noise_std
+                y_2 = self.forward_model(**kwargs, **params_2) + np.random.randn(self.n_dim) * noise_std
+                sigma_n = (noise_std ** 2) * np.eye(y_1.shape[-1])
 
             return y_1, y_2, sigma_n
         y_1, y_2, sigma_n = run_parallel(generator_func, n_samples, debug=not parallel)

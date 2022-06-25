@@ -402,3 +402,28 @@ def read_inference_results(maps_dir, mask_add=None):
             amounts[m] = Image(f'{maps_dir}/{m}_amount.nii.gz').data[mask_img > 0]
 
     return posteriors, amounts
+
+
+def read_pes(pe_dir, mask_add):
+    """
+    Read parameter estimates.
+    :param pe_dir:
+    :param mask_add:
+    :return:
+    """
+    mask_img = Image(mask_add)
+    n_subj = len(glob.glob(pe_dir + '/subj_*.nii.gz'))
+    pes = list()
+    for subj_idx in range(n_subj):
+        f = f'{pe_dir}/subj_{subj_idx}.nii.gz'
+        pes.append(Image(f).data[mask_img.data > 0, :])
+
+    print(f'loaded summaries from {n_subj} subjects')
+    pes = np.array(pes)
+    invalids = np.any(np.isnan(pes), axis=(0, 2))
+    pes = pes[:, invalids == 0, :]
+    if invalids.sum() > 0:
+        warn(f'{invalids.sum()} voxels are dropped because of lying outside of brain mask in some subjects.')
+    return pes, invalids
+
+

@@ -6,7 +6,7 @@ This module contains definition of some microstructural diffusion models and a p
 import numba
 import numpy as np
 from scipy import stats
-from bench import summary_measures, dti
+import warnings
 
 # prior distributions:
 dif_coeff = 1.7  # unit: um^2/ms
@@ -97,7 +97,7 @@ prior_distributions = dict(
 )
 
 
-# basic compartment definitions:
+# compartment definitions:
 def ball(bval, bvec, d_iso, s0=1.):
     """
     Simulates diffusion signal for isotropic diffusion
@@ -115,9 +115,11 @@ def ball(bval, bvec, d_iso, s0=1.):
     :return: simulated signal (M,)
     """
     s0, d_iso = [np.asanyarray(v)[..., np.newaxis] for v in (s0, d_iso)]
-    assert np.all(s0 >= 0), 's0 cant be negative'
-    assert np.all(d_iso >= 0), 'diso cant be negative'
-    if np.isscalar(bval):
+    if not np.all(s0 >= 0):
+        warnings.warn('s0 cant be negative')
+    if not np.all(d_iso >= 0):
+        warnings.warn('d_iso cant be negative')
+    if not np.isscalar(bval):
         bval = bval * np.ones(bvec.shape[0])
 
     return s0 * np.exp(-bval * d_iso)
@@ -140,8 +142,10 @@ def stick(bval, bvec, d_a, theta, phi, s0=1.0):
     :return: simulated signal (M,)
     """
     s0, d_a, theta, phi = [np.asarray(v)[..., np.newaxis] for v in (s0, d_a, theta, phi)]
-    assert np.all(d_a >= 0), "d_a can't be negative"
-    assert np.all(s0 >= 0), 's0 cant be negative'
+    if not np.all(d_a >= 0):
+        warnings.warn("d_a can't be negative")
+    if not np.all(s0 >= 0):
+        warnings.warn("s0 cant be negative")
 
     orientation = np.array(spherical2cart(theta, phi)).T
     return s0 * np.exp(-bval * (d_a * orientation.dot(bvec.T) ** 2))
@@ -161,9 +165,12 @@ def cigar(bval, bvec, d_a, d_r, theta=0., phi=0, s0=1.0):
     :return: simulated signal (M,)
     """
     s0, d_a, d_r = [np.asanyarray(v)[..., np.newaxis] for v in (s0, d_a, d_r)]
-    assert np.all(d_r >= 0), "d_r can't be negative"
-    assert np.all(d_a >= 0), "d_a can't be negative"
-    assert np.all(s0 >= 0), 's0 cant be negative'
+    if not np.all(d_r >= 0):
+        warnings.warn("d_r can't be negative")
+    if not np.all(d_a >= 0):
+        warnings.warn("d_a can't be negative")
+    if not np.all(s0 >= 0):
+        warnings.warn("s0 cant be negative")
 
     orientation = spherical2cart(theta, phi)
     return s0 * np.exp(-bval * (d_r + (d_a - d_r) * bvec.dot(orientation) ** 2))
@@ -192,9 +199,11 @@ def bingham_zeppelin(bval, bvec, d_a, d_r, odi, odi2=None, theta=0., phi=0., psi
                                                 (s0, d_a, d_r, odi, odi2, theta, phi, psi)]
     n_samples = s0.shape[0]
 
-    assert np.all(s0 >= 0), 's0 cannot be negative'
+    if not np.all(s0 >= 0):
+        warnings.warn('s0 cannot be negative')
 
-    assert np.all((odi >= odi2) & (odi2 > 0)), 'odis must be positive and in order'
+    if not np.all((odi >= odi2) & (odi2 > 0)):
+        warnings.warn('odis must be positive and in order')
 
     if bvec.ndim == 1:
         bvec = bvec[np.newaxis, :]
@@ -251,7 +260,8 @@ def watson_zeppelin_numerical(bval, bvec, d_a, d_r, odi, theta=0., phi=0., s0=1.
     :param n_samples: resolution of the surface integral
     :return: simulated signal (M,)
     """
-    assert odi > 0, 'odis must be positive'
+    if not odi > 0:
+        warnings.warn('odis must be positive')
 
     if bvec.ndim == 1:
         bvec = bvec[np.newaxis, :]
@@ -291,8 +301,10 @@ def ball_stick(bval, bvec, d_a, d_iso, s_a, s_iso, theta=0., phi=0.0, s0=1.0):
     :param s0: attenuation for b=0
     :return: simulated signal (M,)
     """
-    assert np.all(s_iso >= 0), 'volume fraction cant be negative'
-    assert np.all(s_a >= 0), 'volume fraction cant be negative'
+    if not np.all(s_iso >= 0):
+        warnings.warn('volume fraction cant be negative.')
+    if not np.all(s_a >= 0):
+        warnings.warn('volume fraction cant be negative')
 
     s_a = np.atleast_1d(s_a)
     s_iso = np.atleast_1d(s_iso)
@@ -322,7 +334,8 @@ def watson_noddi(bval, bvec, s_iso, s_in, s_ex,
     :param s0: attenuation for b=0
     :return: (M,) diffusion signal
     """
-    assert s0 >= 0, 's0 cant be negative'
+    if not s0 >= 0:
+        warnings.warn('s0 cant be negative')
     a_iso = ball(bval=bval, bvec=bvec, d_iso=d_iso, s0=s_iso)
     a_int = bingham_zeppelin(bval=bval, bvec=bvec, d_a=d_a_in, d_r=0,
                              odi=odi, odi2=odi,
@@ -400,44 +413,6 @@ def bingham_noddi_constrained(bval, bvec, s_iso, s_in, s_ex, odi, odi_ratio, the
                            tortuosity=tortuosity, odi=odi, odi_ratio=odi_ratio, s0=s0,
                            theta=theta, phi=phi, psi=psi)
     return signal
-
-
-def watson_noddi_diffusivities(bval, bvec,
-                               d_iso, d_a_in, d_a_ex,
-                               tortuosity, odi,
-                               theta=0., phi=0., s0=1.):
-    """
-    Simulates diffusion signal with Watson dispressed NODDI model
-
-    :param bval: b-values
-    :param bvec: (,3) gradient directions(x, y, z)
-    :param d_iso: isotropic diffusion coefficient
-    :param d_a_in: axial diffusion coefficient
-    :param d_a_ex: axial diffusion coefficient for extra-axonal compartment
-    :param tortuosity: ratio of radial to axial diffusivity
-    :param odi: dispersion parameter of watson distribution
-    :param theta: orientation of stick from z axis
-    :param phi: orientation of stick from x axis
-    :param s0: attenuation for b=0
-    :return: (M,) diffusion signal
-    """
-    assert s0 >= 0, 's0 cant be negative'
-    s_iso = 0.5
-    s_in = 0.5
-    s_ex = 0.5
-
-    a_iso = ball(bval=bval, bvec=bvec, d_iso=d_iso, s0=s_iso)
-
-    a_int = bingham_zeppelin(bval=bval, bvec=bvec, d_a=d_a_in, d_r=0,
-                             odi=odi, odi2=odi,
-                             psi=0, theta=theta, phi=phi, s0=s_in)
-
-    a_ext = bingham_zeppelin(bval=bval, bvec=bvec, d_a=d_a_ex,
-                             d_r=d_a_ex * tortuosity,
-                             odi=odi, odi2=odi,
-                             psi=0, theta=theta, phi=phi, s0=s_ex)
-
-    return (a_iso + a_int + a_ext) * s0
 
 
 # helper functions:
@@ -631,42 +606,3 @@ def hyp_sapprox(x, res):
         res[0] = c1
 
 
-def bench_decorator(model, bval, bvec, noise_level=0., summary_type='shm', shm_degree=2):
-    """
-    Decorates a diffusion model with a summary measure type. The return function can
-    be used like sm = f(micro params).
-    :param shm_degree:
-    :param noise_level: default noise level
-    :param bvec:
-    :param bval:
-    :param model: a diffusion model (function)
-    :param summary_type: either 'shm' or 'dti'
-    :return:
-        function f that maps microstructural parameters to summary measurements, name of the summary measures
-    """
-    if summary_type == 'shm':
-        def func(noise_level=noise_level, **params):
-            sig = model(bval, bvec, **params)
-            noise = np.random.randn(*sig.shape) * noise_level
-            sm = summary_measures.fit_shm(sig + noise, bval, bvec, shm_degree=shm_degree)
-            return sm
-
-        summary_names = summary_measures.summary_names(bval, summarytype='shm', shm_degree=shm_degree)
-    elif summary_type == 'dtm':
-        def func(noise_level=noise_level, **params):
-            sig = model(bval, bvec, **params)
-            noise = np.random.randn(*sig.shape) * noise_level
-            sm = dti.fit_dtm(sig + noise, bval, bvec)
-            return sm
-
-        summary_names = summary_measures.summary_names(bval, summarytype='dtm')
-    else:
-        def func(noise_level=noise_level, **params):
-            sig = model(bval, bvec, **params)
-            noise = np.random.randn(*sig.shape) * noise_level
-            return sig + noise
-
-        summary_names = [f'{b:1.3f}-{g:1.3f}' for b, g in zip(bval, bvec)]
-
-    func.__name__ = model.__name__
-    return func, summary_names
