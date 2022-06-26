@@ -2,7 +2,7 @@ joblib
 dipy
 numba
 scipy
-numpy
+numpy~=1.22.3
 torch
 # dataclasses~=0.7
 sklearn

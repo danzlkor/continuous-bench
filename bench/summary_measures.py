@@ -7,8 +7,6 @@ import warnings
 
 import numpy as np
 from dipy.reconst.shm import real_sym_sh_basis
-
-import dti
 from bench import acquisition
 
 Default_LOG_L = True  # default flag to log transform l measures or not.
