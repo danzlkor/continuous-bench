@@ -87,6 +87,7 @@ class ShellParameters:
             - 1D array with the index of the shell for each volume
             - List with the individual shells
         """
+
         nparams = None
         ref = None
         for name, params in parameters.items():
@@ -220,9 +221,10 @@ class Acquisition:
         :return:
             Acquisition class
         """
-        if bvecs is str:
+        if isinstance(bvecs, str):
             bvecs = read_bvecs(bvecs)
-        if bvals is str:
+
+        if isinstance(bvals, str):
             bvals = read_bvals(bvals)
 
         idx_shells, shells = ShellParameters.create_shells(b0_thresh=b0_threshold, bval=bvals)
@@ -255,6 +257,9 @@ def read_bvals(fname, b0thresh=0.1, maxb=100, scale=1000):
 
     bvals[bvals < b0thresh] = 0
     bvals = np.around(bvals, 2)
+
+    print(f"bvals: {bvals}")
+
     return bvals
 
 
@@ -262,6 +267,8 @@ def read_bvecs(fname):
     bvecs = np.genfromtxt(fname)
     if bvecs.shape[1] > bvecs.shape[0]:
         bvecs = bvecs.T
+
+    print(f"bvecs: {bvecs}")
 
     return bvecs
 

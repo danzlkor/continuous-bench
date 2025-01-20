@@ -6,6 +6,7 @@
 
 import numpy as np
 from fsl.data.featdesign import loadDesignMat
+from bench import change_model
 
 
 def group_glm(data, design_mat, design_con):
@@ -158,3 +159,161 @@ def voxelwise_group_glm(data, weights, design_con, equal_samples=False, baseline
         sigma_n = varcopes[..., 1]
 
     return data1, delta_data, sigma_n
+
+
+## ==== Continuous portion ==== ##
+
+def continuous_glm(data, design_mat, faulty_subjs=None):
+    """
+    Performs continuous glm on the given data
+
+
+    :param data: 3d numpy array (n_subj, n_vox, n_dim)
+    :param design_mat: path to design matrix .npz file (n_subj, n_phenotypes)
+    :param faulty_subjs: index of faulty subjects to remove
+    :return: data1, delta_data and noise covariance matrices.
+    """
+    x = np.load(design_mat)["a"]
+
+    if faulty_subjs is not None:
+        x = np.delete(x, faulty_subjs, axis=0)
+        subject_deleting = np.load(design_mat)["b"][faulty_subjs]
+        print("=== Removing subjects from design matrix ===")
+        print(f"{subject_deleting}")
+
+        print("=== Summary measures should already have removed these subjects in image_io function ===")
+
+    # b is the number of subjects
+    c_names = np.load(design_mat)["c"]  #c is the wanted variables
+    effect_size = np.load(design_mat)["d"]  # d is effect sizes of the wanted variables
+    c = np.eye(x.shape[-1])  # select each variable
+
+    n_subj, n_vox, n_dim = data.shape
+
+    if data.shape[0] == x.shape[0]:
+        print(f'running glm for {data.shape[0]} subjects')
+    else:
+        raise ValueError(f'number of subjects in design matrix is {x.shape[0]} but'
+                         f' {data.shape[0]} summary measures were loaded.')
+
+    y = np.transpose(data, [1, 2, 0])  # make it (n_vox, n_dim, n_subj)
+    beta = y @ np.linalg.pinv(x).T  # (n_vox, n_dim, n_phenotypes)
+    copes = beta @ c.T
+    r = y - beta @ x.T
+    sigma_sq = np.array([np.cov(i) for i in r])
+    varcopes = sigma_sq[..., np.newaxis] * np.diagonal(c @ np.linalg.pinv(x.T @ x) @ c.T)
+
+    baseline = copes[:, :, 0]
+
+    final_copes = copes[:, :, :c_names.shape[0]+1] #to remove confounds out of the saving process
+    final_varcopes = varcopes[:, :, :c_names.shape[0] + 1]
+
+    dictionary_of_deltas = {}
+    dictionary_of_covars = {}
+
+    for idx, var_name in enumerate(c_names):
+        variable_effect = effect_size[idx]
+        dictionary_of_deltas[var_name] = final_copes[:, :, idx + 1] * variable_effect
+        dictionary_of_covars[var_name] = final_varcopes[..., idx + 1] * (variable_effect ** 2)
+
+    if n_subj <= n_dim:
+        Warning.warn('fewer samples than features, regularising sigma_n with 0.1 on diagonals')
+
+        for var_name in c_names:
+            dictionary_of_covars[var_name] += 0.1 * np.eye(dictionary_of_covars[var_name].shape[-1])
+
+    return baseline, dictionary_of_deltas, dictionary_of_covars
+
+
+def calc_r_squared(X, y):
+    """
+    Calculates the R^2 (explained variance) for each predictor variable
+    in the design matrix X given the response matrix y.
+
+    Parameters:
+    -----------
+    X : numpy array
+        Design matrix of shape (n_samples, n_features)
+
+    y : numpy array
+        Response matrix of shape (n_samples, 1)
+
+    Returns:
+    --------
+    r_squared : numpy array
+        Array of length n_features containing the R^2 for each predictor variable
+    """
+    n_samples, n_features = X.shape
+
+    # calculate mean of y
+    y_mean = np.mean(y)
+
+    # calculate total sum of squares
+    total_sum_squares = np.sum((y - y_mean) ** 2)
+
+    # initialize array to store R^2 for each predictor variable
+    r_squared = np.zeros(n_features)
+
+    # loop over each predictor variable
+    for i in range(n_features):
+        # calculate regression coefficients for ith predictor variable
+        beta = np.linalg.lstsq(X[:, i].reshape(n_samples, 1), y, rcond=None)[0]
+
+        # calculate predicted values for ith predictor variable
+        y_pred = np.dot(X[:, i].reshape(n_samples, 1), beta)
+
+        # calculate residual sum of squares for ith predictor variable
+        residual_sum_squares = np.sum((y - y_pred) ** 2)
+
+        # calculate R^2 for ith predictor variable
+        r_squared[i] = 1 - (residual_sum_squares / total_sum_squares)
+
+    return r_squared
+
+
+def deconfounding_glm(data, confound_design_mat,faulty_subjs=None):
+    """
+    Regresses the summary measures with confounds to remove its effects
+    Note that the summary measures do not need to be demeaned -- we account for it with a column of 1s + demeaned predictors
+    Why? Because keeping the mean of the response variable is important for us ==> it is the baseline measure.
+
+    :param data: 3d numpy array (n_subj, n_vox, n_dim)
+    :param design_mat: path to design matrix .npz file (n_subj, n_phenotypes)
+    :return: deconfounded data (n_subj, n_vox, n_dim) Assumes that confounds have already been demeaned, with an added column of 1s.
+    """
+
+    x = np.load(confound_design_mat)["a"]  # (n_subj, n_pheno+1)
+
+    if faulty_subjs is not None:
+
+        print("=== Removing subjects from design matrix ===")
+        x = np.delete(x, faulty_subjs, axis=0)
+
+        subject_deleting = np.load(confound_design_mat)["b"][faulty_subjs]
+        print(f"{subject_deleting}")
+
+        print("=== Summary measures should already have removed these subjects (i.e., when loading original SM) ===")
+
+
+
+    x_without_intercept = np.copy(x[:, 1:])  # (n_subj, n_phenotypes)
+
+    if data.shape[0] == x.shape[0]:
+        print(f'running glm for {data.shape[0]} subjects')
+    else:
+        raise ValueError(f'number of subjects in design matrix is {x.shape[0]} but'
+                         f' {data.shape[0]} summary measures were loaded.')
+
+    y = np.transpose(data, [1, 2, 0])  # make it (n_vox, n_dim, n_subj)
+    beta = y @ np.linalg.pinv(
+        x).T  # beta is derived with intercept included (i.e., it is observed change FROM the intercept/y_mean) # (n_vox, n_dim, n_phenotypes)
+    beta_without_beta_0 = np.copy(beta[:, :, 1:])
+    deconfounded_y = y - beta_without_beta_0 @ x_without_intercept.T  # we don't include the intercept because we still want the mean here (i.e., including the intercept removes the mean)
+
+    deconfounded_y_transposed = np.transpose(deconfounded_y, [2, 0, 1])  # (n_subj, n_vox, n_dim); back to original form
+
+    return deconfounded_y_transposed
+
+
+def squared(y):
+    return y @ np.transpose(y, [0, 2, 1])

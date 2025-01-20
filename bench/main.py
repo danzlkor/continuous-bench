@@ -5,11 +5,13 @@ This module is to parse inputs from commandline and call the proper functions fr
 
 import argparse
 import os
-from file_tree import FileTree
+
 import numpy as np
-from scipy import stats as st
-from bench import change_model, glm, summary_measures, diffusion_models, acquisition, image_io, model_inversion
+from file_tree import FileTree
 from fsl.utils.fslsub import submit
+from scipy import stats as st
+
+from bench import change_model, glm, summary_measures, diffusion_models, acquisition, image_io, model_inversion
 
 
 def main(argv=None):
@@ -42,6 +44,12 @@ def parse_args(argv):
     glm_parser = subparsers.add_parser('glm')
     inference_parser = subparsers.add_parser('inference')
 
+    # === Adding my own GLM and inference parser === ##
+    deconfounding_summary_parser = subparsers.add_parser('deconfound-summary')
+    continuous_glm_parser = subparsers.add_parser('continuous-glm')
+    continuous_inference_parser = subparsers.add_parser('continuous-inference')
+    deconfound_glm_parser = subparsers.add_parser('deconfound-inference')
+
     # train arguments:
     train_required = diff_train_parser.add_argument_group("required arguments")
     available_models = list(diffusion_models.prior_distributions.keys())
@@ -51,14 +59,17 @@ def parse_args(argv):
     train_required.add_argument("-b", "--bvals", help="b-values for training", required=True)
 
     train_optional = diff_train_parser.add_argument_group("optional arguments")
-    train_optional.add_argument("-n", "--samples", default=10000, type=int, help="number of training samples (default=10000)",
+    train_optional.add_argument("-n", "--samples", default=10000, type=int,
+                                help="number of training samples (default=10000)",
                                 required=False)
-    train_optional.add_argument("--bvecs", default=None, help="Gradient directions. (default: 64 uniform samples over sphere)",
+    train_optional.add_argument("--bvecs", default=None,
+                                help="Gradient directions. (default: 64 uniform samples over sphere)",
                                 required=False)
     train_optional.add_argument("--b0-thresh", default=1, type=float,
                                 help="threshold for b0 (default=1)")
-    train_optional.add_argument("-p", "poly-degree", default=2, type=int, help="polynomial degree for mean (default=2)", required=False)
-    train_optional.add_argument("-ps", "poly-degree", default=1, type=int, help="polynomial degree for variance (default=1)",
+    train_optional.add_argument("-p", "--poly-degree", default=2, type=int,
+                                help="polynomial degree for mean (default=2)", required=False)
+    train_optional.add_argument("-ps", default=1, type=int, help="polynomial degree for variance (default=1)",
                                 required=False)
     train_optional.add_argument("--summarytype", default='sh', type=str,
                                 help='type of summary measurements. Either shm (spherical harmonic model)'
@@ -69,7 +80,9 @@ def parse_args(argv):
                                 required=False)
     train_optional.add_argument("--alpha", default=0.0, type=float,
                                 help="regularisation weight for training regression models(default=0)", required=False)
-    train_optional.add_argument("--change-vecs", help="text file for defining vectors of change (refer to documentations)", default=None, required=False)
+    train_optional.add_argument("--change-vecs",
+                                help="text file for defining vectors of change (refer to documentations)", default=None,
+                                required=False)
 
     train_optional.add_argument('--verbose', help='flag for printing optimisation outputs', dest='verbose',
                                 action='store_true', default=False)
@@ -79,14 +92,14 @@ def parse_args(argv):
     submit_summary_parser.add_argument("--file-tree", help="file-tree text file", required=True)
     submit_summary_parser.add_argument("--mask", help="mask in standard space.", required=True)
     submit_summary_parser.add_argument("--summarytype", default='sh', type=str,
-        help='type of summary measurements. either shm (spherical harmonics)'
-        ' or dtm (diffusion tensor) (default shm)', required=False)
+                                       help='type of summary measurements. either shm (spherical harmonics)'
+                                            ' or dtm (diffusion tensor) (default shm)', required=False)
 
     submit_summary_parser.add_argument("--shm-degree", default=2,
-                                     help=" degree for spherical harmonics (even number)",
-                                     required=False, type=int)
+                                       help=" degree for spherical harmonics (even number)",
+                                       required=False, type=int)
     submit_summary_parser.add_argument("--b0-thresh", default=1, type=float,
-                                     help="b0-threshhold (default=10)")
+                                       help="b0-threshhold (default=10)")
     submit_summary_parser.add_argument("--logdir",
                                        help=" log directory")
     submit_summary_parser.set_defaults(func=submit_summary)
@@ -108,10 +121,18 @@ def parse_args(argv):
 
     # normalization args
     diff_normalise_parser.add_argument('--study-dir', default=None,
-                                      help='Path to the un-normalised summary measurements', required=True)
+                                       help='Path to the un-normalised summary measurements', required=True)
+    # deconfound summary arguments:
+    deconfounding_summary_parser.add_argument("--summarydir", help='Path to summary measurements folder', required=True)
+    deconfounding_summary_parser.add_argument("--mask", help='Path to the mask', required=True)
+    deconfounding_summary_parser.add_argument("--confoundmat", help="Confound design matrix for the glm (.npz file)",
+                                              required=True)
+    deconfounding_summary_parser.add_argument("--output", help='Output directory (i.e., deconfound summary measure)',
+                                              required=True)
+    deconfounding_summary_parser.set_defaults(func=deconfounding_summary_from_cli)
 
     # glm arguments:
-    glm_parser.add_argument("--summarydir", help='Path to summary measurements folder',required=True)
+    glm_parser.add_argument("--summarydir", help='Path to summary measurements folder', required=True)
     glm_parser.add_argument("--mask", help='Path to the mask', required=True)
     glm_parser.add_argument("--designmat", help="Design matrix for the group glm", required=False)
     glm_parser.add_argument("--designcon", help="Design contrast for the group glm", required=False)
@@ -119,12 +140,48 @@ def parse_args(argv):
     glm_parser.add_argument("--output", help='Output directory', required=True)
     glm_parser.set_defaults(func=glm_from_cli)
 
+    # continuous glm arguments:
+    continuous_glm_parser.add_argument("--summarydir", help='Path to summary measurements folder', required=True)
+    continuous_glm_parser.add_argument("--mask", help='Path to the mask', required=True)
+    continuous_glm_parser.add_argument("--designmat", help="Design matrix for the glm (.npz file)",
+                                       required=False)
+    continuous_glm_parser.add_argument("--output", help='Output directory', required=True)
+    continuous_glm_parser.add_argument("--faulty", default=None, help='Path to faulty subjects', required=False)
+    continuous_glm_parser.set_defaults(func=continuous_glm_from_cli)
+
+    # continuous glm with deconfounding arguments:
+    deconfound_glm_parser.add_argument("--summarydir", help='Path to summary measurements folder', required=True)
+    deconfound_glm_parser.add_argument("--mask", help='Path to the mask', required=True)
+    deconfound_glm_parser.add_argument("--designmat", help="Design matrix for the glm (.npz file)",
+                                       required=False)
+    deconfound_glm_parser.add_argument("--confoundmat", help="Confound design matrix for the glm (.npz file)",
+                                       required=False)
+    deconfound_glm_parser.add_argument("--output", help='Output directory', required=True)
+    deconfound_glm_parser.set_defaults(func=continuous_glm_with_deconfounding_from_cli)
+
+    # continuous inference arguments:
+    continuous_inference_parser.add_argument("--model", help="Path to a trained model of change",
+                                             default=None, required=True)
+    continuous_inference_parser.add_argument('--glmdir', help="Path to the glm dir", required=True)
+    continuous_inference_parser.add_argument('--output', help="Path to the output dir", required=True)
+    continuous_inference_parser.add_argument("--mask",
+                                             help='Path to the mask (if none passed uses the valid_mask in glm folder)',
+                                             default=None, required=False)
+    continuous_inference_parser.add_argument("--integral-bound",
+                                             help='The maximum value for integrating over the amount of change. (default=1)',
+                                             default=1.0, required=False)
+    continuous_inference_parser.add_argument("--designmat",
+                                             help="Design matrix for the group glm; needed to get the variables of interest (.npz file)",
+                                             required=True)
+    continuous_inference_parser.set_defaults(func=continuous_inference_from_cli)
+
     # inference arguments:
     inference_parser.add_argument("--model", help="Path to a trained model of change (output of bench diff-train)",
                                   default=None, required=True)
     inference_parser.add_argument('--glmdir', help="Path to the glm dir", required=True)
     inference_parser.add_argument('--output', help="Path to the output dir", required=True)
-    inference_parser.add_argument("--mask", help='Path to the mask (if none passed uses the valid_mask in glm folder)', default=None, required=False)
+    inference_parser.add_argument("--mask", help='Path to the mask (if none passed uses the valid_mask in glm folder)',
+                                  default=None, required=False)
     inference_parser.add_argument("--integral-bound",
                                   help='The maximum value for integrating over the amount of change. (default=1)',
                                   default=1.0, required=False)
@@ -199,17 +256,26 @@ def summary_from_cli(args):
         data = image_io.read_image(args.data, args.mask)
         valid_vox = np.ones(data.shape[0])
     else:
-        def_field = f"tmp.nii.gz"
+
+        rootpath = os.path.dirname(args.output)
+        subj = os.path.basename(args.output)
+        def_field = f"{rootpath}/{subj}_tmp.nii.gz"
         data, valid_vox = image_io.sample_from_native_space(args.data, args.xfm, args.mask, def_field)
 
     acq = acquisition.Acquisition.from_bval_bvec(args.bvals, args.bvecs, args.b0_thresh)
     summaries = summary_measures.fit_shm(data, acq.bvals, acq.bvecs, shm_degree=args.shm_degree)
-    names = summary_measures.summary_names(acq, args.summarytype, args.shm_degree)
+    names = summary_measures.summary_names(bvals=acq.bvals,
+                                           b0_threshold=args.b0_thresh,
+                                           summarytype=args.summarytype,
+                                           shm_degree=args.shm_degree)
 
     if args.normalise:
         print('Summary measures are normalised by b0_mean.')
-        summaries = summary_measures.normalise_summaries(summaries, names)
-        names = [f'{n}/b0' for n in names[1:]]
+        # summaries = summary_measures.normalise_summaries(summaries, names)
+        # names = [f'{n}/b0' for n in names[1:]]
+
+        summaries = summary_measures.normalise_summaries(summaries, names, delete=False)  # don't delete for your case
+        names = [f'{n}/b0' for n in names]
 
     # write to nifti:
     image_io.write_nifti(summaries, args.mask, args.output, np.logical_not(valid_vox))
@@ -256,6 +322,93 @@ def submit_summary(args):
     print(f'Summary measurements are computed.')
 
 
+from tqdm import tqdm
+
+
+def deconfounding_summary_from_cli(args):
+    exclude = True  # exclude any faulty subjects
+
+    assert (args.confoundmat is not None)
+
+    os.makedirs(args.output, exist_ok=True)
+
+    ## Get all proposed summary files
+
+    subject_ids_from_dm = np.array(np.load(args.confoundmat)["b"])
+    proposed_summary_files = np.array([args.summarydir + f'/{subj}.nii.gz' for subj in subject_ids_from_dm])
+
+    not_in_sm = []
+    for subj in subject_ids_from_dm:
+        summary_file = args.summarydir + f'/{subj}.nii.gz'
+        if not os.path.exists(summary_file):
+            not_in_sm.append(subj)
+
+    not_in_sm = np.array(not_in_sm)
+
+    if len(not_in_sm) > 0:
+        print("Some subjects not present. Remove from design matrix first")
+        print(not_in_sm)
+
+        np.savez_compressed(
+            file=f"{args.output}/missing_subjects",
+            a=not_in_sm)
+        return
+
+    ## Read summary measures
+
+    print(f" === Loading {proposed_summary_files.shape[0]} summary measure niftis === ")
+
+    ## Remove the faulty subject you have discovered in the past
+
+    """
+
+    print(f" == Removing subject {os.path.basename(proposed_summary_files[340])}...")
+    proposed_summary_files =np.delete(proposed_summary_files, 340) #subject 341 = index + 1 needs to be excluded.
+    print(f"...now with {proposed_summary_files.shape[0]} summary measure niftis == ")
+    
+    """
+
+    summaries, invalid_vox, summary_names, subj_names, faulty_subjs = image_io.read_summary_images_from_predefined_list(
+        summary_files=proposed_summary_files,
+        mask=args.mask,
+        exclude=exclude)  # print the faulty_subjs list
+
+    summaries = summaries[:, invalid_vox == 0, :]
+
+    ## Perform deconfounding
+
+    summaries = glm.deconfounding_glm(summaries, args.confoundmat, faulty_subjs)
+
+    if exclude is True:
+        subjects_excluded = np.copy(subject_ids_from_dm)
+        subjects_excluded = subjects_excluded[faulty_subjs]  # get the subject ID of those actually excluded
+
+        subject_ids_from_dm = np.delete(subject_ids_from_dm, faulty_subjs, axis=0)  # final subject ID list
+
+        ## save faulty subject index + ID
+
+        np.savez_compressed(file=f"{args.output}/subjects_excluded",
+                            a=subjects_excluded,
+                            b=faulty_subjs)
+
+    ## Save deconfounded summaries as nifti, one for each subject
+    # write to nifti:
+
+    for idx, subj in tqdm(enumerate(subject_ids_from_dm), desc="Saving subject's deconfounded niftis"):
+        image_io.write_nifti(summaries[idx, :, :],
+                             args.mask,
+                             f'{args.output}/{subj}.nii.gz',
+                             invalid_vox)
+
+    valid_mask = np.ones((summaries.shape[1], 1))
+    image_io.write_nifti(valid_mask, args.mask, args.output + '/valid_mask.nii.gz', invalid_vox)
+
+    ## save used ID
+
+    np.savez_compressed(file=f"{args.output}/subjects_used",
+                        a=subject_ids_from_dm)
+
+
 def glm_from_cli(args):
     """
     Runs glm on the summary meausres.
@@ -283,8 +436,158 @@ def glm_from_cli(args):
     print(f'GLM is done. Results are stored in {args.output}')
 
 
-def inference_from_cli(args):
+def continuous_glm_from_cli(args):
+    """
+    Runs glm on the summary meausres.
+    :param args: output from argparse, should contain desing matrix anc contrast addresss, summary_dir and masks
+    :return:
+    """
 
+    assert (args.designmat is not None)
+
+    subject_ids_from_dm = np.array(np.load(args.designmat)["b"])
+
+    ## Check to see if there are faulty subjects to remove
+
+    if args.faulty is None:
+        faulty_subjs = None
+    else:
+        subjects_excluded = np.load(args.faulty)["a"]
+
+        # get the index of these faulty subjects in subject_ids_from_dm
+        matching_elements = np.intersect1d(subjects_excluded, subject_ids_from_dm)
+        faulty_subjs = np.where(np.isin(subject_ids_from_dm, matching_elements))[0]
+
+        # Remove the matching elements from subject_ids_from_dm
+        subject_ids_from_dm = np.delete(subject_ids_from_dm, faulty_subjs)
+
+    os.makedirs(args.output, exist_ok=True)
+
+    ## Check to make sure the subject IDs for the design matrix match ARE in the summary measure directory
+
+    proposed_summary_files = np.array(
+        [args.summarydir + f'/{subj}.nii.gz' for subj in subject_ids_from_dm])  # ALREADY removed the faulty subjects
+
+    not_in_sm = []
+    for subj in subject_ids_from_dm:
+        summary_file = args.summarydir + f'/{subj}.nii.gz'
+        if not os.path.exists(summary_file):
+            not_in_sm.append(subj)
+
+    not_in_sm = np.array(not_in_sm)
+
+    if len(not_in_sm) > 0:
+        print("Some subjects not present. Remove from design matrix first")
+        print(not_in_sm)
+
+        np.savez_compressed(
+            file=f"{args.output}/missing_subjects",
+            a=not_in_sm)
+        return
+
+    ## Exclude with pre-defined list
+    ## Read summary measures and perform GLM
+
+    summaries, invalid_vox, summary_names, subj_names, faulty_subjs = image_io.read_summary_images_from_predefined_list(
+        summary_files=proposed_summary_files,
+        mask=args.mask,
+        exclude=True)  # note that proposed_summary_files already has excluded subject removed, if you include an
+    # explicit faulty_subjs (so you set this to false if you do; otherwise, set this to true if no faulty subjs input)
+
+    # summaries, invalid_vox, summary_names, subj_names, _ = image_io.read_summary_images_from_predefined_list(
+    #    summary_files=proposed_summary_files,
+    #    mask=args.mask,
+    #    exclude=False) # note that proposed_summary_files already has excluded subject removed, if you include an
+    # explicit faulty_subjs (so you set this to false if you do; otherwise, set this to true if not faulty subjs input)
+
+    summaries = summaries[:, invalid_vox == 0, :]
+
+    baseline, dictionary_of_deltas, dictionary_of_covars = glm.continuous_glm(summaries, args.designmat, faulty_subjs)
+
+    image_io.write_continuous_glm_results(baseline=baseline,
+                                          dictionary_of_deltas=dictionary_of_deltas,
+                                          dictionary_of_covars=dictionary_of_covars,
+                                          summary_names=summary_names,
+                                          mask=args.mask,
+                                          invalid_vox=invalid_vox,
+                                          glm_dir=args.output)
+
+    # save subject names in order of design matrix to check
+
+    np.savez_compressed(
+        file=f"{args.output}/present_subjects",
+        a=np.array(subj_names))
+
+    """
+    y_norm, dy_norm, sigma_n_norm = \
+        summary_measures.normalise_summaries(data, summary_names, delta_data, sigma_n)
+
+    image_io.write_glm_results(y_norm, dy_norm, sigma_n_norm, summary_names,
+                               args.mask, invalid_vox, args.output + '_renormalised')"""
+
+    print(f'Continuous GLM is done. Results are stored in {args.output}')
+
+
+def continuous_glm_with_deconfounding_from_cli(args):
+    """
+    Runs glm on the summary meausres.
+    :param args: output from argparse, should contain desing matrix anc contrast addresss, summary_dir and masks
+    :return:
+    """
+    assert (args.designmat is not None)
+
+    os.makedirs(args.output, exist_ok=True)
+
+    ## Check to make sure the subject IDs for the design matrix match the subject IDs for summary measures
+
+    subject_ids_from_dm = np.array(np.load(args.designmat)["b"])
+    proposed_summary_files = np.array([args.summarydir + f'/{subj}.nii.gz' for subj in subject_ids_from_dm])
+
+    not_in_sm = []
+    for subj in subject_ids_from_dm:
+        summary_file = args.summarydir + f'/{subj}.nii.gz'
+        if not os.path.exists(summary_file):
+            not_in_sm.append(subj)
+
+    not_in_sm = np.array(not_in_sm)
+
+    if len(not_in_sm) > 0:
+        print("Some subjects not present. Remove from design matrix first")
+        print(not_in_sm)
+
+        np.savez_compressed(
+            file=f"{args.output}/missing_subjects",
+            a=not_in_sm)
+        return
+
+    ## Read summary measures and perform GLM
+
+    summaries, invalid_vox, summary_names, subj_names = image_io.read_summary_images_from_predefined_list(
+        summary_files=proposed_summary_files,
+        mask=args.mask)
+
+    summaries = glm.deconfounding_glm(summaries, args.confoundmat)
+
+    summaries = summaries[:, invalid_vox == 0, :]
+
+    baseline, dictionary_of_deltas, dictionary_of_covars = glm.continuous_glm(summaries, args.designmat)
+
+    image_io.write_continuous_glm_results(baseline=baseline,
+                                          dictionary_of_deltas=dictionary_of_deltas,
+                                          dictionary_of_covars=dictionary_of_covars,
+                                          summary_names=summary_names,
+                                          mask=args.mask,
+                                          invalid_vox=invalid_vox,
+                                          glm_dir=args.output)
+
+    # save subject names in order of design matrix to check
+
+    np.savez_compressed(
+        file=f"{args.output}/present_subjects",
+        a=np.array(subj_names))
+
+
+def inference_from_cli(args):
     data, delta_data, sigma_n, summary_names = image_io.read_glm_results(args.glmdir)
     # perform inference:
     ch_mdl = change_model.ChangeModel.load(args.model)
@@ -301,6 +604,63 @@ def inference_from_cli(args):
 
     image_io.write_nifti(deviation[:, np.newaxis], f'{args.glmdir}/valid_mask',
                          f'{args.output}/sigma_deviations.nii.gz')
+    print(f'Analysis completed successfully.')
+
+
+def continuous_inference_from_cli(args):
+    if args.mask is None:
+        args.mask = f'{args.glmdir}/valid_mask'
+
+    c_names = np.load(args.designmat)["c"]
+
+    baseline, dictionary_of_deltas, dictionary_of_covars, summary_names = image_io.read_continuous_glm_results(
+        glm_dir=args.glmdir,
+        c_names=c_names,
+        mask_add=args.mask)
+
+    ch_mdl = change_model.ChangeModel.load(args.model)
+    sm_names = ch_mdl.summary_names
+
+    reg = np.eye(len(sm_names)) * 1e-5  # regularisation for low covariances
+
+    # perform inference:
+
+    for variable in c_names:
+
+        savepath = f'{args.output}/{variable}'
+
+        print(f"Inferring for {variable}")
+
+        if not os.path.exists(savepath):
+            posteriors, predictions, peaks, bad_samples = ch_mdl.infer(data=baseline,
+                                                                       delta_data=dictionary_of_deltas[variable],
+                                                                       sigma_n=dictionary_of_covars[variable] + reg,
+                                                                       integral_bound=float(args.integral_bound),
+                                                                       parallel=True)
+
+            # save the results:
+            image_io.write_continuous_inference_results(path=f'{args.output}/{variable}',
+                                                        model_names=ch_mdl.model_names,
+                                                        predictions=predictions,
+                                                        posteriors=posteriors,
+                                                        peaks=peaks,
+                                                        mask=args.mask,
+                                                        variable=variable)
+        else:
+
+            print(f"...{variable} already inferred.")
+
+            """
+            dv, offset, deviation = ch_mdl.estimate_quality_of_fit(y1=baseline,
+                                                                   dy=dictionary_of_deltas[variable],
+                                                                   sigma_n=dictionary_of_covars[variable] + reg,
+                                                                   predictions=predictions,
+                                                                   amounts=peaks)
+    
+            image_io.write_nifti(deviation[:, np.newaxis], f'{args.glmdir}/valid_mask',
+                                 f'{args.output}/{variable}/sigma_deviations.nii.gz')
+            """
+
     print(f'Analysis completed successfully.')
 
 

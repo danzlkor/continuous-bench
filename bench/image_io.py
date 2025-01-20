@@ -134,6 +134,9 @@ def read_summary_images(summary_dir: str, mask: str):
     :param summary_dir: path to the summary measurements
     :param mask: roi mask in the standard space
     :return: 3d numpy array containing summary measurements, inclusion mask
+
+    Args:
+        exclude: To remove faulty subjects, if present
     """
     mask_img = np.nan_to_num(Image(mask).data)
     summary_files = glob.glob(summary_dir + '/*.nii.gz')
@@ -153,6 +156,7 @@ def read_summary_images(summary_dir: str, mask: str):
     for s in faulty_subjs:
         warn(f'Subject No. {s + 1} has more than 20% out of scope voxels. You may need to exclude it in the GLM.')
 
+
     invalid_voxs = np.isnan(all_summaries).any(axis=(0, 2))
 
     if invalid_voxs.sum() > 0:
@@ -166,6 +170,65 @@ def read_summary_images(summary_dir: str, mask: str):
         names = [f'sm_{i}' for i in np.arange(all_summaries.shape[-1])]
 
     return all_summaries, invalid_voxs, names
+
+import re
+from tqdm import tqdm
+
+def read_summary_images_from_predefined_list(summary_files, mask, exclude=False):
+    """
+    Reads summary measure images
+    :param summary_files: List of summary measure files
+    :param mask: roi mask in the standard space
+    :return: 3d numpy array containing summary measurements, inclusion mask
+
+    """
+    mask_img = np.nan_to_num(Image(mask).data)
+    n_subj = len(summary_files)
+
+
+    if n_subj == 0:
+        raise Exception('No summary measures found in the specified directory.')
+
+    summary_list = list()
+    subj_names = list()
+    for subj in tqdm(summary_files, desc="Loading summary measures"):
+        summary_list.append(Image(subj).data[mask_img > 0, :])
+        subj_names.append(re.split('.nii.gz', os.path.basename(subj))[0])
+
+
+    print(f'loaded summaries from {n_subj} subjects')
+    all_summaries = np.array(summary_list)  # n_subj, n_vox, n_dim
+    subj_n_invalids = np.isnan(all_summaries).sum(axis=(1, 2))
+    faulty_subjs = np.argwhere(subj_n_invalids > 0.2 * all_summaries.shape[1])
+    for s in faulty_subjs:
+        warn(f'Subject No. {s + 1} has more than 20% out of scope voxels. You may need to exclude it in the GLM.')
+
+    if exclude is True:
+        # remove rows with index
+        print(f"=== Printing subjects index ===")
+        print(faulty_subjs)
+
+        print("=== Removing subjects from summary measures ===")
+        all_summaries = np.delete(all_summaries, faulty_subjs, axis=0)
+    else:
+        faulty_subjs = None
+
+
+    invalid_voxs = np.isnan(all_summaries).any(axis=(0, 2))
+
+    if invalid_voxs.sum() > 0:
+            warn(f'{invalid_voxs.sum()} voxels are excluded since they were '
+                 f'outside of the image in at least one subject.')
+
+    summary_dir = os.path.dirname(summary_files[0])
+    names_file = f'{summary_dir}/summary_names.txt'
+    if os.path.exists(names_file):
+            with open(names_file, 'r') as reader:
+                names = [line.rstrip() for line in reader]
+    else:
+            names = [f'sm_{i}' for i in np.arange(all_summaries.shape[-1])]
+
+    return all_summaries, invalid_voxs, names, subj_names, faulty_subjs
 
 
 def convert_warp_to_deformation_field(warp_field, std_image, def_field, overwrite=True):
@@ -256,6 +319,43 @@ def write_glm_results(data, delta_data, sigma_n, summary_names, mask, invalid_vo
             f.write("%s\n" % t)
         f.close()
 
+def write_continuous_glm_results(baseline,
+                                 dictionary_of_deltas,
+                                 dictionary_of_covars,
+                                 summary_names,
+                                 mask,
+                                 invalid_vox,
+                                 glm_dir):
+    """
+    Writes the results of GLM into files,
+    :param data: baseline measurement matrix (n_vox, n_sm)
+    :param delta_data:  change matrix (n_vox, n_sm)
+    :param sigma_n noise covariance of change (n_vox, n_sm, n_sm)
+    :param glm_dir: path to the glm dir, it write data.nii.gz, delta_data.nii.gz, variance.nii.gz,
+    and valid_mask.nii.gz in the address.
+    :param mask: path to the mask file.
+    :param invalid_vox: should be of size of mask voxels, contains 0 for valid voxels and 1 for invalid ones.
+    This is used for droping voxels that are not valid.
+
+    """
+    os.makedirs(glm_dir, exist_ok=True)
+    write_nifti(baseline, mask, glm_dir + '/baseline.nii.gz', invalid_vox)
+
+    for key, value in dictionary_of_deltas.items():
+        write_nifti(dictionary_of_deltas[key], mask, glm_dir + '/delta_{}.nii.gz'.format(key), invalid_vox)
+
+    for key, value in dictionary_of_covars.items():
+        tril_idx = np.tril_indices(dictionary_of_covars[key].shape[-1])
+        covariances = np.stack([s[tril_idx] for s in dictionary_of_covars[key]], axis=0)
+        write_nifti(covariances, mask, glm_dir + '/covariances_{}.nii.gz'.format(key), invalid_vox)
+
+    valid_mask = np.ones((baseline.shape[0], 1))
+    write_nifti(valid_mask, mask, glm_dir + '/valid_mask.nii.gz', invalid_vox)
+    with open(f'{glm_dir}/summary_names.txt', 'w') as f:
+        for t in summary_names:
+            f.write("%s\n" % t)
+        f.close()
+
 
 def read_glm_results(glm_dir, mask_add=None):
     """
@@ -287,6 +387,50 @@ def read_glm_results(glm_dir, mask_add=None):
 
     return data, delta_data, sigma_n, summary_names
 
+
+def read_continuous_glm_results(glm_dir, c_names, mask_add=None):
+    """
+    :param glm_dir: path to the glm dir, it must contain data.nii.gz, delta_data.nii.gz, variance.nii.gz,
+    and valid_mask.nii.gz
+    :param mask_add: address of mask file, by default it uses the mask in glm dir.
+    :return: tuple (data (n, d), delta_data (n, d), sigma_n(n, d, d) )
+    """
+
+    if mask_add is None:
+        mask_add = glm_dir + '/valid_mask.nii.gz'
+
+    mask_img = np.nan_to_num(Image(mask_add).data)
+    ## === load baseline === ##
+    baseline = Image(f'{glm_dir}/baseline.nii.gz').data[mask_img > 0, :]
+    n_vox, n_dim = baseline.shape
+
+    dictionary_of_deltas = {}
+    dictionary_of_covars = {}
+
+    ## === load the different contrasts change + variances === ##
+
+    for c in c_names:
+
+        delta_data = Image(f'{glm_dir}/delta_{c}.nii.gz').data[mask_img > 0, :]
+        variances = Image(f'{glm_dir}/covariances_{c}.nii.gz').data[mask_img > 0, :]
+
+        # === get the sigma === ##
+
+        tril_idx = np.tril_indices(n_dim)
+        diag_idx = np.diag_indices(n_dim)
+        sigma_n = np.zeros((n_vox, n_dim, n_dim))
+        for i in range(n_vox):
+            sigma_n[i][tril_idx] = variances[i]
+            sigma_n[i] = sigma_n[i] + sigma_n[i].T
+            sigma_n[i][diag_idx] /= 2
+
+        dictionary_of_deltas[c] = delta_data
+        dictionary_of_covars[c] = sigma_n
+
+    with open(f'{glm_dir}/summary_names.txt', 'r') as reader:
+        summary_names = [line.rstrip() for line in reader]
+
+    return baseline, dictionary_of_deltas, dictionary_of_covars, summary_names
 
 def read_glm_weights(data: List[str], xfm: List[str],  mask: str, save_xfm_path: str, parallel=True):
     """
@@ -377,6 +521,66 @@ def write_inference_results(path, model_names, predictions, posteriors, peaks, m
             write_nifti(posteriors[:, i][:, np.newaxis], mask, f'{path}/{m}_probability.nii.gz')
             write_nifti(peaks[:, i][:, np.newaxis], mask, f'{path}/{m}_amount.nii.gz')
 
+def write_continuous_inference_results(path, model_names, predictions, posteriors, peaks, mask, variable):
+    """
+    Writes the results of inference to nifti files
+    :param path: full path to write the files.
+    :param model_names: name of the change vectors. (m, )
+    :param predictions: index of the winning model (n,)
+    :param posteriors: estimated posterior probability for each model(n, m)
+    :param peaks: etimated amount of change for each model (n, m)
+    :param mask: mask file that hass the information about the voxel locations.
+    :return: Nothing.
+    """
+    os.makedirs(path, exist_ok=True)
+    write_nifti(predictions[:, np.newaxis], mask, f'{path}/inferred_change_{variable}.nii.gz')
+    for i, m in enumerate(model_names):
+        if m == '[]':
+            write_nifti(posteriors[:, i][:, np.newaxis], mask, f'{path}/nochange_probability_{variable}.nii.gz')
+        else:
+            write_nifti(posteriors[:, i][:, np.newaxis], mask, f'{path}/{m}_probability_{variable}.nii.gz')
+            write_nifti(peaks[:, i][:, np.newaxis], mask, f'{path}/{m}_amount_{variable}.nii.gz')
+
+
+def read_continuous_inference_results(maps_dir, phenotype, mask_add=None):
+    """
+    Reads the results of inference (posterior probabilities and estimated amount of change) for further analyses
+    :param maps_dir: path to the results dir that contains probability maps
+    :param mask_add: address of mask file, by default it uses the mask in the maps dir (if exists).
+    :return: tuple (dict(models > probabilities (n_vox,1 )), dict(models > amounts)
+    """
+
+    if mask_add is None:
+        mask_add = maps_dir + '/valid_mask.nii.gz'
+
+    mask_img = np.nan_to_num(Image(mask_add).data)
+
+    #Read a prediction
+
+    prediction = Image(f'{maps_dir}/inferred_change_{phenotype}.nii.gz').data[mask_img > 0]
+
+    file_names = glob.glob(f'{maps_dir}/*probability*')
+    model_names = [os.path.basename(f).split('_probability')[0]for f in file_names]
+
+    posteriors = dict()
+    amounts = dict()
+    for i, m in enumerate(model_names):
+        if m == '[]':
+            posteriors[m] = Image(f'{maps_dir}/nochange_probability.nii.gz').data[mask_img > 0]
+            amounts[m] = np.zeros_like(posteriors[m])
+        else:
+
+            if m not in ["nochange"]:
+
+                posteriors[m] = Image(f'{maps_dir}/{m}_probability_{phenotype}.nii.gz').data[mask_img > 0]
+                amounts[m] = Image(f'{maps_dir}/{m}_amount_{phenotype}.nii.gz').data[mask_img > 0]
+
+            else:
+
+                posteriors[m] = Image(f'{maps_dir}/{m}_probability_{phenotype}.nii.gz').data[mask_img > 0]
+                amounts[m] = np.zeros_like(posteriors[m])
+
+    return posteriors, amounts, prediction
 
 def read_inference_results(maps_dir, mask_add=None):
     """
@@ -402,6 +606,7 @@ def read_inference_results(maps_dir, mask_add=None):
             amounts[m] = Image(f'{maps_dir}/{m}_amount.nii.gz').data[mask_img > 0]
 
     return posteriors, amounts
+
 
 
 def read_pes(pe_dir, mask_add):

@@ -13,6 +13,9 @@ Default_LOG_L = True  # default flag to log transform l measures or not.
 
 
 def summary_names(bvals, b0_threshold=0.05, summarytype='sh', shm_degree=None, cg=False):
+
+    print(f"In summary names, bvals : {bvals}")
+
     idx_shells, shells = acquisition.ShellParameters.create_shells(bval=bvals, b0_thresh=b0_threshold)
     if summarytype == 'sh':
         names = []
@@ -154,7 +157,7 @@ def nan_mat(shape):
     return a
 
 
-def normalise_summaries(y1: np.ndarray, names, dy=None, sigma_n=None, log_l=Default_LOG_L):
+def normalise_summaries(y1: np.ndarray, names, dy=None, sigma_n=None, log_l=Default_LOG_L, delete=True):
     """
     Normalises summary measures for all subjects. (divide by average attenuation)
     :param names: name of summaries, is required for knowing how to normalise
@@ -181,7 +184,9 @@ def normalise_summaries(y1: np.ndarray, names, dy=None, sigma_n=None, log_l=Defa
             else:
                 y1_norm[..., smm_idx] = y1[..., smm_idx] / (mean_b0 ** 2)
 
-    y1_norm = np.delete(y1_norm, b0_idx, axis=-1)
+    if delete: #usually delete, but not for your case of putting it in the GLM
+        y1_norm = np.delete(y1_norm, b0_idx, axis=-1)
+
     res = [y1_norm]
     if dy is not None:
         dy = np.array(dy)

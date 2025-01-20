@@ -1,99 +1,171 @@
-# BENCH  
+# Continuous BENCH
 
 ## What is it?
-BENCH (Bayesian EstimatioN of CHange) is a toolbox implemented in python for identifying and estimating changes in the parameters of a biophysical model between two groups of data (e.g. patients and controls). It is an alternative to model inversion, where one estimates the parameters for each group separately and compares the estimations between the groups (e.g. using a GLM). The advantage is that BENCH allows for using over-parameterised models where the model inversion approaches fail because of parameter degeneracies. Currently, BENCH only supports microstructural models of diffusion MRI, but it is extendable to other domains.    
 
-## When is it useful?
-Bench is useful when the aim is comparing two groups of data in terms of parameters of a biophysical model; but not estimating the parameters per se. It is particularly advantageous when the model has more free parameters than what can be estimated given the measurements.  
+Taken from [BENCH](https://git.fmrib.ox.ac.uk/hossein/bench). Please refer to this library for more details on how does it work.
 
-## How does it works?
-Using simulated data, we generate models of change that can predict how a baseline measurement changes if any of the parameters of the model changes. Then, in a bayesian framework, we estimate which of the "change models" can better explain the observed change between two groups. For more details about the method, please refer to the paper (TODO: add link once available). 
+"BENCH (Bayesian EstimatioN of CHange) is a toolbox implemented in python for identifying and estimating changes in the parameters of a biophysical model between two groups of data (e.g. patients and controls). It is an alternative to model inversion, where one estimates the parameters for each group separately and compares the estimations between the groups (e.g. using a GLM). The advantage is that BENCH allows for using over-parameterised models where the model inversion approaches fail because of parameter degeneracies. Currently, BENCH only supports microstructural models of diffusion MRI, but it is extendable to other domains"
 
-## How to install it?
-Here are the steps to install BENCH: 
+This library modifies a version of BENCH to work with continuous variables (named "**Continuous BENCH**")
 
-```buildoutcfg
-git clone git@git.fmrib.ox.ac.uk:hossein/bench.git
-cd bench
-python setup.py install
+Here, we specifically apply it to link changes in dMRI signals to **microscopy-derived metrics**. Here, the microscopy-derived metrics are taken from the [Bigmac dataset](https://pages.fmrib.ox.ac.uk/amyh/bigmacdocumentation/microscopy.html). 
+
+## Installation
+
+This assumes you have conda (https://docs.conda.io/en/latest/) already installed.
+
+1. Git clone this repository
+
+```
+git clone https://git.fmrib.ox.ac.uk/spet4877/continuous_bench.git
 ```
 
-## What are the required inputs?
-As bench is an alternative to model fitting, anything that is needed to fit models to groups of subjects is needed for bench as well. This includes:
+2. Create a new conda environment
 
-1. Preprocessed diffusion MRI data for each subject in two groups. 
-2. Transformations from native diffusion space to a standard structural space, e.g. MNI.
-3. A ROI mask in standard space that specifies which voxels to analyse. 
-4. b-val and b-vec files (the same format as accepted in [FDT](https://fsl.fmrib.ox.ac.uk/fsl/fslwiki/FDT)).
-5. `design.mat` and `contrast.mat` files generated with [FSL](https://fsl.fmrib.ox.ac.uk/fsl/fslwiki/FSL) 's `Glm` tool (`Glm_gui` on Mac). Refer to the GLM section below for details.
+```
+conda create -n cbench_env
+conda activate cbench_env
+```
+
+3. Navigate to directory and install necessary packages
+
+```
+cd continuous_bench
+conda install --file requirements.txt --channel conda-forge
+
+```
 
 ## How to use it?
-BENCH runs in four main steps that as explained below:
 
-### 1. Train change models:
-This step is for training change models for parameters of a specific biophysical model with a given acquisition protocol. It doesn't require any data, and once the training is done the models can be used to investigate any data with the same acquisition protocol. Generally, this step requires a forward model that can map parameters to measurements as well as prior distributions for each parameter (e.g. specifying their range). Currently, a handful of forward models have been implemented. Please refer to the paper for details about the forward models and the priors for the parameters. You can add your own model or update the priors in [diffusion_models.py](bench/diffusion_models.py).
+This library is divided into three primary components: **Training**, **GLM**, and **Inference**.
 
-To train models of change you need to run the following command:
+The scripts we show here is what we have used to analyse ex-vivo macaque brain data and simulation data, as published [here](https://www.biorxiv.org/content/10.1101/2024.09.30.615704v1) 
 
+---
+
+### Data files**
+
+This library relies on several key data files during training and inference. These include acquisition parameters, dMRI data, and microscopy data.
+Below is a summary of the important files:
+
+
+1. **Acquisition files**:
+   - Ex Vivo: `acquisition_params_for_exvivo_data.npz`
+   - Simulation: `acquisition_params_for_simulation_data.npz`
+
+   These files contain acquisition parameters such as gradient strengths, directions, and b-values used to acquire or simulate the dMRI data.
+
+2. **Input Data**:
+   - dMRI Data: `dwi_for_exvivo_data.npz`
+   - Microscopy Data: `microscopy_for_exvivo_data.npz`
+
+   These files are what we analyse to link dMRI data to microscopy data.
+
+### **1. Training**
+
+#### **Description**
+The training scripts are used to generate change models. In the paper, we trained change models for ex-vivo data and simulated data. These models are trained using pre-defined acquisition parameters and a specified number of samples.
+
+Feel free to tailor these scripts according to your application.
+
+### **Usage**
+
+Training is performed using the following bash scripts:
+
+- **Ex Vivo Data**: `script_for_training_change_model_for_exvivo_data.sh`
+- **Simulated Data**: `script_for_training_change_model_for_simulation_data.sh`
+
+Each script defines the necessary paths and parameters for training and invokes the corresponding Python training script.
+
+#### **Example Commands**
+
+1. **Training change models for ex-vivo data**:
+   ```bash
+   ./script_for_training_change_model_for_exvivo_data.sh
+   ```
+   Parameters:
+   - Acquisition file: `data/acquisition_params_for_exvivo_data.npz`
+   - Number of samples: 20,000
+   - Output directory: `change_model/`
+
+2. **Training change models for simulation data**:
+   ```bash
+   ./script_for_training_change_model_for_simulation_data.sh
+   ```
+   Parameters:
+   - Acquisition file: `data/acquisition_params_for_exvivo_data.npz`
+   - Number of samples: 20,000
+   - Output directory: `change_model/`
+
+#### **Python Scripts**
+
+- `training_change_model_for_exvivo_data.py`
+- `training_change_model_for_simulation_data.py`
+
+These python scripts are called by the shell scripts.
+The python scripts trained change models that characterise the distribution of change vectors (i.e. how dMRI summary measures change, given a change in biophysical model parameter).  
+
+---
+
+## **2. GLM (Generalised Linear Model)**
+
+### **Description**
+A GLM is used to model the change in the dMRI signal with respect to continuous variable-of-interest.
+This has been incorporated with the next inference step into a jupyter notebook (see below)
+
+
+## **3. Inference**
+
+### **Description**
+The inference scripts apply the trained models to ex-vivo or simulated datasets, inferring predictions from changes. These scripts also incorporate the GLM.
+
+### **Usage**
+
+Inference is performed using the following Jupyter Notebooks:
+
+- `inferences_for_exvivo_data.ipynb`
+- `inferences_for_simulation_data.ipynb`
+
+These notebooks:
+
+1. Load the trained change models. **As part of the paper, we currently have two models we have already trainings**:
+   - Ex Vivo: `change_model_for_exvivo_data`
+   - Simulation: `change_model_for_simulation_data`
+2. Load the data files.
+3. Perform inference on ex vivo or simulated datasets. 
+
+#### **Steps to Use**
+
+1. Open the desired notebook in JupyterLab or another compatible environment.
+2. Configure paths and parameters, such as:
+   - Input data files.
+   - Model paths.
+   - Output directories.
+3. Execute the cells step-by-step to perform inference and analysis.
+
+---
+
+## **Dependencies**
+
+
+Install all dependencies using:
+```bash
+pip install -r requirements.txt
 ```
-bench diff-train --model <model_name> 
-                 --bval <path_to_bvalue_file> 
-                 --output <name_of_output_file>
-```
 
-run ``bench diff-train --help`` to see the full list of optional parameters. This command generates a pickle file that contains trained machine learning models.
+## How to cite this material
+
+D. Z. L. Kor et al., “Linking microscopy to diffusion MRI with degenerate biophysical models: an application of the Bayesian EstimatioN of CHange (BENCH) framework,” Oct. 01, 2024, bioRxiv. doi: 10.1101/2024.09.30.615704.
 
 
-### 2. Compute summary measurements:
-This stage estimates rotationally invariant summary measurements from dMRI data for each subject. All subjects should have the same b-values, which are used for training models of change, but the b-vectors and ordering of measurements can vary across subjects.
+## License
 
-Run the following command to estimate the summary measurements:
-``` 
-    bench diff-summary --data <list of all subjects diffusion data> 
-                       --xfm <list of all subjects warp files from native to standard space>
-                       --bval <a single bval or a list of bval file.>
-                       --bvec <list of bvecs for all subject>
-                       --mask <ROI mask in standard space>
-                       --study-dir <path to save summary measurements>
-```
-This command will make a `SummaryMeasurements` directory inside the specified `study_dir` that contains summary measurements per subject, numbered based on the ordering of input from 0 to the number of subjects.
-  
-### 3. Run a GLM:
-This steps runs a group GLM to compute the baseline measurements, the average change between groups and the noise covariance matrices. 
+Distributed under a CC-BY-4.0 license for research but not commerical use.
 
-```
-bench glm --design-mat <Design matrix for the group glm>  
-          --design-con <Design contrast for the group glm>
-          --mask <ROI mask in standard space>
-          --study-dir <study directory>
-```
-The design matrix must have one row per subject (with the same order as the input for the previous step) and arbitrary number of columns. The contrast matrix must have two rows where the first one should correspond to the baseline measurement and the second one to the group difference. In the simplest case, where there is no confounding variables the design matrix has two columns that have group memberships and the contrast is `[1 0, -1 1]`. We strongly recommend generating the design and contrast matrices using the FSL's `Glm` tool (`Glm_gui` on a Mac).   
+## Copyright
 
-This step produces a directory in `study-dir` that contains `data.nii.gz`, `delta_data.nii.gz`, `variances.nii.gz`, `valid_mask.nii.gz`. The valid mask contains all the voxels where all subjects had valid data, which might be smaller than the user-provided mask if voxels from the user-provided mask lie outside of the brain masks of any subject.
-
-### 4. Inference:
-This final stage computes the posterior probability, in each voxel, for any of the change models trained in the first stage using the results of the GLM. 
-```
-bench inference --model <change model file> 
-                --study-dir <study directory>
-```
-
-This stage produces a `Results` folder in the study directory that contains a folder for each forward model, e.g. `study_dir/Results/watson_noddi/`.  
-
-## What are the outputs?
-The results contain these outputs:
-1. one probability map per parameter of the forward model named `pname_probability.nii.gz`. This contains the per voxel probability that change in that parameter can explain the observed change in the data between the two groups. 
-2. one estimated amount of change map per parameter of the forward model named `pname_amount.nii.gz`, which contains the estimated amount of change for the corresponding parameter (under the assumption that it caused the change).
-3. best explaining model of change in each voxel `inferred_change.nii.gz`. This shows the index of the parameter that can best explain the observed change. The ordering is matched with the order of appearance in the prior distributions in [diffusion_models.py](bench/diffusion_models.py).
+Copyright (c), 2024, University of Oxford. All rights reserved
 
 
-## Use in non-diffusion models and data
-We designed BENCH to be as modular as possible, meaning that any stage is a separate module that can be replaced by user defined code. Particularly to apply it to other domains one needs to provide the followings:
-1. A biophysical model that maps parameters to summary measurements. (a callable function)
-2. Prior distribution of the parameters of the model (a dictionary with keys being the parameters and values scipy stats distribution objects)
-3. A script that computes summary measurements from raw data.
 
-You can embed the above in the corresponding python files and use the rest of the command line as described above, or use the python APIs which give you more flexibility to implement your own use case.
-
-Feedbacks or suggestions for improving the toolbox are highly appreciated. [email address](mailto:hossein.rafipoor@ndcn.ox.ac.uk)
 
