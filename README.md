@@ -50,13 +50,13 @@ Below is a summary of the important files:
 
 
 1. **Acquisition files**:
-   - Ex Vivo: `acquisition_params_for_exvivo_data.npz`
+   - Ex Vivo: `acquisition_params_for_exvivo_data.npz` 
    - Simulation: `acquisition_params_for_simulation_data.npz`
 
    These files contain acquisition parameters such as gradient strengths, directions, and b-values used to acquire or simulate the dMRI data.
 
 2. **Input Data**:
-   - dMRI Data: `dwi_for_exvivo_data.npz`
+   - dMRI Data: `dwi_for_exvivo_data.npz` **This file is available upon request**
    - Microscopy Data: `microscopy_for_exvivo_data.npz`
 
    These files are what we analyse to link dMRI data to microscopy data.
@@ -157,6 +157,9 @@ pip install -r requirements.txt
 
 D. Z. L. Kor et al., “Linking microscopy to diffusion MRI with degenerate biophysical models: an application of the Bayesian EstimatioN of CHange (BENCH) framework,” Oct. 01, 2024, bioRxiv. doi: 10.1101/2024.09.30.615704.
 
+## Contact
+
+For any requests and/or queries, please contact me at daniel.zl.kor@gmail.com.
 
 ## License
 
