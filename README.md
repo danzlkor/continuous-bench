@@ -2,7 +2,7 @@
 
 ## What is it?
 
-Taken from [BENCH](https://git.fmrib.ox.ac.uk/hossein/bench). Please refer to this library for more details on how does it work.
+Taken from [BENCH](https://git.fmrib.ox.ac.uk/hossein/bench). Please refer to this library for more details on how it works.
 
 "BENCH (Bayesian EstimatioN of CHange) is a toolbox implemented in python for identifying and estimating changes in the parameters of a biophysical model between two groups of data (e.g. patients and controls). It is an alternative to model inversion, where one estimates the parameters for each group separately and compares the estimations between the groups (e.g. using a GLM). The advantage is that BENCH allows for using over-parameterised models where the model inversion approaches fail because of parameter degeneracies. Currently, BENCH only supports microstructural models of diffusion MRI, but it is extendable to other domains"
 
@@ -128,7 +128,7 @@ Inference is performed using the following Jupyter Notebooks:
 
 These notebooks:
 
-1. Load the trained change models. **As part of the paper, we currently have two models we have already trainings**:
+1. Load the trained change models. **As part of the paper, we currently have two models we have already trained**:
    - Ex Vivo: `change_model_for_exvivo_data`
    - Simulation: `change_model_for_simulation_data`
 2. Load the data files.
